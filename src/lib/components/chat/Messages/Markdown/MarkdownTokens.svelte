@@ -9,6 +9,8 @@
 	import { marked, type Token } from 'marked';
 	import { unescapeHtml } from '$lib/utils';
 
+	import PiiAwareText from './PiiAwareText.svelte';
+
 	import { WEBUI_BASE_URL } from '$lib/constants';
 
 	import CodeBlock from '$lib/components/chat/Messages/CodeBlock.svelte';
@@ -294,7 +296,7 @@
 				{#if token.tokens}
 					<MarkdownInlineTokens id={`${id}-${tokenIdx}-t`} tokens={token.tokens} {onSourceClick} />
 				{:else}
-					{unescapeHtml(token.text)}
+					<PiiAwareText text={unescapeHtml(token.text)} id={`${id}-${tokenIdx}-text`} />
 				{/if}
 			</p>
 		{:else if token.tokens}
@@ -304,7 +306,7 @@
 				{onSourceClick}
 			/>
 		{:else}
-			{unescapeHtml(token.text)}
+			<PiiAwareText text={unescapeHtml(token.text)} id={`${id}-${tokenIdx}-text-inline`} />
 		{/if}
 	{:else if token.type === 'inlineKatex'}
 		{#if token.text}

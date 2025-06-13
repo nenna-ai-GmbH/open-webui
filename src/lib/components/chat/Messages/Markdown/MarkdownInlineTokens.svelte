@@ -10,6 +10,8 @@
 	import { WEBUI_BASE_URL } from '$lib/constants';
 	import { copyToClipboard, unescapeHtml } from '$lib/utils';
 
+	import PiiAwareText from './PiiAwareText.svelte';
+
 	import Image from '$lib/components/common/Image.svelte';
 	import KatexRenderer from './KatexRenderer.svelte';
 	import Source from './Source.svelte';
@@ -66,6 +68,6 @@
 			onload="this.style.height=(this.contentWindow.document.body.scrollHeight+20)+'px';"
 		></iframe>
 	{:else if token.type === 'text'}
-		{token.raw}
+		<PiiAwareText text={token.raw} id={`${id}-text-${token.type}`} />
 	{/if}
 {/each}

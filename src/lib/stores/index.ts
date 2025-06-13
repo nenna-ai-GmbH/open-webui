@@ -145,7 +145,7 @@ type Settings = {
 	highContrastMode?: boolean;
 	title?: TitleSettings;
 	splitLargeDeltas?: boolean;
-	chatDirection: 'LTR' | 'RTL' | 'auto';
+	chatDirection?: 'LTR' | 'RTL' | 'auto';
 	ctrlEnterToSend?: boolean;
 
 	system?: string;
@@ -158,6 +158,9 @@ type Settings = {
 	num_batch?: string;
 	num_keep?: string;
 	options?: ModelOptions;
+
+	// PII Detection settings
+	piiDetection?: PiiDetectionSettings;
 };
 
 type ModelOptions = {
@@ -177,6 +180,11 @@ type TitleSettings = {
 	model?: string;
 	modelExternal?: string;
 	prompt?: string;
+};
+
+type PiiDetectionSettings = {
+	enabled?: boolean;
+	apiKey?: string;
 };
 
 type Prompt = {
