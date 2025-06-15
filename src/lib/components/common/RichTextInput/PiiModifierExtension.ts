@@ -109,6 +109,41 @@ function getSelectionText(doc: ProseMirrorNode, from: number, to: number): strin
 	return text.trim();
 }
 
+// Trim spaces from selection and adjust positions accordingly
+function trimSelectionSpaces(doc: ProseMirrorNode, from: number, to: number): { from: number; to: number; text: string } {
+	let originalText = '';
+	
+	// Extract the original text first
+	doc.nodesBetween(from, to, (node, pos) => {
+		if (node.isText && node.text) {
+			const start = Math.max(0, from - pos);
+			const end = Math.min(node.text.length, to - pos);
+			if (start < end) {
+				originalText += node.text.substring(start, end);
+			}
+		} else if (node.type.name === 'paragraph' && originalText.length > 0) {
+			originalText += ' '; // Add space between paragraphs
+		} else if (node.type.name === 'hard_break') {
+			originalText += ' '; // Add space for line breaks
+		}
+	});
+	
+	// Find leading and trailing spaces
+	const leadingSpaces = originalText.length - originalText.trimStart().length;
+	const trailingSpaces = originalText.length - originalText.trimEnd().length;
+	const trimmedText = originalText.trim();
+	
+	// Adjust positions by removing leading and trailing spaces
+	const adjustedFrom = from + leadingSpaces;
+	const adjustedTo = to - trailingSpaces;
+	
+	return {
+		from: adjustedFrom,
+		to: adjustedTo,
+		text: trimmedText
+	};
+}
+
 // Check if any position in a range conflicts with existing modifiers or PII
 function hasConflictInRange(view: any, from: number, to: number): boolean {
 	// Import the PiiDetectionExtension plugin key (we'll need to adjust import if needed)
@@ -916,15 +951,27 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 							let entityInfo: { from: number; to: number; text: string } | null = null;
 							
 							if (selection.from !== selection.to) {
-								// Handle selection case
-								const validation = validateSelection(view, selection.from, selection.to);
+								// Handle selection case - first trim spaces from selection
+								const trimmedSelection = trimSelectionSpaces(view.state.doc, selection.from, selection.to);
+								
+								if (trimmedSelection.text.length < 2) {
+									console.log('PiiModifierExtension: Selection too short after trimming spaces');
+									// Hide menu if selection is too short
+									if (hoverMenuElement) {
+										hoverMenuElement.remove();
+										hoverMenuElement = null;
+									}
+									return;
+								}
+								
+								const validation = validateSelection(view, trimmedSelection.from, trimmedSelection.to);
 								if (validation.valid) {
 									entityInfo = {
-										from: selection.from,
-										to: selection.to,
-										text: validation.text
+										from: trimmedSelection.from,
+										to: trimmedSelection.to,
+										text: trimmedSelection.text
 									};
-									console.log('PiiModifierExtension: Valid selection detected:', entityInfo);
+									console.log('PiiModifierExtension: Valid trimmed selection detected:', entityInfo);
 								} else {
 									console.log('PiiModifierExtension: Invalid selection - conflicts with existing modifiers/PII');
 									// Hide menu if selection is invalid
