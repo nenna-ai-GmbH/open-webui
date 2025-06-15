@@ -66,11 +66,21 @@ editor = new Editor({
 ### Basic Usage
 
 1. **Hover Over Text**: Move your mouse over any word (3+ characters) in the editor
-2. **Wait for Popup**: After 300ms, a modifier popup will appear
-3. **Choose Action**:
+2. **Select Multiple Words**: Select consecutive words (2+ characters total) to create multi-word entity modifiers
+3. **Wait for Popup**: After 300ms, a modifier popup will appear
+4. **Choose Action**:
    - **For new text**: Enter a custom label in the text field and click "🎭 Mark as PII"
    - **For already-detected PII**: Click "🚫 Ignore this PII" or enter a new label to override
-4. **Interact with Menu**: The popup stays open for 10 seconds or until you interact with it
+5. **Interact with Menu**: The popup stays open for 10 seconds or until you interact with it
+
+### Multi-Word Selection Support
+
+The extension now supports selecting multiple consecutive words to create modifiers for compound entities:
+
+- **Selection Validation**: Only allows modifiers on selections where no individual word is already covered by existing modifiers or PII detection
+- **Automatic Conflict Detection**: Prevents creating overlapping modifiers  
+- **Multi-Word Entities**: Handles phrases like "Dr. John Smith" or "Case Number A18.32" as single entities
+- **Visual Feedback**: Selected text appears in the modifier popup with truncation for long phrases
 
 ### Programmatic Usage
 
