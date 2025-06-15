@@ -899,6 +899,16 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 							clearTimeout(hoverTimeout);
 						}
 
+						// Check if we're hovering over existing marked text for faster response
+						const target = document.elementFromPoint(event.clientX, event.clientY) as HTMLElement;
+						const isOverExistingEntity = target && (
+							target.closest('.pii-highlight') || 
+							target.closest('.pii-modifier-highlight')
+						);
+						
+						// Use different delays based on whether text is already marked
+						const hoverDelay = isOverExistingEntity ? 300 : 800; // Fast for marked text, slower for unmarked
+
 						// Set new timeout for hover
 						hoverTimeout = window.setTimeout(() => {
 							// First check if there's a text selection
@@ -1072,7 +1082,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 								}
 							}, 10000);
 
-						}, 300); // Reduced hover delay to 300ms
+						}, hoverDelay); // Dynamic delay: 300ms for marked text, 800ms for unmarked text
 					},
 
 					mouseleave: () => {
