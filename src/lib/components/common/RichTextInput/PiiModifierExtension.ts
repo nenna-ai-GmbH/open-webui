@@ -88,6 +88,198 @@ function findWordAt(doc: ProseMirrorNode, pos: number): { from: number; to: numb
 	return null;
 }
 
+// Extract text content from a selection range
+function getSelectionText(doc: ProseMirrorNode, from: number, to: number): string {
+	let text = '';
+	
+	doc.nodesBetween(from, to, (node, pos) => {
+		if (node.isText && node.text) {
+			const start = Math.max(0, from - pos);
+			const end = Math.min(node.text.length, to - pos);
+			if (start < end) {
+				text += node.text.substring(start, end);
+			}
+		} else if (node.type.name === 'paragraph' && text.length > 0) {
+			text += ' '; // Add space between paragraphs
+		} else if (node.type.name === 'hard_break') {
+			text += ' '; // Add space for line breaks
+		}
+	});
+	
+	return text.trim();
+}
+
+// Check if any position in a range conflicts with existing modifiers or PII
+function hasConflictInRange(view: any, from: number, to: number): boolean {
+	// Import the PiiDetectionExtension plugin key (we'll need to adjust import if needed)
+	try {
+		// Check for existing modifiers in plugin state
+		const modifierPluginState = piiModifierExtensionKey.getState(view.state);
+		if (modifierPluginState?.modifiers) {
+			for (const modifier of modifierPluginState.modifiers) {
+				// Check for overlap with existing modifiers
+				if ((from >= modifier.from && from < modifier.to) || 
+					(to > modifier.from && to <= modifier.to) ||
+					(from <= modifier.from && to >= modifier.to)) {
+					console.log('PiiModifierExtension: Conflict with existing modifier:', modifier);
+					return true;
+				}
+			}
+		}
+		
+		// Also check decorations to catch PII entities from PiiDetectionExtension
+		// Get all decorations in the range
+		const decorations = view.state.selection.decorationsAround || [];
+		const doc = view.state.doc;
+		
+		// Look for PII highlighting decorations that overlap with our range
+		doc.nodesBetween(Math.max(0, from - 50), Math.min(doc.content.size, to + 50), (node: any, pos: number) => {
+			if (node.isText) {
+				// Check if this text node has PII decorations that overlap with our range
+				const nodeStart = pos;
+				const nodeEnd = pos + (node.text?.length || 0);
+				
+				// If this text node overlaps with our target range
+				if ((from >= nodeStart && from < nodeEnd) || 
+					(to > nodeStart && to <= nodeEnd) ||
+					(from <= nodeStart && to >= nodeEnd)) {
+					
+					// Check if there are PII decorations on this node
+					const piiElements = view.dom.querySelectorAll('.pii-highlight');
+					for (const element of piiElements) {
+						// Get element's text content and check if it matches our range
+						const elementText = element.textContent;
+						if (elementText) {
+							const docText = getSelectionText(doc, from, to);
+							// If there's any overlap in the text content, we have a conflict
+							if (docText.toLowerCase().includes(elementText.toLowerCase()) || 
+								elementText.toLowerCase().includes(docText.toLowerCase())) {
+								console.log('PiiModifierExtension: Conflict with existing PII highlighting:', elementText);
+								return true; // Found conflict
+							}
+						}
+					}
+				}
+			}
+		});
+		
+	} catch (error) {
+		console.log('PiiModifierExtension: Error checking conflicts:', error);
+		// If we can't check properly, be conservative and allow the operation
+	}
+	
+	return false;
+}
+
+// Validate selection for modifier creation
+function validateSelection(view: any, from: number, to: number): { valid: boolean; text: string } {
+	const doc = view.state.doc;
+	const text = getSelectionText(doc, from, to);
+	
+	// Must have meaningful text (at least 2 characters)
+	if (!text || text.length < 2) {
+		return { valid: false, text: '' };
+	}
+	
+	// Must not conflict with existing modifiers or PII
+	if (hasConflictInRange(view, from, to)) {
+		return { valid: false, text };
+	}
+	
+	return { valid: true, text };
+}
+
+// Find existing PII or modifier element under mouse cursor
+function findExistingEntityAtPosition(view: any, clientX: number, clientY: number): { from: number; to: number; text: string; type: 'pii' | 'modifier' } | null {
+	const target = document.elementFromPoint(clientX, clientY) as HTMLElement;
+	if (!target) return null;
+
+	// Check if we're hovering over a PII highlight
+	const piiElement = target.closest('.pii-highlight');
+	if (piiElement) {
+		const piiText = piiElement.getAttribute('data-pii-text') || piiElement.textContent || '';
+		const piiLabel = piiElement.getAttribute('data-pii-label') || '';
+		if (piiText.length >= 2) {
+			// Try to find the exact position using PII plugin state
+			try {
+				// We need to import the PII detection plugin key to access its state
+				const piiDetectionPluginKey = new PluginKey('piiDetection');
+				const piiState = piiDetectionPluginKey.getState(view.state);
+				
+				if (piiState?.entities) {
+					// Find the entity that matches this label
+					const matchingEntity = piiState.entities.find((entity: any) => entity.label === piiLabel);
+					if (matchingEntity && matchingEntity.occurrences.length > 0) {
+						const occurrence = matchingEntity.occurrences[0]; // Use first occurrence
+						return {
+							from: occurrence.start_idx,
+							to: occurrence.end_idx,
+							text: piiText,
+							type: 'pii'
+						};
+					}
+				}
+			} catch (error) {
+				console.log('PiiModifierExtension: Could not access PII state:', error);
+			}
+			
+			// Fallback: get position from mouse and estimate range
+			const pos = view.posAtCoords({ left: clientX, top: clientY });
+			if (pos) {
+				const textLength = piiText.length;
+				return {
+					from: Math.max(0, pos.pos - Math.floor(textLength / 2)),
+					to: Math.min(view.state.doc.content.size, pos.pos + Math.ceil(textLength / 2)),
+					text: piiText,
+					type: 'pii'
+				};
+			}
+		}
+	}
+
+	// Check if we're hovering over a modifier highlight
+	const modifierElement = target.closest('.pii-modifier-highlight');
+	if (modifierElement) {
+		const modifierText = modifierElement.getAttribute('data-modifier-entity') || modifierElement.textContent || '';
+		if (modifierText.length >= 2) {
+			// Try to find the exact position using modifier plugin state
+			try {
+				const modifierState = piiModifierExtensionKey.getState(view.state);
+				if (modifierState?.modifiers) {
+					// Find the modifier that matches this entity text
+					const matchingModifier = modifierState.modifiers.find((modifier: any) => 
+						modifier.entity.toLowerCase() === modifierText.toLowerCase()
+					);
+					if (matchingModifier) {
+						return {
+							from: matchingModifier.from,
+							to: matchingModifier.to,
+							text: modifierText,
+							type: 'modifier'
+						};
+					}
+				}
+			} catch (error) {
+				console.log('PiiModifierExtension: Could not access modifier state:', error);
+			}
+			
+			// Fallback: get position from mouse and estimate range
+			const pos = view.posAtCoords({ left: clientX, top: clientY });
+			if (pos) {
+				const textLength = modifierText.length;
+				return {
+					from: Math.max(0, pos.pos - Math.floor(textLength / 2)),
+					to: Math.min(view.state.doc.content.size, pos.pos + Math.ceil(textLength / 2)),
+					text: modifierText,
+					type: 'modifier'
+				};
+			}
+		}
+	}
+
+	return null;
+}
+
 
 
 // Predefined PII labels for autocompletion (from SPACY_LABEL_MAPPINGS values)
@@ -163,7 +355,10 @@ function createHoverMenu(
 	`;
 	
 	const textNode = document.createElement('span');
-	textNode.textContent = `"${wordInfo.word}"`;
+	// Truncate long multi-word entities for display
+	const displayText = wordInfo.word.length > 30 ? wordInfo.word.substring(0, 30) + '...' : wordInfo.word;
+	textNode.textContent = `"${displayText}"`;
+	textNode.title = wordInfo.word; // Full text in tooltip
 	
 	header.appendChild(icon);
 	header.appendChild(textNode);
@@ -604,6 +799,18 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 								if (onModifiersChanged) {
 									onModifiersChanged(updatedModifiers);
 								}
+
+								// Trigger PII detection re-run in PiiDetectionExtension
+								setTimeout(() => {
+									// We need to access the view to dispatch the trigger
+									// This will be available in the closure context
+									if (meta.view) {
+										const triggerTr = meta.view.state.tr.setMeta('piiDetection', {
+											type: 'TRIGGER_DETECTION_WITH_MODIFIERS'
+										});
+										meta.view.dispatch(triggerTr);
+									}
+								}, 0);
 								break;
 
 							case 'REMOVE_MODIFIER':
@@ -616,6 +823,16 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 								if (onModifiersChanged) {
 									onModifiersChanged(filteredModifiers);
 								}
+
+								// Trigger PII detection re-run in PiiDetectionExtension
+								setTimeout(() => {
+									if (meta.view) {
+										const triggerTr = meta.view.state.tr.setMeta('piiDetection', {
+											type: 'TRIGGER_DETECTION_WITH_MODIFIERS'
+										});
+										meta.view.dispatch(triggerTr);
+									}
+								}, 0);
 								break;
 						}
 					}
@@ -684,34 +901,68 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 
 						// Set new timeout for hover
 						hoverTimeout = window.setTimeout(() => {
-							const pos = view.posAtCoords({ left: event.clientX, top: event.clientY });
-							if (!pos) return;
-
-							const wordInfo = findWordAt(view.state.doc, pos.pos);
-							if (!wordInfo) {
-								// Hide menu if no word found
-								if (hoverMenuElement) {
-									hoverMenuElement.remove();
-									hoverMenuElement = null;
+							// First check if there's a text selection
+							const selection = view.state.selection;
+							let entityInfo: { from: number; to: number; text: string } | null = null;
+							
+							if (selection.from !== selection.to) {
+								// Handle selection case
+								const validation = validateSelection(view, selection.from, selection.to);
+								if (validation.valid) {
+									entityInfo = {
+										from: selection.from,
+										to: selection.to,
+										text: validation.text
+									};
+									console.log('PiiModifierExtension: Valid selection detected:', entityInfo);
+								} else {
+									console.log('PiiModifierExtension: Invalid selection - conflicts with existing modifiers/PII');
+									// Hide menu if selection is invalid
+									if (hoverMenuElement) {
+										hoverMenuElement.remove();
+										hoverMenuElement = null;
+									}
+									return;
 								}
-								return;
+							} else {
+								// First check if we're hovering over an existing PII/modifier element
+								const existingEntity = findExistingEntityAtPosition(view, event.clientX, event.clientY);
+								if (existingEntity) {
+									entityInfo = existingEntity;
+									console.log('PiiModifierExtension: Hovering over existing entity:', existingEntity);
+								} else {
+									// Handle hover case (single word)
+									const pos = view.posAtCoords({ left: event.clientX, top: event.clientY });
+									if (!pos) return;
+
+									const wordInfo = findWordAt(view.state.doc, pos.pos);
+									if (!wordInfo) {
+										// Hide menu if no word found
+										if (hoverMenuElement) {
+											hoverMenuElement.remove();
+											hoverMenuElement = null;
+										}
+										return;
+									}
+									entityInfo = wordInfo;
+								}
 							}
 
-							// Note: Allow multiple modifiers for the same word since we don't show visual indicators
+							if (!entityInfo) return;
 
-							// Check if word is currently highlighted as PII (by PII detection)
-							const isPiiHighlighted = document.querySelector(`[data-pii-text="${wordInfo.text}"]`) !== null;
+							// Check if text is currently highlighted as PII (by PII detection)
+							const isPiiHighlighted = document.querySelector(`[data-pii-text="${entityInfo.text}"]`) !== null;
 
-							// Find existing modifiers for this word (check entity text match)
+							// Find existing modifiers for this entity (check entity text match)
 							const pluginState = piiModifierExtensionKey.getState(view.state);
 							const existingModifiers = pluginState?.modifiers.filter(modifier => {
-								// Check if modifier's entity text matches the current word (case-insensitive)
-								return modifier.entity.toLowerCase() === wordInfo.text.toLowerCase();
+								// Check if modifier's entity text matches the current entity (case-insensitive)
+								return modifier.entity.toLowerCase() === entityInfo.text.toLowerCase();
 							}) || [];
 
-							// Check if there are any mask modifiers for this word
+							// Check if there are any mask modifiers for this entity
 							const hasMaskModifier = existingModifiers.some(modifier => modifier.type === 'mask');
-							// Check if there are any ignore modifiers for this word
+							// Check if there are any ignore modifiers for this entity
 							const hasIgnoreModifier = existingModifiers.some(modifier => modifier.type === 'ignore');
 
 							// Show hover menu
@@ -746,9 +997,10 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 								const tr = view.state.tr.setMeta(piiModifierExtensionKey, {
 									type: 'ADD_MODIFIER',
 									modifierType: 'ignore' as ModifierType,
-									entity: wordInfo.text,
-									from: wordInfo.from,
-									to: wordInfo.to
+									entity: entityInfo!.text,
+									from: entityInfo!.from,
+									to: entityInfo!.to,
+									view: view
 								});
 								view.dispatch(tr);
 
@@ -763,10 +1015,11 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 								const tr = view.state.tr.setMeta(piiModifierExtensionKey, {
 									type: 'ADD_MODIFIER',
 									modifierType: 'mask' as ModifierType,
-									entity: wordInfo.text,
+									entity: entityInfo!.text,
 									label,
-									from: wordInfo.from,
-									to: wordInfo.to
+									from: entityInfo!.from,
+									to: entityInfo!.to,
+									view: view
 								});
 								view.dispatch(tr);
 
@@ -780,7 +1033,8 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 							const onRemoveModifier = (modifierId: string) => {
 								const tr = view.state.tr.setMeta(piiModifierExtensionKey, {
 									type: 'REMOVE_MODIFIER',
-									modifierId
+									modifierId,
+									view: view
 								});
 								view.dispatch(tr);
 
@@ -793,9 +1047,9 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 
 							hoverMenuElement = createHoverMenu(
 								{
-									word: wordInfo.text,
-									from: wordInfo.from,
-									to: wordInfo.to,
+									word: entityInfo.text,
+									from: entityInfo.from,
+									to: entityInfo.to,
 									x: event.clientX,
 									y: event.clientY
 								},
@@ -929,6 +1183,31 @@ export function addPiiModifierStyles() {
 			outline: none;
 			border-color: #4ecdc4;
 			box-shadow: 0 0 0 2px rgba(78, 205, 196, 0.2);
+		}
+
+		/* Modifier highlighting styles */
+		.pii-modifier-highlight {
+			background-color: rgba(251, 191, 36, 0.15);
+			border-bottom: 2px solid rgba(251, 191, 36, 0.4);
+			border-radius: 3px;
+			padding: 1px 2px;
+			font-weight: 500;
+			cursor: pointer;
+			color: #d97706; /* Yellow/amber text */
+		}
+
+		.pii-modifier-highlight.pii-modifier-mask {
+			background-color: rgba(251, 191, 36, 0.15);
+			border-bottom-color: rgba(251, 191, 36, 0.4);
+			color: #d97706; /* Yellow/amber text for mask modifiers too */
+		}
+
+		.pii-modifier-highlight:hover {
+			background-color: rgba(251, 191, 36, 0.25);
+		}
+
+		.pii-modifier-highlight.pii-modifier-mask:hover {
+			background-color: rgba(251, 191, 36, 0.25);
 		}
 	`;
 
