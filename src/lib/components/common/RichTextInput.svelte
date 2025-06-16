@@ -612,6 +612,24 @@
 		currentModifiers = modifiers;
 		onPiiModifiersChanged(modifiers);
 		
+		// PERSIST MODIFIERS TO SESSION MANAGER (same pattern as entities)
+		if (enablePiiDetection && piiApiKey) {
+			if (conversationId) {
+				console.log('RichTextInput: Persisting modifiers to conversation state:', {
+					conversationId,
+					modifiersCount: modifiers.length,
+					modifiers: modifiers.map(m => ({ type: m.type, entity: m.entity, label: m.label }))
+				});
+				piiSessionManager.setConversationModifiers(conversationId, modifiers);
+			} else {
+				console.log('RichTextInput: Persisting modifiers to global state (no conversation ID yet):', {
+					modifiersCount: modifiers.length,
+					modifiers: modifiers.map(m => ({ type: m.type, entity: m.entity, label: m.label }))
+				});
+				piiSessionManager.setModifiers(modifiers);
+			}
+		}
+		
 		// TEMPORARY: Revert to original length-based logic to debug API issue
 		if ((wasEmpty && modifiers.length > 0) || modifiers.length !== previousModifiersLength) {
 			console.log('RichTextInput: Modifier change detected in handler', {

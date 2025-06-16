@@ -118,13 +118,56 @@ function mapPiiEntitiesToProseMirror(
 function createPiiDecorations(entities: ExtendedPiiEntity[], modifiers: PiiModifier[], doc: ProseMirrorNode): Decoration[] {
 	const decorations: Decoration[] = [];
 
-	// Add PII entity decorations
+	// Build a set of text ranges that have modifiers to avoid conflicts
+	const modifierRanges = new Set<string>();
+	if (modifiers.length > 0) {
+		modifiers.forEach(modifier => {
+			const entityText = modifier.entity.toLowerCase();
+			doc.nodesBetween(0, doc.content.size, (node, pos) => {
+				if (node.isText && node.text) {
+					const originalText = node.text;
+					const regex = new RegExp(`\\b${entityText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi');
+					let match;
+					
+					while ((match = regex.exec(originalText)) !== null) {
+						const matchStart = pos + match.index;
+						const matchEnd = matchStart + match[0].length;
+						
+						if (matchStart >= 0 && matchEnd <= doc.content.size && matchStart < matchEnd) {
+							// Store the range as a string key
+							modifierRanges.add(`${matchStart}-${matchEnd}`);
+						}
+					}
+				}
+			});
+		});
+	}
+
+	// Add PII entity decorations ONLY for entities that DON'T have modifiers
 	entities.forEach((entity, entityIndex) => {
 		entity.occurrences.forEach((occurrence: any, occurrenceIndex) => {
 			const { start_idx: from, end_idx: to } = occurrence;
 			
 			// Ensure positions are valid for the current document
 			if (from >= 0 && to <= doc.content.size && from < to) {
+				// Check if this range conflicts with any modifier ranges
+				const rangeKey = `${from}-${to}`;
+				const hasModifierConflict = modifierRanges.has(rangeKey) || 
+					// Also check if any modifier range overlaps with this entity range
+					Array.from(modifierRanges).some(modifierRange => {
+						const [modStart, modEnd] = modifierRange.split('-').map(Number);
+						return (from < modEnd && to > modStart); // Ranges overlap
+					}) ||
+					// Check if the entity text matches any modifier entity text
+					modifiers.some(modifier => 
+						modifier.entity.toLowerCase() === entity.raw_text.toLowerCase()
+					);
+
+				if (hasModifierConflict) {
+					console.log(`PiiDetectionExtension: Skipping PII decoration for entity ${entity.label} (${entity.raw_text}) - conflicts with modifier decoration`);
+					return; // Skip this PII entity decoration
+				}
+
 				const shouldMask = entity.shouldMask ?? true;
 				const maskingClass = shouldMask ? 'pii-masked' : 'pii-unmasked';
 				
@@ -291,20 +334,22 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 					source: conversationId ? 'conversation' : 'global'
 				});
 
-				// Get current modifiers from PiiModifierExtension state (read-only)
-				const view = this.editor?.view;
+				// Get persistent modifiers from PiiSessionManager (conversation-aware)
 				let modifiers: ShieldApiModifier[] = [];
-				if (view) {
-					const modifierState = piiModifierExtensionKey.getState(view.state);
-					if (modifierState?.modifiers && modifierState.modifiers.length > 0) {
-						modifiers = convertModifiersToApiFormat(modifierState.modifiers);
-						console.log('PiiDetectionExtension: Found', modifiers.length, 'modifiers:', modifiers);
-					} else {
-						console.log('PiiDetectionExtension: No modifiers found in editor state');
-					}
+				if (conversationId) {
+					modifiers = piiSessionManager.getModifiersForApi(conversationId);
 				} else {
-					console.log('PiiDetectionExtension: No editor view available for reading modifiers');
+					// For new chats without conversation ID, use global modifiers
+					modifiers = piiSessionManager.getModifiersForApi();
 				}
+
+				console.log('PiiDetectionExtension: Using persistent modifiers for API request:', {
+					conversationId: conversationId || 'NO_CONVERSATION_ID',
+					modifiersCount: modifiers.length,
+					modifiers: modifiers,
+					source: conversationId ? 'conversation' : 'global',
+					persistent: true
+				});
 
 				const response = await maskPiiText(apiKey, [plainText], knownEntities, modifiers, false, false);
 				
@@ -320,6 +365,7 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 
 				if (response.pii && response.pii[0] && response.pii[0].length > 0) {
 					// Get the editor view through the stored editor reference
+					const view = this.editor?.view;
 					if (!view) {
 						console.log('PiiDetectionExtension: No editor view available');
 						return;
@@ -331,46 +377,79 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 						return;
 					}
 
-					// Map PII entities to ProseMirror positions
-					const mappedEntities = mapPiiEntitiesToProseMirror(response.pii[0], state.positionMapping);
-					
-					console.log('PiiDetectionExtension: Mapped entities:', mappedEntities);
+					// CRITICAL: Store ALL entities for known_entities (including ones with modifiers)
+					// This ensures consistent labeling across messages
+					console.log('PiiDetectionExtension: Storing ALL entities for consistent labeling (including modifier entities):', {
+						allEntitiesCount: response.pii[0].length,
+						allEntities: response.pii[0].map(e => ({ id: e.id, label: e.label, rawText: e.raw_text })),
+						reason: 'ALL entities must be stored for known_entities to maintain consistent labeling'
+					});
 
-					// Store entities in session manager
+					// Store ALL entities in session manager for known_entities
 					if (conversationId) {
-						console.log('PiiDetectionExtension: Storing entities for conversation:', {
-							conversationId,
-							newEntitiesCount: response.pii[0].length,
-							newEntities: response.pii[0].map(e => ({ id: e.id, label: e.label, rawText: e.raw_text }))
-						});
-						
 						piiSessionManager.setConversationEntities(conversationId, response.pii[0]);
 						
 						// Log the updated known entities that will be available for next API call
 						const updatedKnownEntities = piiSessionManager.getKnownEntitiesForApi(conversationId);
-						console.log('PiiDetectionExtension: Updated known entities for future API calls (PERSISTENT):', {
+						console.log('PiiDetectionExtension: Updated known entities for future API calls (PERSISTENT + CONSISTENT):', {
 							conversationId,
 							totalKnownEntities: updatedKnownEntities.length,
 							newEntitiesFromApi: response.pii[0].length,
 							knownEntitiesDetails: updatedKnownEntities,
-							note: 'These entities will persist throughout the conversation for consistent labeling'
+							note: 'ALL entities stored for consistent labeling, including modifier entities'
 						});
 					} else {
-						console.log('PiiDetectionExtension: No conversation ID provided, storing in global state');
+						console.log('PiiDetectionExtension: No conversation ID provided, storing ALL entities in global state');
 						piiSessionManager.setEntities(response.pii[0]);
 					}
 
-					// Update plugin state with new entities (don't touch modifiers - they're managed by PiiModifierExtension)
-					const tr = view.state.tr.setMeta(piiDetectionPluginKey, {
-						type: 'UPDATE_ENTITIES',
-						entities: mappedEntities
+					// SEPARATE: Filter entities for PII decorations (exclude modifier entities)
+					const entitiesForDecorations = response.pii[0].filter(entity => {
+						const hasModifier = modifiers.some(modifier => 
+							modifier.entity.toLowerCase() === entity.raw_text.toLowerCase()
+						);
+						if (hasModifier) {
+							console.log(`PiiDetectionExtension: Entity ${entity.label} (${entity.raw_text}) has modifier - stored for known_entities but excluded from PII decorations`);
+						}
+						return !hasModifier;
 					});
-					
-					view.dispatch(tr);
 
-					// Notify parent component
-					if (onPiiDetected) {
-						onPiiDetected(mappedEntities, response.text[0]);
+					console.log('PiiDetectionExtension: Entity separation completed:', {
+						totalEntitiesFromApi: response.pii[0].length,
+						entitiesStoredForKnownEntities: response.pii[0].length,
+						entitiesForPiiDecorations: entitiesForDecorations.length,
+						entitiesWithModifiers: response.pii[0].length - entitiesForDecorations.length,
+						explanation: 'ALL entities stored for labeling consistency, only non-modifier entities get PII decorations'
+					});
+
+					if (entitiesForDecorations.length > 0) {
+						// Map only non-modifier entities to ProseMirror positions for decorations
+						const mappedEntities = mapPiiEntitiesToProseMirror(entitiesForDecorations, state.positionMapping);
+						
+						console.log('PiiDetectionExtension: Mapped entities for decorations:', mappedEntities);
+
+						// Update plugin state with entities for decorations only
+						const tr = view.state.tr.setMeta(piiDetectionPluginKey, {
+							type: 'UPDATE_ENTITIES',
+							entities: mappedEntities
+						});
+						
+						view.dispatch(tr);
+
+						// Notify parent component
+						if (onPiiDetected) {
+							onPiiDetected(mappedEntities, response.text[0]);
+						}
+					} else {
+						console.log('PiiDetectionExtension: No entities for PII decorations (all have modifiers), but entities stored for known_entities');
+						
+						// Still update plugin state to clear any old decorations
+						const tr = view.state.tr.setMeta(piiDetectionPluginKey, {
+							type: 'UPDATE_ENTITIES',
+							entities: []
+						});
+						
+						view.dispatch(tr);
 					}
 				} else {
 					console.log('PiiDetectionExtension: No PII entities found in response');
@@ -508,19 +587,27 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 			props: {
 				decorations(state) {
 					const pluginState = piiDetectionPluginKey.getState(state);
-					if (!pluginState?.entities.length) {
-						// Check if we have modifiers even without PII entities
-						const modifierState = piiModifierExtensionKey.getState(state);
-						if (!modifierState?.modifiers.length) {
-							return DecorationSet.empty;
-						}
+					
+					// Get persistent modifiers from session manager (conversation-aware)
+					const piiSessionManager = PiiSessionManager.getInstance();
+					let persistentModifiers: PiiModifier[] = [];
+					if (conversationId) {
+						persistentModifiers = piiSessionManager.getConversationModifiers(conversationId);
+					} else {
+						persistentModifiers = piiSessionManager.getModifiers();
 					}
 					
-					// Get modifiers from the PiiModifierExtension state
-					const modifierState = piiModifierExtensionKey.getState(state);
-					const modifiers = modifierState?.modifiers || [];
+					console.log('PiiDetectionExtension: Using persistent modifiers for decorations:', {
+						conversationId: conversationId || 'GLOBAL',
+						persistentModifiersCount: persistentModifiers.length,
+						modifiers: persistentModifiers.map(m => ({ type: m.type, entity: m.entity, label: m.label }))
+					});
+
+					if (!pluginState?.entities.length && !persistentModifiers.length) {
+						return DecorationSet.empty;
+					}
 					
-					const decorations = createPiiDecorations(pluginState?.entities || [], modifiers, state.doc);
+					const decorations = createPiiDecorations(pluginState?.entities || [], persistentModifiers, state.doc);
 					console.log('PiiDetectionExtension: Creating', decorations.length, 'decorations');
 					return DecorationSet.create(state.doc, decorations);
 				},
