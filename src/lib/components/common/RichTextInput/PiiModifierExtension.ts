@@ -113,10 +113,13 @@ function expandSelectionToWordBoundaries(doc: ProseMirrorNode, from: number, to:
 	let newFrom = from;
 	let newTo = to;
 	
+	// Define word character regex including German umlauts and eszett
+	const wordCharRegex = /[\w'-äöüÄÖÜß]/;
+	
 	// Expand backwards: keep going while the character before newFrom is a word character
 	while (newFrom > 0) {
 		const charBefore = getSelectionText(doc, newFrom - 1, newFrom);
-		if (!/[\w'-]/.test(charBefore)) {
+		if (!wordCharRegex.test(charBefore)) {
 			break; // Hit a non-word character, stop here
 		}
 		newFrom--;
@@ -125,7 +128,7 @@ function expandSelectionToWordBoundaries(doc: ProseMirrorNode, from: number, to:
 	// Expand forwards: keep going while the character at newTo is a word character
 	while (newTo < doc.content.size) {
 		const charAt = getSelectionText(doc, newTo, newTo + 1);
-		if (!/[\w'-]/.test(charAt)) {
+		if (!wordCharRegex.test(charAt)) {
 			break; // Hit a non-word character, stop here
 		}
 		newTo++;
@@ -185,10 +188,10 @@ function tokenizeSelection(doc: ProseMirrorNode, from: number, to: number): { fr
 		.filter(token => token.length > 0) // Remove empty tokens
 		.map(token => token.trim()); // Trim each token
 	
-	// Validate that we have reasonable tokens
+	// Validate that we have reasonable tokens (including German characters)
 	const validTokens = tokens.filter(token => {
-		// Must contain at least one word character and be at least 2 characters
-		return /\w/.test(token) && token.length >= 2;
+		// Must contain at least one word character (including German umlauts/eszett) and be at least 2 characters
+		return /[\w'-äöüÄÖÜß]/.test(token) && token.length >= 2;
 	});
 	
 	console.log('PiiModifierExtension: Tokenized selection:', {
