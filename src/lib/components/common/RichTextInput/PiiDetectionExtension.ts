@@ -258,15 +258,38 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 				return;
 			}
 
-			console.log('PiiDetectionExtension: Starting PII detection for text:', plainText.substring(0, 100));
+			console.log('PiiDetectionExtension: Starting PII detection:', {
+				textLength: plainText.length,
+				textPreview: plainText.substring(0, 100),
+				conversationId: conversationId || 'NOT_SET',
+				hasApiKey: !!apiKey
+			});
 
 			try {
-				// Get known entities from conversation state
-				const knownEntities = conversationId
-					? piiSessionManager.getKnownEntitiesForApi(conversationId)
-					: [];
+				// Get known entities from conversation state OR global state
+				let knownEntities: KnownPiiEntity[] = [];
+				if (conversationId) {
+					knownEntities = piiSessionManager.getKnownEntitiesForApi(conversationId);
+				} else {
+					// For new chats without conversation ID, check global entities
+					const globalEntities = piiSessionManager.getEntities();
+					knownEntities = globalEntities.map(entity => ({
+						id: entity.id,
+						label: entity.label,
+						name: entity.raw_text
+					}));
+					console.log('PiiDetectionExtension: Using global entities as known entities:', {
+						globalEntitiesCount: globalEntities.length,
+						knownEntities
+					});
+				}
 
-				console.log('PiiDetectionExtension: Using known entities:', knownEntities);
+				console.log('PiiDetectionExtension: Using known entities for API request:', {
+					conversationId: conversationId || 'NO_CONVERSATION_ID',
+					knownEntitiesCount: knownEntities.length,
+					knownEntities: knownEntities.map(e => ({ id: e.id, label: e.label, name: e.name })),
+					source: conversationId ? 'conversation' : 'global'
+				});
 
 				// Get current modifiers from PiiModifierExtension state (read-only)
 				const view = this.editor?.view;
@@ -315,8 +338,25 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 
 					// Store entities in session manager
 					if (conversationId) {
+						console.log('PiiDetectionExtension: Storing entities for conversation:', {
+							conversationId,
+							newEntitiesCount: response.pii[0].length,
+							newEntities: response.pii[0].map(e => ({ id: e.id, label: e.label, rawText: e.raw_text }))
+						});
+						
 						piiSessionManager.setConversationEntities(conversationId, response.pii[0]);
+						
+						// Log the updated known entities that will be available for next API call
+						const updatedKnownEntities = piiSessionManager.getKnownEntitiesForApi(conversationId);
+						console.log('PiiDetectionExtension: Updated known entities for future API calls (PERSISTENT):', {
+							conversationId,
+							totalKnownEntities: updatedKnownEntities.length,
+							newEntitiesFromApi: response.pii[0].length,
+							knownEntitiesDetails: updatedKnownEntities,
+							note: 'These entities will persist throughout the conversation for consistent labeling'
+						});
 					} else {
+						console.log('PiiDetectionExtension: No conversation ID provided, storing in global state');
 						piiSessionManager.setEntities(response.pii[0]);
 					}
 

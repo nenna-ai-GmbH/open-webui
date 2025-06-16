@@ -213,11 +213,48 @@ export class PiiSessionManager {
 
 	// Set entities for the current global session (backwards compatibility)
 	setEntities(entities: PiiEntity[]) {
-		// Convert to extended entities with default masking enabled
-		this.entities = entities.map((entity) => ({
+		const newExtendedEntities = entities.map((entity) => ({
 			...entity,
 			shouldMask: true // Default to masking enabled
 		}));
+
+		// Use same append-only logic as conversation entities
+		const existingEntities = this.entities;
+		const mergedEntities = [...existingEntities];
+
+		console.log(`PiiSessionManager: ACCUMULATING entities in GLOBAL state (no conversation ID yet):`, {
+			newEntitiesFromApi: newExtendedEntities.length,
+			existingGlobalEntities: existingEntities.length,
+			newEntitiesLabels: newExtendedEntities.map(e => e.label),
+			existingGlobalLabels: existingEntities.map(e => e.label),
+			operation: 'APPEND_ONLY - never overwrite global entities either'
+		});
+
+		// Only append truly new entities that don't already exist in global state
+		let newEntitiesAdded = 0;
+		newExtendedEntities.forEach((newEntity) => {
+			const existingIndex = mergedEntities.findIndex((e) => e.label === newEntity.label);
+			if (existingIndex >= 0) {
+				// Entity already exists in global state - DO NOT overwrite
+				console.log(`PiiSessionManager: Global entity ${newEntity.label} already exists - preserving original (NO CHANGES)`);
+			} else {
+				// Only add truly new entities that don't exist yet
+				console.log(`PiiSessionManager: Appending NEW entity to global state: ${newEntity.label} (${newEntity.type})`);
+				mergedEntities.push(newEntity);
+				newEntitiesAdded++;
+			}
+		});
+
+		// Update global entities with accumulated result
+		this.entities = mergedEntities;
+
+		console.log(`PiiSessionManager: GLOBAL ACCUMULATION COMPLETE:`, {
+			beforeCount: existingEntities.length,
+			afterCount: mergedEntities.length,
+			newEntitiesAdded,
+			allGlobalEntitiesLabels: mergedEntities.map(e => e.label),
+			guaranteedPersistence: 'Global entities now also accumulate and never get overwritten'
+		});
 	}
 
 	// Get entities for the current global session (backwards compatibility)
@@ -236,48 +273,91 @@ export class PiiSessionManager {
 		const existingState = this.conversationStates.get(conversationId);
 		const existingEntities = existingState?.entities || [];
 
-		// Merge new entities with existing ones, avoiding duplicates by label
+		// CRITICAL DEBUG: Check if we're losing existing entities
+		console.log(`PiiSessionManager: CRITICAL DEBUG - setConversationEntities called:`, {
+			conversationId,
+			entitiesFromApiResponse: entities.length,
+			apiResponseEntities: entities.map(e => ({ id: e.id, label: e.label, type: e.type, rawText: e.raw_text })),
+			existingEntitiesInConversationState: existingEntities.length,
+			existingEntitiesDetails: existingEntities.map(e => ({ id: e.id, label: e.label, type: e.type, rawText: e.raw_text, shouldMask: e.shouldMask })),
+			conversationStateExists: !!existingState,
+			warning: existingEntities.length > 0 && entities.length > 0 ? 'BOTH API RESPONSE AND EXISTING ENTITIES PRESENT' : 'Normal case'
+		});
+
+		// Start with ALL existing entities (never lose them)
 		const mergedEntities = [...existingEntities];
 
-		console.log(
-			`PiiSessionManager: Merging ${newExtendedEntities.length} new entities with ${existingEntities.length} existing entities for conversation: ${conversationId}`
-		);
+		console.log(`PiiSessionManager: ACCUMULATING entities for conversation ${conversationId}:`, {
+			newEntitiesFromApi: newExtendedEntities.length,
+			existingEntitiesInConversation: existingEntities.length,
+			newEntitiesLabels: newExtendedEntities.map(e => e.label),
+			existingEntitiesLabels: existingEntities.map(e => e.label),
+			operation: 'APPEND_ONLY - never overwrite or lose existing entities'
+		});
 
+		// Only append truly new entities that don't already exist
+		let newEntitiesAdded = 0;
 		newExtendedEntities.forEach((newEntity) => {
 			const existingIndex = mergedEntities.findIndex((e) => e.label === newEntity.label);
 			if (existingIndex >= 0) {
-				// Update existing entity (preserve shouldMask state)
-				console.log(`PiiSessionManager: Updating existing entity: ${newEntity.label}`);
-				mergedEntities[existingIndex] = {
-					...newEntity,
-					shouldMask: mergedEntities[existingIndex].shouldMask
-				};
+				// Entity already exists - DO NOT overwrite, completely preserve original
+				console.log(`PiiSessionManager: Entity ${newEntity.label} already exists - preserving original entity (NO CHANGES)`);
+				// Existing entity remains completely unchanged
 			} else {
-				// Add new entity
-				console.log(`PiiSessionManager: Adding new entity: ${newEntity.label}`);
+				// Only add truly new entities that don't exist yet
+				console.log(`PiiSessionManager: Appending NEW entity: ${newEntity.label} (${newEntity.type})`);
 				mergedEntities.push(newEntity);
+				newEntitiesAdded++;
 			}
 		});
 
-		console.log(`PiiSessionManager: Final merged entities count: ${mergedEntities.length}`);
+		console.log(`PiiSessionManager: ACCUMULATION COMPLETE for conversation ${conversationId}:`, {
+			beforeCount: existingEntities.length,
+			afterCount: mergedEntities.length,
+			newEntitiesAdded,
+			allEntitiesLabels: mergedEntities.map(e => e.label),
+			guaranteedPersistence: 'All previously detected entities remain forever in this conversation'
+		});
 
-		this.conversationStates.set(conversationId, {
+		const newState = {
 			entities: mergedEntities,
 			sessionId: sessionId || existingState?.sessionId,
 			apiKey: this.apiKey || existingState?.apiKey,
 			lastUpdated: Date.now()
-		});
+		};
+
+		this.conversationStates.set(conversationId, newState);
 
 		// Also update global state for current conversation
 		this.entities = mergedEntities;
 		if (sessionId) {
 			this.sessionId = sessionId;
 		}
+
+		// Trigger async save to localStorage via custom event
+		// This allows Chat.svelte to handle the actual localStorage persistence
+		setTimeout(() => {
+			console.log('PiiSessionManager: Dispatching pii-state-updated event for conversation:', conversationId);
+			window.dispatchEvent(new CustomEvent('pii-state-updated', {
+				detail: { conversationId, piiState: newState }
+			}));
+		}, 0);
 	}
 
 	getConversationEntities(conversationId: string): ExtendedPiiEntity[] {
 		const state = this.conversationStates.get(conversationId);
-		return state?.entities || [];
+		const entities = state?.entities || [];
+		
+		console.log(`PiiSessionManager: CRITICAL DEBUG - getConversationEntities called:`, {
+			conversationId,
+			stateExists: !!state,
+			entitiesCount: entities.length,
+			entitiesLabels: entities.map(e => e.label),
+			allConversationIds: Array.from(this.conversationStates.keys()),
+			warning: entities.length === 0 ? 'NO ENTITIES FOUND - this might be the problem!' : 'Entities found'
+		});
+		
+		return entities;
 	}
 
 	getConversationState(conversationId: string): ConversationPiiState | null {
@@ -304,12 +384,24 @@ export class PiiSessionManager {
 	getKnownEntitiesForApi(
 		conversationId: string
 	): Array<{ id: number; label: string; name: string }> {
+		const conversationState = this.conversationStates.get(conversationId);
 		const entities = this.getConversationEntities(conversationId);
-		return entities.map((entity) => ({
+		const knownEntities = entities.map((entity) => ({
 			id: entity.id,
 			label: entity.label,
 			name: entity.raw_text
 		}));
+		
+		console.log(`PiiSessionManager: CRITICAL DEBUG - getKnownEntitiesForApi called:`, {
+			conversationId,
+			conversationStateExists: !!conversationState,
+			entitiesInConversationState: entities.length,
+			entitiesDetails: entities.map(e => ({ id: e.id, label: e.label, type: e.type, rawText: e.raw_text, shouldMask: e.shouldMask })),
+			knownEntitiesForApi: knownEntities,
+			note: 'These are the entities being sent to API as known_entities to maintain consistent labeling'
+		});
+		
+		return knownEntities;
 	}
 
 	// Toggle entity masking for specific conversation
@@ -330,6 +422,14 @@ export class PiiSessionManager {
 				if (globalEntity) {
 					globalEntity.shouldMask = entity.shouldMask;
 				}
+
+				// Trigger async save to localStorage via custom event
+				setTimeout(() => {
+					console.log('PiiSessionManager: Dispatching pii-state-updated event for toggle in conversation:', conversationId);
+					window.dispatchEvent(new CustomEvent('pii-state-updated', {
+						detail: { conversationId, piiState: state }
+					}));
+				}, 0);
 			}
 		}
 	}
@@ -360,6 +460,43 @@ export class PiiSessionManager {
 	// Clear all conversation states
 	clearAllConversationStates() {
 		this.conversationStates.clear();
+	}
+
+	// Transfer global entities to a specific conversation (for when chat ID becomes available)
+	transferGlobalEntitiesToConversation(conversationId: string) {
+		if (this.entities.length > 0 && conversationId) {
+			// Check if this conversation already has entities to avoid duplicate transfers
+			const existingState = this.conversationStates.get(conversationId);
+			if (existingState && existingState.entities.length > 0) {
+				console.log('PiiSessionManager: Conversation already has entities, skipping transfer:', {
+					conversationId,
+					existingEntitiesCount: existingState.entities.length
+				});
+				return;
+			}
+
+			console.log('PiiSessionManager: Transferring global entities to conversation:', {
+				conversationId,
+				globalEntitiesCount: this.entities.length,
+				entities: this.entities.map(e => ({ label: e.label, rawText: e.raw_text }))
+			});
+
+			// Convert ExtendedPiiEntity back to PiiEntity for setConversationEntities
+			const piiEntities = this.entities.map(entity => ({
+				id: entity.id,
+				type: entity.type,
+				label: entity.label,
+				raw_text: entity.raw_text,
+				occurrences: entity.occurrences
+			}));
+
+			// Set conversation entities (this will merge with any existing entities)
+			this.setConversationEntities(conversationId, piiEntities);
+
+			// Keep global entities for potential use by other components
+			// Don't clear them - they may be needed elsewhere
+			console.log('PiiSessionManager: Global entities transferred (keeping global copy for compatibility)');
+		}
 	}
 }
 

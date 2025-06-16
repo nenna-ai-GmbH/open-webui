@@ -122,6 +122,21 @@
 		editor.commands.setContent(html);
 	}
 
+	// Watch for conversationId changes (empty -> actual ID when chat is created)
+	let previousConversationId = '';
+	$: if (conversationId !== previousConversationId && enablePiiDetection) {
+		if (previousConversationId === '' && conversationId) {
+			console.log('RichTextInput: Conversation ID became available - transferring global entities:', {
+				from: previousConversationId || 'EMPTY',
+				to: conversationId
+			});
+			
+			// Transfer any global PII entities to this new conversation (only happens once)
+			piiSessionManager.transferGlobalEntitiesToConversation(conversationId);
+		}
+		previousConversationId = conversationId;
+	}
+
 	// Function to find the next template in the document
 	function findNextTemplate(doc, from = 0) {
 		const patterns = [{ start: '{{', end: '}}' }];
@@ -199,6 +214,38 @@
 		// Initialize PII session manager
 		if (enablePiiDetection && piiApiKey) {
 			piiSessionManager.setApiKey(piiApiKey);
+			
+			// Load conversation state from localStorage if available
+			if (conversationId) {
+				console.log('RichTextInput: Initializing PII detection for conversation:', {
+					conversationId,
+					hasApiKey: !!piiApiKey,
+					apiKeyLength: piiApiKey?.length
+				});
+				try {
+					// Try to load conversation state from the chat data
+					// This will be populated by Chat.svelte's loadChat function
+					const existingState = piiSessionManager.getConversationState(conversationId);
+					if (existingState) {
+						console.log('RichTextInput: Found existing conversation state:', {
+							conversationId,
+							entitiesCount: existingState.entities.length,
+							entities: existingState.entities.map(e => ({ label: e.label, rawText: e.raw_text })),
+							lastUpdated: new Date(existingState.lastUpdated).toISOString()
+						});
+					} else {
+						console.log('RichTextInput: No existing conversation state found for', conversationId, '- this is normal for new conversations');
+					}
+				} catch (error) {
+					console.error('RichTextInput: Error loading conversation state:', error);
+				}
+			} else {
+				console.log('RichTextInput: PII detection enabled but no conversation ID provided:', {
+					enablePiiDetection,
+					conversationId,
+					hasApiKey: !!piiApiKey
+				});
+			}
 		}
 
 		// Add PII highlighting styles
