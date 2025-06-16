@@ -1588,27 +1588,35 @@ export function addPiiModifierStyles() {
 
 		/* Modifier highlighting styles */
 		.pii-modifier-highlight {
-			background-color: rgba(34, 197, 94, 0.15); /* Green background for active modifiers */
-			border-bottom: 2px solid rgba(34, 197, 94, 0.4);
 			border-radius: 3px;
 			padding: 1px 2px;
 			font-weight: 500;
 			cursor: pointer;
-			color: #16a34a; /* Green text */
+			transition: all 0.2s ease;
 		}
 
+		/* PII ignored by modifier: no background, orange font */
+		.pii-modifier-highlight.pii-modifier-ignore {
+			background-color: transparent;
+			color: #ea580c; /* Orange font */
+			border-bottom: 1px solid #ea580c;
+		}
+
+		.pii-modifier-highlight.pii-modifier-ignore:hover {
+			background-color: rgba(234, 88, 12, 0.1); /* Light orange background on hover */
+			color: #c2410c; /* Darker orange on hover */
+		}
+
+		/* PII set by modifier: green background, orange font */
 		.pii-modifier-highlight.pii-modifier-mask {
-			background-color: rgba(34, 197, 94, 0.15); /* Green background for mask modifiers */
-			border-bottom-color: rgba(34, 197, 94, 0.4);
-			color: #16a34a; /* Green text for mask modifiers */
-		}
-
-		.pii-modifier-highlight:hover {
-			background-color: rgba(34, 197, 94, 0.25); /* Darker green on hover */
+			background-color: rgba(34, 197, 94, 0.15); /* Green background */
+			color: #ea580c; /* Orange font */
+			border-bottom: 1px solid rgba(34, 197, 94, 0.4);
 		}
 
 		.pii-modifier-highlight.pii-modifier-mask:hover {
 			background-color: rgba(34, 197, 94, 0.25); /* Darker green on hover */
+			color: #c2410c; /* Darker orange on hover */
 		}
 	`;
 

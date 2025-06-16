@@ -178,8 +178,11 @@ function createPiiDecorations(entities: ExtendedPiiEntity[], modifiers: PiiModif
 							const hasMaskModifier = entityModifiers.some(m => m.type === 'mask');
 							
 							let decorationClass = 'pii-modifier-highlight';
-							if (hasMaskModifier) {
-								// Mask modifiers get yellow font + green styling
+							if (hasIgnoreModifier) {
+								// Ignore modifiers: no background, orange font
+								decorationClass = 'pii-modifier-highlight pii-modifier-ignore';
+							} else if (hasMaskModifier) {
+								// Mask modifiers: green background, orange font  
 								decorationClass = 'pii-modifier-highlight pii-modifier-mask';
 							}
 							

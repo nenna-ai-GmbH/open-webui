@@ -627,30 +627,37 @@
 					border-bottom: 2px solid #dc2626;
 				}
 				
-				/* Modifier-affected text - yellow font (base styling) */
+				/* Modifier-affected text - base styling */
 				.pii-modifier-highlight {
-					color: #ca8a04;
 					cursor: pointer;
 					transition: all 0.2s ease;
-				}
-				
-				.pii-modifier-highlight:hover {
-					color: #a16207;
-				}
-				
-				/* Mask modifier - yellow font, green background, green dashed underline */
-				.pii-modifier-highlight.pii-modifier-mask {
-					color: #ca8a04;
-					background-color: rgba(34, 197, 94, 0.2);
-					border-bottom: 1px dashed #15803d;
 					border-radius: 3px;
 					padding: 1px 2px;
 				}
 				
+				/* PII ignored by modifier: no background, orange font */
+				.pii-modifier-highlight.pii-modifier-ignore {
+					background-color: transparent;
+					color: #ea580c;
+					border-bottom: 1px solid #ea580c;
+				}
+				
+				.pii-modifier-highlight.pii-modifier-ignore:hover {
+					background-color: rgba(234, 88, 12, 0.1);
+					color: #c2410c;
+				}
+				
+				/* PII set by modifier: green background, orange font */
+				.pii-modifier-highlight.pii-modifier-mask {
+					color: #ea580c;
+					background-color: rgba(34, 197, 94, 0.2);
+					border-bottom: 1px solid rgba(34, 197, 94, 0.4);
+				}
+				
 				.pii-modifier-highlight.pii-modifier-mask:hover {
-					color: #a16207;
+					color: #c2410c;
 					background-color: rgba(34, 197, 94, 0.3);
-					border-bottom: 2px dashed #15803d;
+					border-bottom: 2px solid rgba(34, 197, 94, 0.4);
 				}
 			`;
 			document.head.appendChild(styleElement);
