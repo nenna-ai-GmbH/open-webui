@@ -101,6 +101,109 @@ function trimSelectionSpaces(doc: ProseMirrorNode, from: number, to: number): { 
 	};
 }
 
+/**
+ * Simple tokenizer that expands selection to whole word boundaries
+ * Uses a much simpler approach to avoid character merging issues
+ */
+function expandSelectionToWordBoundaries(doc: ProseMirrorNode, from: number, to: number): { from: number; to: number; text: string } {
+	// Get the original selected text
+	const originalText = getSelectionText(doc, from, to);
+	
+	// Start with the original selection boundaries
+	let newFrom = from;
+	let newTo = to;
+	
+	// Expand backwards: keep going while the character before newFrom is a word character
+	while (newFrom > 0) {
+		const charBefore = getSelectionText(doc, newFrom - 1, newFrom);
+		if (!/[\w'-]/.test(charBefore)) {
+			break; // Hit a non-word character, stop here
+		}
+		newFrom--;
+	}
+	
+	// Expand forwards: keep going while the character at newTo is a word character
+	while (newTo < doc.content.size) {
+		const charAt = getSelectionText(doc, newTo, newTo + 1);
+		if (!/[\w'-]/.test(charAt)) {
+			break; // Hit a non-word character, stop here
+		}
+		newTo++;
+	}
+	
+	// Get the expanded text
+	const expandedText = getSelectionText(doc, newFrom, newTo);
+	
+	console.log('PiiModifierExtension: Simple tokenizer result:', {
+		original: { from, to, text: originalText },
+		expanded: { from: newFrom, to: newTo, text: expandedText },
+		steps: {
+			startFrom: from,
+			expandedBackTo: newFrom,
+			startTo: to,
+			expandedForwardTo: newTo
+		}
+	});
+	
+	return {
+		from: newFrom,
+		to: newTo,
+		text: expandedText
+	};
+}
+
+/**
+ * Advanced tokenizer that handles multiple words and validates tokens
+ */
+function tokenizeSelection(doc: ProseMirrorNode, from: number, to: number): { from: number; to: number; text: string; tokens: string[] } {
+	// Safety check for valid positions
+	if (from < 0 || to > doc.content.size || from >= to) {
+		console.warn('PiiModifierExtension: Invalid tokenization positions:', { from, to, docSize: doc.content.size });
+		return {
+			from: from,
+			to: to,
+			text: '',
+			tokens: []
+		};
+	}
+	
+	// Expand to word boundaries using the simple approach
+	const expanded = expandSelectionToWordBoundaries(doc, from, to);
+	
+	// Safety check for expanded result
+	if (!expanded.text || expanded.text.length === 0) {
+		console.warn('PiiModifierExtension: Tokenization resulted in empty text');
+		return {
+			...expanded,
+			tokens: []
+		};
+	}
+	
+	// Tokenize the expanded text into individual words
+	const tokens = expanded.text
+		.split(/\s+/) // Split on whitespace
+		.filter(token => token.length > 0) // Remove empty tokens
+		.map(token => token.trim()); // Trim each token
+	
+	// Validate that we have reasonable tokens
+	const validTokens = tokens.filter(token => {
+		// Must contain at least one word character and be at least 2 characters
+		return /\w/.test(token) && token.length >= 2;
+	});
+	
+	console.log('PiiModifierExtension: Tokenized selection:', {
+		input: { from, to, text: getSelectionText(doc, from, to) },
+		expanded: expanded,
+		tokens: tokens,
+		validTokens: validTokens
+	});
+	
+	return {
+		...expanded, // Use expanded positions and text directly
+		tokens: validTokens
+	};
+}
+
 // Check if any position in a range conflicts with existing modifiers or PII
 function hasConflictInRange(view: any, from: number, to: number): boolean {
 	// Import the PiiDetectionExtension plugin key (we'll need to adjust import if needed)
@@ -1023,24 +1126,33 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 								return;
 							}
 
-							// Handle selection case - first trim spaces from selection
-							const trimmedSelection = trimSelectionSpaces(view.state.doc, selection.from, selection.to);
+							// Use tokenizer to expand selection to whole word boundaries
+							const tokenizedSelection = tokenizeSelection(view.state.doc, selection.from, selection.to);
 							
-							if (trimmedSelection.text.length < 2 || trimmedSelection.text.length > 100) {
-								console.log('PiiModifierExtension: Selection invalid length');
+							// Validate tokenized selection
+							if (tokenizedSelection.text.length < 2 || tokenizedSelection.text.length > 100) {
+								console.log('PiiModifierExtension: Tokenized selection invalid length:', tokenizedSelection.text.length);
 								return;
 							}
 							
-							const validation = validateSelection(view, trimmedSelection.from, trimmedSelection.to);
+							// Check if we have valid tokens (more lenient for debugging)
+							if (tokenizedSelection.tokens.length === 0) {
+								console.log('PiiModifierExtension: No valid tokens found in selection');
+								// For debugging, let's still show what we got
+								console.log('PiiModifierExtension: Debug - tokenized result:', tokenizedSelection);
+								return;
+							}
+							
+							const validation = validateSelection(view, tokenizedSelection.from, tokenizedSelection.to);
 							if (!validation.valid) {
-								console.log('PiiModifierExtension: Selection conflicts with existing modifiers/PII');
+								console.log('PiiModifierExtension: Tokenized selection conflicts with existing modifiers/PII');
 								return;
 							}
 
 							const entityInfo = {
-								from: trimmedSelection.from,
-								to: trimmedSelection.to,
-								text: trimmedSelection.text
+								from: tokenizedSelection.from,
+								to: tokenizedSelection.to,
+								text: tokenizedSelection.text
 							};
 							
 							console.log('PiiModifierExtension: Valid selection detected:', entityInfo);
