@@ -1449,27 +1449,27 @@ export function addPiiModifierStyles() {
 
 		/* Modifier highlighting styles */
 		.pii-modifier-highlight {
-			background-color: rgba(251, 191, 36, 0.15);
-			border-bottom: 2px solid rgba(251, 191, 36, 0.4);
+			background-color: rgba(34, 197, 94, 0.15); /* Green background for active modifiers */
+			border-bottom: 2px solid rgba(34, 197, 94, 0.4);
 			border-radius: 3px;
 			padding: 1px 2px;
 			font-weight: 500;
 			cursor: pointer;
-			color: #d97706; /* Yellow/amber text */
+			color: #16a34a; /* Green text */
 		}
 
 		.pii-modifier-highlight.pii-modifier-mask {
-			background-color: rgba(251, 191, 36, 0.15);
-			border-bottom-color: rgba(251, 191, 36, 0.4);
-			color: #d97706; /* Yellow/amber text for mask modifiers too */
+			background-color: rgba(34, 197, 94, 0.15); /* Green background for mask modifiers */
+			border-bottom-color: rgba(34, 197, 94, 0.4);
+			color: #16a34a; /* Green text for mask modifiers */
 		}
 
 		.pii-modifier-highlight:hover {
-			background-color: rgba(251, 191, 36, 0.25);
+			background-color: rgba(34, 197, 94, 0.25); /* Darker green on hover */
 		}
 
 		.pii-modifier-highlight.pii-modifier-mask:hover {
-			background-color: rgba(251, 191, 36, 0.25);
+			background-color: rgba(34, 197, 94, 0.25); /* Darker green on hover */
 		}
 	`;
 
