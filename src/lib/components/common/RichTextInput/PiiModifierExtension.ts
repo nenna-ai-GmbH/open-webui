@@ -405,12 +405,13 @@ function findBestMatch(input: string, labels: string[]): string | null {
 function createHoverMenu(
 	wordInfo: { word: string; from: number; to: number; x: number; y: number },
 	onIgnore: () => void,
-	onMask: (label: string) => void,
+	onMask: (label: string, useOriginalSelection?: boolean) => void,
 	showIgnoreButton: boolean = false,
 	existingModifiers: PiiModifier[] = [],
 	onRemoveModifier?: (modifierId: string) => void,
 	timeoutManager?: { clearAll: () => void; setFallback: (callback: () => void, delay: number) => void },
-	showTextField: boolean = true
+	showTextField: boolean = true,
+	originalSelection?: { word: string; from: number; to: number } // Add original selection info
 ): HTMLElement {
 	const menu = document.createElement('div');
 	menu.className = 'pii-modifier-hover-menu';
@@ -550,6 +551,104 @@ function createHoverMenu(
 		menu.appendChild(ignoreBtn);
 	}
 
+	// Selection choice section (only show if we have different selections)
+	let selectedUseOriginal = false; // Default to tokenized selection
+	const hasSelectionChoice = originalSelection && (
+		originalSelection.word !== wordInfo.word || 
+		originalSelection.from !== wordInfo.from || 
+		originalSelection.to !== wordInfo.to
+	);
+
+	if (hasSelectionChoice && showTextField) {
+		const selectionSection = document.createElement('div');
+		selectionSection.style.cssText = `
+			margin-bottom: 8px;
+			padding: 8px;
+			background: #f8f9fa;
+			border-radius: 4px;
+			border: 1px solid #e9ecef;
+		`;
+
+		const selectionTitle = document.createElement('div');
+		selectionTitle.textContent = 'Selection:';
+		selectionTitle.style.cssText = `
+			font-weight: 600;
+			font-size: 11px;
+			color: #666;
+			margin-bottom: 6px;
+		`;
+		selectionSection.appendChild(selectionTitle);
+
+		// Smart selection radio option
+		const smartOption = document.createElement('label');
+		smartOption.style.cssText = `
+			display: flex;
+			align-items: flex-start;
+			gap: 6px;
+			cursor: pointer;
+			margin-bottom: 4px;
+			font-size: 11px;
+		`;
+		
+		const smartRadio = document.createElement('input');
+		smartRadio.type = 'radio';
+		smartRadio.name = 'selectionChoice';
+		smartRadio.value = 'smart';
+		smartRadio.checked = true;
+		smartRadio.style.cssText = `margin-top: 1px; flex-shrink: 0;`;
+		
+		const smartLabel = document.createElement('div');
+		const smartDisplayText = wordInfo.word.length > 40 ? wordInfo.word.substring(0, 40) + '...' : wordInfo.word;
+		smartLabel.innerHTML = `<strong>Smart:</strong> "${smartDisplayText}"`;
+		smartLabel.style.cssText = `color: #333;`;
+		
+		smartOption.appendChild(smartRadio);
+		smartOption.appendChild(smartLabel);
+		selectionSection.appendChild(smartOption);
+
+		// Original selection radio option
+		const originalOption = document.createElement('label');
+		originalOption.style.cssText = `
+			display: flex;
+			align-items: flex-start;
+			gap: 6px;
+			cursor: pointer;
+			font-size: 11px;
+		`;
+		
+		const originalRadio = document.createElement('input');
+		originalRadio.type = 'radio';
+		originalRadio.name = 'selectionChoice';
+		originalRadio.value = 'original';
+		originalRadio.style.cssText = `margin-top: 1px; flex-shrink: 0;`;
+		
+		const originalLabel = document.createElement('div');
+		const originalDisplayText = originalSelection.word.length > 40 ? originalSelection.word.substring(0, 40) + '...' : originalSelection.word;
+		originalLabel.innerHTML = `<strong>Exact:</strong> "${originalDisplayText}"`;
+		originalLabel.style.cssText = `color: #333;`;
+		
+		originalOption.appendChild(originalRadio);
+		originalOption.appendChild(originalLabel);
+		selectionSection.appendChild(originalOption);
+
+		// Radio button change handlers
+		smartRadio.addEventListener('change', (e) => {
+			e.stopPropagation();
+			if (smartRadio.checked) {
+				selectedUseOriginal = false;
+			}
+		});
+
+		originalRadio.addEventListener('change', (e) => {
+			e.stopPropagation();
+			if (originalRadio.checked) {
+				selectedUseOriginal = true;
+			}
+		});
+
+		menu.appendChild(selectionSection);
+	}
+
 	// Label input section (only show if showTextField is true)
 	if (showTextField) {
 		const labelSection = document.createElement('div');
@@ -648,7 +747,7 @@ function createHoverMenu(
 			e.preventDefault();
 			const label = isDefaultValue ? 'CUSTOM' : labelInput.value.trim().toUpperCase();
 			if (label) {
-				onMask(label);
+				onMask(label, selectedUseOriginal);
 			}
 		} else if (e.key === 'Tab') {
 			// Accept the current autocompletion on Tab
@@ -704,7 +803,7 @@ function createHoverMenu(
 		e.stopPropagation();
 		const label = isDefaultValue ? 'CUSTOM' : labelInput.value.trim().toUpperCase();
 		if (label) {
-			onMask(label);
+			onMask(label, selectedUseOriginal);
 		} else {
 			// Highlight input if empty
 			labelInput.style.borderColor = '#ff6b6b';
@@ -1050,7 +1149,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 									timeoutManager.clearAll();
 								};
 
-								const onMask = (label: string) => {
+								const onMask = (label: string, useOriginalSelection?: boolean) => {
 									const tr = view.state.tr.setMeta(piiModifierExtensionKey, {
 										type: 'ADD_MODIFIER',
 										modifierType: 'mask' as ModifierType,
@@ -1098,7 +1197,8 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 									existingModifiers, // Pass existing modifiers
 									onRemoveModifier, // Pass removal callback
 									timeoutManager, // Pass timeout manager
-									!hasIgnoreModifier // Show text field unless entity is ignored
+									!hasIgnoreModifier, // Show text field unless entity is ignored
+									undefined // No original selection for existing entities
 								);
 
 								document.body.appendChild(hoverMenuElement);
@@ -1129,6 +1229,13 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 								return;
 							}
 
+							// Get the original user selection first
+							const originalSelection = {
+								from: selection.from,
+								to: selection.to,
+								text: getSelectionText(view.state.doc, selection.from, selection.to).trim()
+							};
+
 							// Use tokenizer to expand selection to whole word boundaries
 							const tokenizedSelection = tokenizeSelection(view.state.doc, selection.from, selection.to);
 							
@@ -1146,19 +1253,29 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 								return;
 							}
 							
+							// Validate the original selection too
+							if (originalSelection.text.length < 2 || originalSelection.text.length > 100) {
+								console.log('PiiModifierExtension: Original selection invalid length:', originalSelection.text.length);
+								return;
+							}
+							
 							const validation = validateSelection(view, tokenizedSelection.from, tokenizedSelection.to);
 							if (!validation.valid) {
 								console.log('PiiModifierExtension: Tokenized selection conflicts with existing modifiers/PII');
 								return;
 							}
 
+							// Use tokenized selection as the primary option
 							const entityInfo = {
 								from: tokenizedSelection.from,
 								to: tokenizedSelection.to,
 								text: tokenizedSelection.text
 							};
 							
-							console.log('PiiModifierExtension: Valid selection detected:', entityInfo);
+							console.log('PiiModifierExtension: Valid selection detected:', {
+								original: originalSelection,
+								tokenized: entityInfo
+							});
 
 							// Check if text is currently highlighted as PII (by PII detection)
 							const isPiiHighlighted = document.querySelector(`[data-pii-text="${entityInfo.text}"]`) !== null;
@@ -1207,6 +1324,8 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 							};
 
 							const onIgnore = () => {
+								// For ignore operations, we'll use the tokenized selection by default
+								// since ignore is primarily used for already-detected PII
 								const tr = view.state.tr.setMeta(piiModifierExtensionKey, {
 									type: 'ADD_MODIFIER',
 									modifierType: 'ignore' as ModifierType,
@@ -1224,14 +1343,17 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 								timeoutManager.clearAll();
 							};
 
-							const onMask = (label: string) => {
+							const onMask = (label: string, useOriginalSelection?: boolean) => {
+								// Choose which selection to use based on radio button
+								const selectedEntity = useOriginalSelection ? originalSelection : entityInfo;
+								
 								const tr = view.state.tr.setMeta(piiModifierExtensionKey, {
 									type: 'ADD_MODIFIER',
 									modifierType: 'mask' as ModifierType,
-									entity: entityInfo.text,
+									entity: selectedEntity.text,
 									label,
-									from: entityInfo.from,
-									to: entityInfo.to,
+									from: selectedEntity.from,
+									to: selectedEntity.to,
 									view: view
 								});
 								view.dispatch(tr);
@@ -1272,7 +1394,8 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 								existingModifiers,
 								onRemoveModifier,
 								timeoutManager,
-								!hasIgnoreModifier
+								!hasIgnoreModifier,
+								{ word: originalSelection.text, from: originalSelection.from, to: originalSelection.to } // Pass original selection for radio button choice
 							);
 
 							document.body.appendChild(hoverMenuElement);
@@ -1445,6 +1568,22 @@ export function addPiiModifierStyles() {
 			outline: none;
 			border-color: #4ecdc4;
 			box-shadow: 0 0 0 2px rgba(78, 205, 196, 0.2);
+		}
+
+		/* Radio button styles */
+		.pii-modifier-hover-menu input[type="radio"] {
+			accent-color: #6b46c1;
+		}
+
+		.pii-modifier-hover-menu label:hover {
+			background-color: rgba(255, 255, 255, 0.5);
+			border-radius: 2px;
+			transition: background-color 0.1s ease;
+		}
+
+		/* Selection preview styles */
+		.pii-modifier-hover-menu strong {
+			color: #6b46c1;
 		}
 
 		/* Modifier highlighting styles */
