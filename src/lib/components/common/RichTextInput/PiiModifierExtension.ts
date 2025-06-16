@@ -43,50 +43,7 @@ function generateModifierId(): string {
 	return `modifier_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }
 
-// Find word boundaries at a given position
-function findWordAt(doc: ProseMirrorNode, pos: number): { from: number; to: number; text: string } | null {
-	let from = pos;
-	let to = pos;
-	let text = '';
 
-	// Find word boundaries by traversing text nodes
-	doc.nodesBetween(0, doc.content.size, (node, nodePos) => {
-		if (node.isText && node.text) {
-			const nodeStart = nodePos;
-			const nodeEnd = nodePos + node.text.length;
-
-			if (pos >= nodeStart && pos <= nodeEnd) {
-				const relativePos = pos - nodeStart;
-				const nodeText = node.text;
-
-				// Find word start
-				let wordStart = relativePos;
-				while (wordStart > 0 && /\w/.test(nodeText[wordStart - 1])) {
-					wordStart--;
-				}
-
-				// Find word end
-				let wordEnd = relativePos;
-				while (wordEnd < nodeText.length && /\w/.test(nodeText[wordEnd])) {
-					wordEnd++;
-				}
-
-				// Only proceed if we're actually within a word
-				if (wordStart < wordEnd && relativePos >= wordStart && relativePos <= wordEnd) {
-					from = nodeStart + wordStart;
-					to = nodeStart + wordEnd;
-					text = nodeText.substring(wordStart, wordEnd);
-				}
-				return false; // Stop searching
-			}
-		}
-	});
-
-	if (text && text.length >= 2) {
-		return { from, to, text };
-	}
-	return null;
-}
 
 // Extract text content from a selection range
 function getSelectionText(doc: ProseMirrorNode, from: number, to: number): string {
@@ -224,6 +181,7 @@ function validateSelection(view: any, from: number, to: number): { valid: boolea
 	return { valid: true, text };
 }
 
+
 // Find existing PII or modifier element under mouse cursor
 function findExistingEntityAtPosition(view: any, clientX: number, clientY: number): { from: number; to: number; text: string; type: 'pii' | 'modifier' } | null {
 	const target = document.elementFromPoint(clientX, clientY) as HTMLElement;
@@ -315,8 +273,6 @@ function findExistingEntityAtPosition(view: any, clientX: number, clientY: numbe
 	return null;
 }
 
-
-
 // Predefined PII labels for autocompletion (from SPACY_LABEL_MAPPINGS values)
 const PREDEFINED_LABELS = [
 	'ADDRESS', 'BANK_ACCOUNT_NUMBER', 'ID_NUMBER', 'HEALTH_DATA', 'LOCATION', 
@@ -399,91 +355,70 @@ function createHoverMenu(
 	header.appendChild(textNode);
 	menu.appendChild(header);
 
-	// Show existing modifiers if any
+	// Show existing modifier if any (simplified - one modifier per entity)
 	if (existingModifiers.length > 0) {
-		const modifiersSection = document.createElement('div');
-		modifiersSection.style.cssText = `
-			margin-bottom: 12px;
-			padding: 8px;
+		const modifier = existingModifiers[0]; // Only show the first (and should be only) modifier
+		const modifierLine = document.createElement('div');
+		modifierLine.style.cssText = `
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+			padding: 6px 8px;
+			margin-bottom: 8px;
 			background: #f8f9fa;
 			border-radius: 4px;
 			border: 1px solid #e9ecef;
+			font-size: 12px;
 		`;
 
-		const modifiersHeader = document.createElement('div');
-		modifiersHeader.textContent = 'Current Modifiers:';
-		modifiersHeader.style.cssText = `
-			font-weight: 600;
-			font-size: 11px;
+		const modifierInfo = document.createElement('span');
+		const typeIcon = modifier.type === 'ignore' ? '🚫' : '🏷️';
+		const typeText = modifier.type === 'ignore' ? 'Ignored' : modifier.label;
+		modifierInfo.textContent = `${typeIcon} ${typeText}`;
+		modifierInfo.style.cssText = `
 			color: #495057;
-			margin-bottom: 6px;
+			flex: 1;
+			font-weight: 500;
 		`;
-		modifiersSection.appendChild(modifiersHeader);
 
-		existingModifiers.forEach((modifier) => {
-			const modifierItem = document.createElement('div');
-			modifierItem.style.cssText = `
-				display: flex;
-				justify-content: space-between;
-				align-items: center;
-				padding: 4px 6px;
-				margin-bottom: 4px;
-				background: white;
-				border-radius: 3px;
-				border: 1px solid #dee2e6;
-				font-size: 11px;
-			`;
+		const removeBtn = document.createElement('button');
+		removeBtn.textContent = '✕';
+		removeBtn.title = 'Remove modifier';
+		removeBtn.style.cssText = `
+			background: #dc3545;
+			color: white;
+			border: none;
+			border-radius: 2px;
+			width: 16px;
+			height: 16px;
+			cursor: pointer;
+			font-size: 10px;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			flex-shrink: 0;
+			margin-left: 8px;
+		`;
 
-			const modifierInfo = document.createElement('span');
-			const typeIcon = modifier.type === 'ignore' ? '🚫' : '🏷️';
-			const typeText = modifier.type === 'ignore' ? 'Ignore' : `Mask as ${modifier.label}`;
-			modifierInfo.textContent = `${typeIcon} ${typeText}`;
-			modifierInfo.style.cssText = `
-				color: #495057;
-				flex: 1;
-			`;
-
-			const removeBtn = document.createElement('button');
-			removeBtn.textContent = '✕';
-			removeBtn.title = 'Remove modifier';
-			removeBtn.style.cssText = `
-				background: #dc3545;
-				color: white;
-				border: none;
-				border-radius: 2px;
-				width: 18px;
-				height: 18px;
-				cursor: pointer;
-				font-size: 10px;
-				display: flex;
-				align-items: center;
-				justify-content: center;
-				flex-shrink: 0;
-				margin-left: 6px;
-			`;
-
-			removeBtn.addEventListener('click', (e) => {
-				e.preventDefault();
-				e.stopPropagation();
-				if (onRemoveModifier) {
-					onRemoveModifier(modifier.id);
-				}
-			});
-
-			removeBtn.addEventListener('mouseenter', () => {
-				removeBtn.style.backgroundColor = '#c82333';
-			});
-
-			removeBtn.addEventListener('mouseleave', () => {
-				removeBtn.style.backgroundColor = '#dc3545';
-			});
-
-			modifierItem.appendChild(modifierInfo);
-			modifierItem.appendChild(removeBtn);
-			modifiersSection.appendChild(modifierItem);
+		removeBtn.addEventListener('click', (e) => {
+			e.preventDefault();
+			e.stopPropagation();
+			if (onRemoveModifier) {
+				onRemoveModifier(modifier.id);
+			}
 		});
 
-		menu.appendChild(modifiersSection);
+		removeBtn.addEventListener('mouseenter', () => {
+			removeBtn.style.backgroundColor = '#c82333';
+		});
+
+		removeBtn.addEventListener('mouseleave', () => {
+			removeBtn.style.backgroundColor = '#dc3545';
+		});
+
+		modifierLine.appendChild(modifierInfo);
+		modifierLine.appendChild(removeBtn);
+		menu.appendChild(modifierLine);
 	}
 
 	// Ignore button (only show if word is detected as PII)
@@ -878,7 +813,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 
 			props: {
 				handleClick(view, pos, event) {
-					// Only hide hover menu if clicking outside of it
+					// Hide menu immediately when clicking anywhere
 					if (hoverMenuElement) {
 						const target = event.target as HTMLElement;
 						const isClickInsideMenu = hoverMenuElement.contains(target);
@@ -887,8 +822,37 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 							hoverMenuElement.remove();
 							hoverMenuElement = null;
 							isInputFocused = false;
+							// Clear all timeouts
+							if (hoverTimeout) {
+								clearTimeout(hoverTimeout);
+								hoverTimeout = null;
+							}
+							if (menuCloseTimeout) {
+								clearTimeout(menuCloseTimeout);
+								menuCloseTimeout = null;
+							}
 						}
 					}
+
+					// Also check if selection was cleared by this click
+					setTimeout(() => {
+						const selection = view.state.selection;
+						if (selection.from === selection.to && hoverMenuElement) {
+							// Selection is empty and menu is still open - hide it
+							hoverMenuElement.remove();
+							hoverMenuElement = null;
+							isInputFocused = false;
+							// Clear all timeouts
+							if (hoverTimeout) {
+								clearTimeout(hoverTimeout);
+								hoverTimeout = null;
+							}
+							if (menuCloseTimeout) {
+								clearTimeout(menuCloseTimeout);
+								menuCloseTimeout = null;
+							}
+						}
+					}, 0);
 
 					return false;
 				},
@@ -903,129 +867,206 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 
 				handleDOMEvents: {
 					mousemove: (view, event) => {
-						// Check if mouse is over existing menu
-						const isOverMenu = hoverMenuElement && hoverMenuElement.contains(event.target as Node);
-						
-						if (isOverMenu) {
-							// Update mouse over menu state
-							if (!isMouseOverMenu) {
-								isMouseOverMenu = true;
-							}
-							
-							// Clear any pending timeouts to keep menu stable
-							if (hoverTimeout) {
-								clearTimeout(hoverTimeout);
-								hoverTimeout = null;
-							}
-							if (menuCloseTimeout) {
-								clearTimeout(menuCloseTimeout);
-								menuCloseTimeout = null;
-							}
-							return;
-						} else {
-							// Mouse left menu area
-							if (isMouseOverMenu) {
-								isMouseOverMenu = false;
-							}
-						}
-
-						// Clear existing timeout
-						if (hoverTimeout) {
-							clearTimeout(hoverTimeout);
-						}
-
-						// Check if we're hovering over existing marked text for faster response
+						// Only handle hover for existing PII/modifier highlights - not for new text
 						const target = document.elementFromPoint(event.clientX, event.clientY) as HTMLElement;
-						const isOverExistingEntity = target && (
+						const overExistingEntity = target && (
 							target.closest('.pii-highlight') || 
 							target.closest('.pii-modifier-highlight')
 						);
-						
-						// Use different delays based on whether text is already marked
-						const hoverDelay = isOverExistingEntity ? 300 : 800; // Fast for marked text, slower for unmarked
 
-						// Set new timeout for hover
-						hoverTimeout = window.setTimeout(() => {
-							// First check if there's a text selection
-							const selection = view.state.selection;
-							let entityInfo: { from: number; to: number; text: string } | null = null;
-							
-							if (selection.from !== selection.to) {
-								// Handle selection case - first trim spaces from selection
-								const trimmedSelection = trimSelectionSpaces(view.state.doc, selection.from, selection.to);
-								
-								if (trimmedSelection.text.length < 2) {
-									console.log('PiiModifierExtension: Selection too short after trimming spaces');
-									// Hide menu if selection is too short
-									if (hoverMenuElement) {
-										hoverMenuElement.remove();
-										hoverMenuElement = null;
-									}
-									return;
-								}
-								
-								const validation = validateSelection(view, trimmedSelection.from, trimmedSelection.to);
-								if (validation.valid) {
-									entityInfo = {
-										from: trimmedSelection.from,
-										to: trimmedSelection.to,
-										text: trimmedSelection.text
-									};
-									console.log('PiiModifierExtension: Valid trimmed selection detected:', entityInfo);
-								} else {
-									console.log('PiiModifierExtension: Invalid selection - conflicts with existing modifiers/PII');
-									// Hide menu if selection is invalid
-									if (hoverMenuElement) {
-										hoverMenuElement.remove();
-										hoverMenuElement = null;
-									}
-									return;
-								}
-							} else {
-								// First check if we're hovering over an existing PII/modifier element
-								const existingEntity = findExistingEntityAtPosition(view, event.clientX, event.clientY);
-								if (existingEntity) {
-									entityInfo = existingEntity;
-									console.log('PiiModifierExtension: Hovering over existing entity:', existingEntity);
-								} else {
-									// Handle hover case (single word)
-									const pos = view.posAtCoords({ left: event.clientX, top: event.clientY });
-									if (!pos) return;
-
-									const wordInfo = findWordAt(view.state.doc, pos.pos);
-									if (!wordInfo) {
-										// Hide menu if no word found
-										if (hoverMenuElement) {
-											hoverMenuElement.remove();
-											hoverMenuElement = null;
-										}
-										return;
-									}
-									entityInfo = wordInfo;
-								}
+						// If we're over an existing entity and no menu is currently shown
+						if (overExistingEntity && !hoverMenuElement) {
+							// Clear existing timeout
+							if (hoverTimeout) {
+								clearTimeout(hoverTimeout);
 							}
 
-							if (!entityInfo) return;
+							// Set new timeout for hover
+							hoverTimeout = window.setTimeout(() => {
+								const existingEntity = findExistingEntityAtPosition(view, event.clientX, event.clientY);
+								if (!existingEntity) return;
+
+								console.log('PiiModifierExtension: Hovering over existing entity:', existingEntity);
+
+								// Find existing modifiers for this entity (check entity text match)
+								const pluginState = piiModifierExtensionKey.getState(view.state);
+								const existingModifiers = pluginState?.modifiers.filter(modifier => {
+									// Check if modifier's entity text matches the current entity (case-insensitive)
+									return modifier.entity.toLowerCase() === existingEntity.text.toLowerCase();
+								}) || [];
+
+								// Check if there are any mask modifiers for this entity
+								const hasMaskModifier = existingModifiers.some(modifier => modifier.type === 'mask');
+								// Check if there are any ignore modifiers for this entity
+								const hasIgnoreModifier = existingModifiers.some(modifier => modifier.type === 'ignore');
+
+								// For existing entities, always show ignore button if it's PII, and always show text field unless ignored
+								const isPiiEntity = existingEntity.type === 'pii';
+
+								// Create timeout manager
+								const timeoutManager = {
+									clearAll: () => {
+										if (hoverTimeout) {
+											clearTimeout(hoverTimeout);
+											hoverTimeout = null;
+										}
+										if (menuCloseTimeout) {
+											clearTimeout(menuCloseTimeout);
+											menuCloseTimeout = null;
+										}
+									},
+									setFallback: (callback: () => void, delay: number) => {
+										if (menuCloseTimeout) {
+											clearTimeout(menuCloseTimeout);
+										}
+										menuCloseTimeout = setTimeout(callback, delay);
+									},
+									setInputFocused: (focused: boolean) => {
+										isInputFocused = focused;
+									}
+								};
+
+								const onIgnore = () => {
+									const tr = view.state.tr.setMeta(piiModifierExtensionKey, {
+										type: 'ADD_MODIFIER',
+										modifierType: 'ignore' as ModifierType,
+										entity: existingEntity.text,
+										from: existingEntity.from,
+										to: existingEntity.to,
+										view: view
+									});
+									view.dispatch(tr);
+
+									if (hoverMenuElement) {
+										hoverMenuElement.remove();
+										hoverMenuElement = null;
+									}
+									timeoutManager.clearAll();
+								};
+
+								const onMask = (label: string) => {
+									const tr = view.state.tr.setMeta(piiModifierExtensionKey, {
+										type: 'ADD_MODIFIER',
+										modifierType: 'mask' as ModifierType,
+										entity: existingEntity.text,
+										label,
+										from: existingEntity.from,
+										to: existingEntity.to,
+										view: view
+									});
+									view.dispatch(tr);
+
+									if (hoverMenuElement) {
+										hoverMenuElement.remove();
+										hoverMenuElement = null;
+									}
+									timeoutManager.clearAll();
+								};
+
+								const onRemoveModifier = (modifierId: string) => {
+									const tr = view.state.tr.setMeta(piiModifierExtensionKey, {
+										type: 'REMOVE_MODIFIER',
+										modifierId,
+										view: view
+									});
+									view.dispatch(tr);
+
+									if (hoverMenuElement) {
+										hoverMenuElement.remove();
+										hoverMenuElement = null;
+									}
+									timeoutManager.clearAll();
+								};
+
+								hoverMenuElement = createHoverMenu(
+									{
+										word: existingEntity.text,
+										from: existingEntity.from,
+										to: existingEntity.to,
+										x: event.clientX,
+										y: event.clientY
+									},
+									onIgnore,
+									onMask,
+									isPiiEntity && !hasMaskModifier, // Show ignore button for PII entities without mask modifiers
+									existingModifiers, // Pass existing modifiers
+									onRemoveModifier, // Pass removal callback
+									timeoutManager, // Pass timeout manager
+									!hasIgnoreModifier // Show text field unless entity is ignored
+								);
+
+								document.body.appendChild(hoverMenuElement);
+
+								// Set a fallback timeout to close menu after 10 seconds of inactivity
+								timeoutManager.setFallback(() => {
+									if (hoverMenuElement) {
+										hoverMenuElement.remove();
+										hoverMenuElement = null;
+									}
+								}, 10000);
+
+							}, 300); // 300ms hover delay for existing entities
+						} else if (!overExistingEntity && hoverTimeout) {
+							// Clear hover timeout if not over existing entity
+							clearTimeout(hoverTimeout);
+							hoverTimeout = null;
+						}
+					},
+
+					mouseup: (view, event) => {
+						// Check if there's a text selection after mouseup
+						setTimeout(() => {
+							const selection = view.state.selection;
+							
+							if (selection.empty) {
+								// No selection - already handled by apply method 
+								return;
+							}
+
+							// Handle selection case - first trim spaces from selection
+							const trimmedSelection = trimSelectionSpaces(view.state.doc, selection.from, selection.to);
+							
+							if (trimmedSelection.text.length < 2 || trimmedSelection.text.length > 100) {
+								console.log('PiiModifierExtension: Selection invalid length');
+								return;
+							}
+							
+							const validation = validateSelection(view, trimmedSelection.from, trimmedSelection.to);
+							if (!validation.valid) {
+								console.log('PiiModifierExtension: Selection conflicts with existing modifiers/PII');
+								return;
+							}
+
+							const entityInfo = {
+								from: trimmedSelection.from,
+								to: trimmedSelection.to,
+								text: trimmedSelection.text
+							};
+							
+							console.log('PiiModifierExtension: Valid selection detected:', entityInfo);
 
 							// Check if text is currently highlighted as PII (by PII detection)
 							const isPiiHighlighted = document.querySelector(`[data-pii-text="${entityInfo.text}"]`) !== null;
 
-							// Find existing modifiers for this entity (check entity text match)
+							// Find existing modifiers for this entity
 							const pluginState = piiModifierExtensionKey.getState(view.state);
 							const existingModifiers = pluginState?.modifiers.filter(modifier => {
-								// Check if modifier's entity text matches the current entity (case-insensitive)
 								return modifier.entity.toLowerCase() === entityInfo.text.toLowerCase();
 							}) || [];
 
-							// Check if there are any mask modifiers for this entity
 							const hasMaskModifier = existingModifiers.some(modifier => modifier.type === 'mask');
-							// Check if there are any ignore modifiers for this entity
 							const hasIgnoreModifier = existingModifiers.some(modifier => modifier.type === 'ignore');
 
-							// Show hover menu
+							// Hide existing menu first
 							if (hoverMenuElement) {
 								hoverMenuElement.remove();
+								hoverMenuElement = null;
 							}
+
+							// Get position for menu placement
+							const selectionCoords = view.coordsAtPos(selection.from);
+							const menuX = selectionCoords.left;
+							const menuY = selectionCoords.top - 80;
 
 							// Create timeout manager
 							const timeoutManager = {
@@ -1054,9 +1095,9 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 								const tr = view.state.tr.setMeta(piiModifierExtensionKey, {
 									type: 'ADD_MODIFIER',
 									modifierType: 'ignore' as ModifierType,
-									entity: entityInfo!.text,
-									from: entityInfo!.from,
-									to: entityInfo!.to,
+									entity: entityInfo.text,
+									from: entityInfo.from,
+									to: entityInfo.to,
 									view: view
 								});
 								view.dispatch(tr);
@@ -1072,10 +1113,10 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 								const tr = view.state.tr.setMeta(piiModifierExtensionKey, {
 									type: 'ADD_MODIFIER',
 									modifierType: 'mask' as ModifierType,
-									entity: entityInfo!.text,
+									entity: entityInfo.text,
 									label,
-									from: entityInfo!.from,
-									to: entityInfo!.to,
+									from: entityInfo.from,
+									to: entityInfo.to,
 									view: view
 								});
 								view.dispatch(tr);
@@ -1107,21 +1148,21 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 									word: entityInfo.text,
 									from: entityInfo.from,
 									to: entityInfo.to,
-									x: event.clientX,
-									y: event.clientY
+									x: menuX,
+									y: menuY
 								},
 								onIgnore,
 								onMask,
-								isPiiHighlighted && !hasMaskModifier, // Show ignore button only if detected as PII AND no mask modifier exists
-								existingModifiers, // Pass existing modifiers
-								onRemoveModifier, // Pass removal callback
-								timeoutManager, // Pass timeout manager
-								!hasIgnoreModifier // Show text field only if no ignore modifier exists
+								isPiiHighlighted && !hasMaskModifier,
+								existingModifiers,
+								onRemoveModifier,
+								timeoutManager,
+								!hasIgnoreModifier
 							);
 
 							document.body.appendChild(hoverMenuElement);
 
-							// Set a fallback timeout to close menu after 10 seconds of inactivity
+							// Set a fallback timeout to close menu after 10 seconds
 							timeoutManager.setFallback(() => {
 								if (hoverMenuElement) {
 									hoverMenuElement.remove();
@@ -1129,21 +1170,70 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 								}
 							}, 10000);
 
-						}, hoverDelay); // Dynamic delay: 300ms for marked text, 800ms for unmarked text
-					},
-
-					mouseleave: () => {
-						// Clear timeout when leaving editor, but keep menu if it exists
-						if (hoverTimeout) {
-							clearTimeout(hoverTimeout);
-						}
+						}, 0); // Small delay to ensure selection is finalized
 					}
 				}
 			},
 
-			view() {
+			view(editorView) {
+				// Track selection changes to hide menu when selection is cleared
+				let lastSelection = editorView.state.selection;
+				
+				const checkSelectionChange = () => {
+					const currentSelection = editorView.state.selection;
+					
+					// If selection changed from non-empty to empty, hide menu immediately
+					if (!lastSelection.empty && currentSelection.empty && hoverMenuElement) {
+						console.log('PiiModifierExtension: Selection cleared, hiding menu');
+						hoverMenuElement.remove();
+						hoverMenuElement = null;
+						isInputFocused = false;
+						
+						// Clear any pending timeouts
+						if (hoverTimeout) {
+							clearTimeout(hoverTimeout);
+							hoverTimeout = null;
+						}
+						if (menuCloseTimeout) {
+							clearTimeout(menuCloseTimeout);
+							menuCloseTimeout = null;
+						}
+					}
+					
+					lastSelection = currentSelection;
+				};
+
+				// Set up a mutation observer to watch for selection changes
+				const observer = new MutationObserver(() => {
+					// Use requestAnimationFrame to ensure we check after DOM updates
+					requestAnimationFrame(checkSelectionChange);
+				});
+
+				// Start observing the editor for changes
+				observer.observe(editorView.dom, {
+					childList: true,
+					subtree: true,
+					attributes: true,
+					attributeFilter: ['class']
+				});
+
+				// Also listen for selection change events
+				const selectionChangeHandler = () => {
+					requestAnimationFrame(checkSelectionChange);
+				};
+
+				document.addEventListener('selectionchange', selectionChangeHandler);
+
 				return {
+					update: (view, prevState) => {
+						// Check selection on every update
+						checkSelectionChange();
+					},
 					destroy: () => {
+						// Clean up when plugin is destroyed
+						observer.disconnect();
+						document.removeEventListener('selectionchange', selectionChangeHandler);
+						
 						if (hoverMenuElement) {
 							hoverMenuElement.remove();
 							hoverMenuElement = null;
