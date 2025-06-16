@@ -61,6 +61,7 @@
 	// PII Detection imports
 	import { maskPiiTextWithSession, createPiiSession, type PiiEntity } from '$lib/apis/pii';
 	import { PiiSessionManager, type ExtendedPiiEntity } from '$lib/utils/pii';
+	import type { PiiModifier } from '$lib/components/common/RichTextInput/PiiModifierExtension';
 
 	const i18n = getContext('i18n');
 
@@ -127,6 +128,7 @@
 	// PII Detection state
 	let piiSessionManager = PiiSessionManager.getInstance();
 	let currentPiiEntities: ExtendedPiiEntity[] = [];
+	let currentModifiers: PiiModifier[] = [];
 	let maskedPrompt = '';
 
 	// Get PII settings from store
@@ -213,49 +215,80 @@
 		console.log('MessageInput: PII entities toggled, updated currentPiiEntities:', entities.length);
 	};
 
+	// PII Modifiers handler - update current modifiers when user creates/changes modifiers
+	const handlePiiModifiersChanged = (modifiers: PiiModifier[]) => {
+		currentModifiers = modifiers;
+		console.log('MessageInput: PII modifiers changed, updated currentModifiers:', modifiers.length);
+	};
+
 	// Function to get the prompt to send (masked if PII detected)
 	const getPromptToSend = (): string => {
-		if (!enablePiiDetection || !currentPiiEntities.length) {
+		if (!enablePiiDetection || (currentPiiEntities.length === 0 && currentModifiers.length === 0)) {
 			return prompt;
 		}
 
-		// Create a masked version based on user's masking preferences
+		// Create a masked version based on user's masking preferences and modifiers
 		let maskedText = prompt;
+		
+		// Process PII entities (traditional behavior)
 		const entitiesToMask = currentPiiEntities.filter((entity) => entity.shouldMask);
+		
+		// Process modifiers with labels (new behavior - this is the fix!)
+		const modifiersToReplace = currentModifiers.filter((modifier) => 
+			modifier.type === 'mask' && modifier.label && modifier.label.trim() !== ''
+		);
 
-		console.log('MessageInput: Creating masked prompt, entities to mask:', entitiesToMask.length);
-		console.log('MessageInput: Original prompt:', prompt.substring(0, 200));
+		console.log('MessageInput: Creating masked prompt:', {
+			originalPrompt: prompt.substring(0, 200),
+			piiEntitiesToMask: entitiesToMask.length,
+			modifiersToReplace: modifiersToReplace.length,
+			modifiersWithLabels: modifiersToReplace.map(m => ({ entity: m.entity, label: m.label }))
+		});
 
-		// Use a more robust approach: sort entities by raw text length (longest first)
-		// to avoid partial replacements, then replace by raw text instead of positions
-		const sortedEntities = entitiesToMask.sort((a, b) => b.raw_text.length - a.raw_text.length);
+		// Combine entities and modifiers for processing - sort by text length (longest first)
+		// to avoid partial replacements
+		const allReplacements = [
+			...entitiesToMask.map(entity => ({
+				text: entity.raw_text,
+				label: entity.label,
+				type: 'pii_entity'
+			})),
+			...modifiersToReplace.map(modifier => ({
+				text: modifier.entity,
+				label: modifier.label,
+				type: 'modifier'
+			}))
+		].sort((a, b) => b.text.length - a.text.length);
 
-		sortedEntities.forEach((entity) => {
-			if (!entity.raw_text || entity.raw_text.trim() === '') {
-				console.log('MessageInput: Skipping entity with empty raw text:', entity.label);
+		console.log('MessageInput: All replacements to process:', allReplacements);
+
+		// Process all replacements
+		allReplacements.forEach((replacement) => {
+			if (!replacement.text || replacement.text.trim() === '') {
+				console.log('MessageInput: Skipping replacement with empty text:', replacement.label);
 				return;
 			}
 
 			// Escape special regex characters
-			const escapedText = entity.raw_text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+			const escapedText = replacement.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 			
 			// Use word boundaries for better matching, but handle special characters gracefully
-			const hasSpecialChars = /[^\w\s]/.test(entity.raw_text);
+			const hasSpecialChars = /[^\w\s]/.test(replacement.text);
 			const regex = hasSpecialChars 
 				? new RegExp(escapedText, 'gi')
 				: new RegExp(`\\b${escapedText}\\b`, 'gi');
 
-			console.log('MessageInput: Replacing text for entity', entity.label, 'raw text:', entity.raw_text);
+			console.log('MessageInput: Replacing text for', replacement.type, replacement.label, 'text:', replacement.text);
 
-			// Replace all occurrences of the raw text with the masked pattern
-			const replacementPattern = `[{${entity.label}}]`;
+			// Replace all occurrences of the text with the masked pattern
+			const replacementPattern = `[{${replacement.label}}]`;
 			const beforeReplace = maskedText;
 			maskedText = maskedText.replace(regex, replacementPattern);
 			
 			if (maskedText !== beforeReplace) {
-				console.log('MessageInput: Successfully masked entity', entity.label);
+				console.log('MessageInput: Successfully replaced', replacement.type, replacement.label);
 			} else {
-				console.log('MessageInput: No replacements made for entity', entity.label);
+				console.log('MessageInput: No replacements made for', replacement.type, replacement.label);
 			}
 		});
 
@@ -806,6 +839,7 @@
 												conversationId={chatId || ''}
 												onPiiDetected={handlePiiDetected}
 												onPiiToggled={handlePiiToggled}
+												onPiiModifiersChanged={handlePiiModifiersChanged}
 												generateAutoCompletion={async (text) => {
 													if (selectedModelIds.length === 0 || !selectedModelIds.at(0)) {
 														toast.error($i18n.t('Please select a model first.'));
