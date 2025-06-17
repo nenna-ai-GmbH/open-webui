@@ -1,14 +1,18 @@
 # PII Modifier Extension
 
-A modular ProseMirror extension that allows users to hover over text and create modifiers (ignore or mask with custom labels) for the Shield API's PII detection system.
+A modular ProseMirror extension that allows users to select text and create modifiers (ignore or mask with custom labels) for the Shield API's PII detection system.
 
 ## Features
 
-- **Hover-Based Interaction**: Hover over words (3+ characters) to show modifier popup
+- **Hybrid Interaction Model**: 
+  - **Hover for existing entities**: Hover over already-detected PII or modifier highlights to manage them
+  - **Selection for new text**: Select new text (up to 100 characters) to create modifiers
 - **Custom Label Input**: Text field for entering custom PII labels
 - **Smart Context Menus**: Different options for already-detected PII vs. new text
 - **Ignore Modifiers**: Mark text to be ignored during PII detection
 - **Mask Modifiers**: Force text to be detected as PII with custom labels
+- **Character Count Limitation**: Only allows selections of 100 characters or fewer
+- **Easy Entity Management**: Hover over detected PII to quickly ignore or relabel it
 - **Shield API Integration**: Export modifiers in Shield API format
 - **State Management**: Store modifiers in editor state for PiiDetectionExtension to use
 - **Modular Design**: Minimal changes to existing code to prevent merge conflicts
@@ -65,12 +69,70 @@ editor = new Editor({
 
 ### Basic Usage
 
-1. **Hover Over Text**: Move your mouse over any word (3+ characters) in the editor
-2. **Wait for Popup**: After 300ms, a modifier popup will appear
+#### For New Text (Selection-Based)
+1. **Select Text**: Select any text (2+ characters, up to 100 characters) in the editor
+2. **Wait for Popup**: After releasing the mouse, a modifier popup will appear above the selection
+3. **Choose Selection Type**: If the smart tokenizer expands your selection, radio buttons will appear:
+   - **Smart**: Uses word boundary expansion (default) - e.g., "Joh" becomes "John"
+   - **Exact**: Uses your precise selection - keeps exactly what you selected
+4. **Choose Action**: Enter a custom label in the text field and click "Mark as PII"
+5. **Interact with Menu**: The popup stays open for 10 seconds or until you interact with it
+
+#### For Existing Entities (Hover-Based)  
+1. **Hover Over Highlighted Text**: Move your mouse over any PII highlight (yellow/green) or modifier highlight (amber)
+2. **Wait for Popup**: After 300ms, a modifier popup will appear near your cursor
 3. **Choose Action**:
-   - **For new text**: Enter a custom label in the text field and click "🎭 Mark as PII"
-   - **For already-detected PII**: Click "🚫 Ignore this PII" or enter a new label to override
-4. **Interact with Menu**: The popup stays open for 10 seconds or until you interact with it
+   - **For detected PII**: Click "🚫 Ignore this PII" or enter a new label to override detection
+   - **For existing modifiers**: Use the "✕" button to remove the modifier, or add a new one
+4. **Easy Management**: Quickly toggle between ignoring/masking existing entities
+
+### Selection Requirements & Tokenization
+
+The extension offers flexible selection handling with both smart tokenization and exact user selection:
+
+#### Smart Tokenization (Default)
+- **Word Boundary Expansion**: Automatically expands partial word selections to complete words
+- **Character Set**: Includes letters, numbers, apostrophes, hyphens, underscores, and German characters (`[\w'-äöüÄÖÜß]`)
+- **International Support**: Properly handles German umlauts (ä, ö, ü) and eszett (ß)
+- **Multi-word Support**: Handles phrases and compound terms seamlessly
+- **Backend Compatibility**: Aligns with Aho-Corasick algorithm used in backend PII detection
+
+#### Exact Selection (User Choice)
+- **Precise Control**: Uses exactly what the user selected without any expansion
+- **Character Preservation**: Maintains exact character boundaries including partial words
+- **Special Use Cases**: Useful for acronyms, codes, or when specific boundaries are needed
+- **Radio Button Choice**: Appears only when smart tokenization would change the selection
+
+#### Selection Validation
+The extension enforces the following requirements after tokenization:
+
+- **Minimum Length**: Tokenized text must be at least 2 characters
+- **Maximum Characters**: Tokenized text cannot exceed 100 characters  
+- **Valid Tokens**: Must contain at least one valid word token (2+ characters)
+- **Conflict Detection**: Prevents creating overlapping modifiers with existing modifiers or PII detection
+- **Automatic Trimming**: Leading and trailing spaces are automatically removed
+
+#### Selection Examples
+
+**Smart Tokenization (Default)**:
+- Selecting "Joh" → expands to "John"
+- Selecting "ohn Smi" → expands to "John Smith"  
+- Selecting "user@gmai" → expands to "user@gmail.com"
+- Selecting "555-12" → expands to "555-1234"
+- Selecting "Dr. Smi" → expands to "Dr. Smith"
+- Selecting "Mül" → expands to "Müller"
+- Selecting "Straß" → expands to "Straße"
+- Selecting "Björn Köh" → expands to "Björn Köhler"
+
+**User Selection Choice**:
+When the smart tokenizer would expand your selection, radio buttons appear:
+- **Smart**: "Dr. Smi" → "Dr. Smith" (recommended for names)
+- **Exact**: "Dr. Smi" → "Dr. Smi" (if you need the partial text)
+
+**When Radio Buttons Don't Appear**:
+- Selection already aligns with word boundaries
+- Smart tokenization doesn't change the selection
+- Only complete words were selected
 
 ### Programmatic Usage
 
@@ -103,8 +165,8 @@ The extension exports modifiers in the format expected by the Shield API:
     "ignore": ["EMAIL"]
   },
   "modifiers": [
-    { "type": "ignore", "entity": "Dr. Hahn" },
-    { "type": "mask", "entity": "A18.32", "label": "CASE" }
+    { "action": "ignore", "entity": "Dr. Hahn" },
+    { "action": "mask", "entity": "A18.32", "type": "CASE" }
   ]
 }
 ```
@@ -162,6 +224,11 @@ The PiiModifierExtension only provides the hover popup interface. It does not cr
 ### Hover Popup
 
 - Clean, modern design with shadow and rounded corners
+- **Selection choice radio buttons** (when smart/exact selections differ):
+  - Clearly labeled "Smart" vs "Exact" options
+  - Shows preview of each selection option
+  - Smart selection is pre-selected as default
+  - Compact layout with gray background section
 - Text input field for custom labels with auto-focus
 - Conditional ignore button (only shows for already-detected PII)
 - Auto-uppercase label conversion
@@ -223,18 +290,26 @@ The modifier extension works seamlessly alongside the existing PiiDetectionExten
 
 ## Interaction Details
 
-### Hover Behavior
+### Interaction Behavior
 
-- **Hover Delay**: 300ms before popup appears
-- **Word Detection**: Only words with 3+ characters trigger popup
-- **Boundary Detection**: Uses word boundaries to select complete words
+#### Selection Behavior (New Text)
+- **Selection Trigger**: Popup appears 100ms after mouse release (mouseup event)
+- **Text Validation**: Only selections with 2+ characters and ≤100 characters trigger popup
 - **Menu Duration**: Popup stays open for 10 seconds or until interaction
+- **Position**: Menu appears above the selected text
+
+#### Hover Behavior (Existing Entities)
+- **Hover Trigger**: Popup appears after 300ms hover over PII/modifier highlights
+- **Target Elements**: Only `.pii-highlight` and `.pii-modifier-highlight` elements trigger hover
+- **Menu Duration**: Popup stays open for 10 seconds or until interaction
+- **Position**: Menu appears near mouse cursor
 
 ### Smart Context Detection
 
-- **New Text**: Shows text input field and "Mark as PII" button
-- **Detected PII**: Shows "Ignore this PII" button + text input for relabeling  
-- **Words with Existing Modifiers**: No popup shown (modifiers managed through editor state)
+- **New Text (Selection)**: Shows text input field and "Mark as PII" button
+- **Detected PII (Hover)**: Shows "Ignore this PII" button + text input for relabeling  
+- **Existing Modifiers (Hover)**: Shows current modifier with remove button + option to add a new one
+- **Conflicting Selections**: No popup shown for selections that conflict with existing modifiers
 
 ## Examples
 
@@ -262,7 +337,7 @@ The modifier extension works seamlessly alongside the existing PiiDetectionExten
     enablePiiModifiers={true}
     piiApiKey={piiApiKey}
     onPiiModifiersChanged={handleModifiersChanged}
-    placeholder="Type your message and hover over words to add modifiers..."
+    placeholder="Type your message. Select new text or hover over highlighted text to add modifiers..."
 />
 
 <!-- No manual API calls needed - PiiDetectionExtension handles everything -->
@@ -288,16 +363,24 @@ export let onPiiModifiersChanged: (modifiers: PiiModifier[]) => void = () => {};
 
 ### Common Issues
 
-1. **Hover popup not appearing**: 
+1. **Popup not appearing**: 
    - Ensure `enablePiiModifiers` and `enablePiiDetection` are both true
-   - Check that you're hovering over words with 3+ characters
-   - Wait for the 300ms hover delay
+   - **For selection-based**: Check that your selection is 2+ characters and ≤100 characters
+   - **For hover-based**: Ensure you're hovering over highlighted PII or modifier text
+   - Verify the selection doesn't conflict with existing modifiers
+   - Wait for the appropriate delay (100ms for selection, 300ms for hover)
 
-2. **Styles not applied**: 
+2. **Radio buttons not appearing**:
+   - Radio buttons only appear when smart tokenization would change your selection
+   - If your selection already aligns with word boundaries, no choice is needed
+   - Both original and tokenized selections must be valid (2+ chars, ≤100 chars)
+   - Check console for tokenization debug messages
+
+3. **Styles not applied**: 
    - Verify `addPiiModifierStyles()` is called in `onMount`
    - Check browser console for CSS errors
 
-3. **Modifiers not affecting detection**: 
+4. **Modifiers not affecting detection**: 
    - Ensure PiiDetectionExtension is properly reading modifiers from editor state
    - Check that both extensions are enabled in the same editor instance
    - Verify that modifiers are being created (check `onPiiModifiersChanged` callback)

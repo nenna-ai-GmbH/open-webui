@@ -432,10 +432,29 @@
 		}
 	};
 
+	// Listen for PII state updates and save to localStorage
+	const handlePiiStateUpdate = async (event) => {
+		const { conversationId, piiState } = event.detail;
+		console.log('Chat: Received PII state update event:', {
+			eventConversationId: conversationId,
+			currentChatId: $chatId,
+			willSave: conversationId === $chatId,
+			piiStateEntitiesCount: piiState?.entities?.length || 0
+		});
+		
+		if (conversationId === $chatId) {
+			console.log('Chat: Saving chat with PII state update to localStorage/API');
+			await saveChatHandler(conversationId, history);
+		} else {
+			console.log('Chat: Ignoring PII state update for different conversation');
+		}
+	};
+
 	onMount(async () => {
 		loading = true;
 		console.log('mounted');
 		window.addEventListener('message', onMessageHandler);
+		window.addEventListener('pii-state-updated', handlePiiStateUpdate);
 		$socket?.on('chat-events', chatEventHandler);
 
 		page.subscribe((page) => {
@@ -517,6 +536,7 @@
 	onDestroy(() => {
 		chatIdUnsubscriber?.();
 		window.removeEventListener('message', onMessageHandler);
+		window.removeEventListener('pii-state-updated', handlePiiStateUpdate);
 		$socket?.off('chat-events', chatEventHandler);
 	});
 
@@ -1981,6 +2001,13 @@
 				const piiManager = PiiSessionManager.getInstance();
 				const piiState = piiManager.getConversationStateForStorage(_chatId);
 
+				console.log('Chat: Preparing to save chat with PII state:', {
+					chatId: _chatId,
+					hasPiiState: !!piiState,
+					piiStateEntitiesCount: piiState?.entities?.length || 0,
+					piiEntities: piiState?.entities?.map(e => ({ label: e.label, rawText: e.raw_text })) || []
+				});
+
 				const chatData = {
 					models: selectedModels,
 					history: history,
@@ -1990,10 +2017,22 @@
 					...(piiState && { piiState })
 				};
 
+				console.log('Chat: Final chat data structure:', {
+					chatId: _chatId,
+					hasPiiState: 'piiState' in chatData,
+					messagesCount: chatData.messages?.length || 0
+				});
+
 				chat = await updateChatById(localStorage.token, _chatId, chatData);
 				currentChatPage.set(1);
 				await chats.set(await getChatList(localStorage.token, $currentChatPage));
+				
+				console.log('Chat: Successfully saved chat to API/localStorage');
+			} else {
+				console.log('Chat: Skipping save - temporary chat mode enabled');
 			}
+		} else {
+			console.log('Chat: Skipping save - chat ID mismatch:', { provided: _chatId, current: $chatId });
 		}
 	};
 </script>

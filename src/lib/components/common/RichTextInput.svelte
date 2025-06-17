@@ -79,12 +79,12 @@
 	// PII Modifier props
 	export let enablePiiModifiers = false;
 	export let onPiiModifiersChanged: (modifiers: PiiModifier[]) => void = () => {};
-	export let piiModifierLabels: string[] = [];
+	export let piiModifierTypes: string[] = [];
 
 	let element: HTMLElement;
 	let editor: any;
 	let currentModifiers: PiiModifier[] = [];
-	let previousModifiersLength = 0;
+	let previousModifiers: PiiModifier[] = [];
 
 	// Generate a content-based hash for modifiers to detect actual changes
 	// This is much smarter than just checking array length because it detects:
@@ -101,7 +101,7 @@
 		const sortedModifiers = [...modifiers].sort((a, b) => a.id.localeCompare(b.id));
 		
 		return sortedModifiers
-			.map(m => `${m.type}:${m.entity}:${m.label || ''}:${m.from}:${m.to}`)
+			.map(m => `${m.action}:${m.entity}:${m.type || ''}:${m.from}:${m.to}`)
 			.join('|');
 	};
 
@@ -120,6 +120,21 @@
 
 	$: if (value === null && html !== null && editor) {
 		editor.commands.setContent(html);
+	}
+
+	// Watch for conversationId changes (empty -> actual ID when chat is created)
+	let previousConversationId = '';
+	$: if (conversationId !== previousConversationId && enablePiiDetection) {
+		if (previousConversationId === '' && conversationId) {
+			console.log('RichTextInput: Conversation ID became available - transferring global entities:', {
+				from: previousConversationId || 'EMPTY',
+				to: conversationId
+			});
+			
+			// Transfer any global PII entities to this new conversation (only happens once)
+			piiSessionManager.transferGlobalEntitiesToConversation(conversationId);
+		}
+		previousConversationId = conversationId;
 	}
 
 	// Function to find the next template in the document
@@ -199,6 +214,38 @@
 		// Initialize PII session manager
 		if (enablePiiDetection && piiApiKey) {
 			piiSessionManager.setApiKey(piiApiKey);
+			
+			// Load conversation state from localStorage if available
+			if (conversationId) {
+				console.log('RichTextInput: Initializing PII detection for conversation:', {
+					conversationId,
+					hasApiKey: !!piiApiKey,
+					apiKeyLength: piiApiKey?.length
+				});
+				try {
+					// Try to load conversation state from the chat data
+					// This will be populated by Chat.svelte's loadChat function
+					const existingState = piiSessionManager.getConversationState(conversationId);
+					if (existingState) {
+						console.log('RichTextInput: Found existing conversation state:', {
+							conversationId,
+							entitiesCount: existingState.entities.length,
+							entities: existingState.entities.map(e => ({ label: e.label, rawText: e.raw_text })),
+							lastUpdated: new Date(existingState.lastUpdated).toISOString()
+						});
+					} else {
+						console.log('RichTextInput: No existing conversation state found for', conversationId, '- this is normal for new conversations');
+					}
+				} catch (error) {
+					console.error('RichTextInput: Error loading conversation state:', error);
+				}
+			} else {
+				console.log('RichTextInput: PII detection enabled but no conversation ID provided:', {
+					enablePiiDetection,
+					conversationId,
+					hasApiKey: !!piiApiKey
+				});
+			}
 		}
 
 		// Add PII highlighting styles
@@ -260,7 +307,7 @@
 			hasApiKey: !!piiApiKey,
 			conversationId,
 			apiKeyLength: piiApiKey?.length || 0,
-			modifierLabels: piiModifierLabels
+			modifierTypes: piiModifierTypes
 		});
 
 		editor = new Editor({
@@ -289,9 +336,9 @@
 							PiiModifierExtension.configure({
 								enabled: true,
 								onModifiersChanged: handleModifiersChanged,
-								availableLabels: piiModifierLabels.length > 0 
-									? piiModifierLabels 
-									: undefined // Use default labels
+								availableTypes: piiModifierTypes.length > 0 
+									? piiModifierTypes 
+									: undefined // Use default types
 							})
 						]
 					: []),
@@ -548,39 +595,40 @@
 
 	// Reactive statement to trigger PII detection when modifiers change  
 	$: if (editor && editor.view && enablePiiDetection && enablePiiModifiers) {
-		// TEMPORARY: Revert to original length-based approach to debug API issue
-		if (currentModifiers.length !== previousModifiersLength && currentModifiers.length > 0) {
-			console.log('RichTextInput: Modifiers changed (length-based), triggering PII detection', {
-				previousLength: previousModifiersLength,
-				currentLength: currentModifiers.length
+		const currentHash = getModifiersHash(currentModifiers);
+		const previousHash = getModifiersHash(previousModifiers);
+		
+		if (currentHash !== previousHash) {
+			console.log('RichTextInput: Modifiers changed (hash-based), triggering PII detection', {
+				previousHash,
+				currentHash,
+				modifiersCount: currentModifiers.length
 			});
-			previousModifiersLength = currentModifiers.length;
+			previousModifiers = [...currentModifiers];
 			editor.commands.triggerDetectionForModifiers();
 		}
 	}
 
 	// Handle modifier changes
 	const handleModifiersChanged = (modifiers: PiiModifier[]) => {
-		const wasEmpty = currentModifiers.length === 0;
 		currentModifiers = modifiers;
 		onPiiModifiersChanged(modifiers);
 		
-		// TEMPORARY: Revert to original length-based logic to debug API issue
-		if ((wasEmpty && modifiers.length > 0) || modifiers.length !== previousModifiersLength) {
-			console.log('RichTextInput: Modifier change detected in handler', {
-				wasEmpty,
-				previousLength: previousModifiersLength,
-				newLength: modifiers.length
-			});
-			
-			// Update the tracking variable
-			previousModifiersLength = modifiers.length;
-			
-			// Trigger detection if we have an editor and text
-			if (editor && editor.view && editor.view.state.doc.textContent.trim()) {
-				setTimeout(() => {
-					editor.commands.triggerDetectionForModifiers();
-				}, 100);
+		// PERSIST MODIFIERS TO SESSION MANAGER (same pattern as entities)
+		if (enablePiiDetection && piiApiKey) {
+			if (conversationId) {
+				console.log('RichTextInput: Persisting modifiers to conversation state:', {
+					conversationId,
+					modifiersCount: modifiers.length,
+					modifiers: modifiers.map(m => ({ action: m.action, entity: m.entity, type: m.type }))
+				});
+				piiSessionManager.setConversationModifiers(conversationId, modifiers);
+			} else {
+				console.log('RichTextInput: Persisting modifiers to global state (no conversation ID yet):', {
+					modifiersCount: modifiers.length,
+					modifiers: modifiers.map(m => ({ action: m.action, entity: m.entity, type: m.type }))
+				});
+				piiSessionManager.setModifiers(modifiers);
 			}
 		}
 	};

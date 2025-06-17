@@ -171,9 +171,13 @@ function hexToRgba(hex: string, alpha: number): string {
 	return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
+// Import modifier types from extension
+import type { PiiModifier } from '$lib/components/common/RichTextInput/PiiModifierExtension';
+
 // Conversation-specific PII state for storing with chat data
 export interface ConversationPiiState {
 	entities: ExtendedPiiEntity[];
+	modifiers: PiiModifier[]; // Add modifier persistence
 	sessionId?: string;
 	apiKey?: string;
 	lastUpdated: number;
@@ -184,6 +188,7 @@ export class PiiSessionManager {
 	private static instance: PiiSessionManager;
 	private sessionId: string | null = null;
 	private entities: ExtendedPiiEntity[] = [];
+	private modifiers: PiiModifier[] = []; // Global modifiers storage
 	private apiKey: string | null = null;
 	// Conversation-specific storage
 	private conversationStates: Map<string, ConversationPiiState> = new Map();
@@ -213,11 +218,48 @@ export class PiiSessionManager {
 
 	// Set entities for the current global session (backwards compatibility)
 	setEntities(entities: PiiEntity[]) {
-		// Convert to extended entities with default masking enabled
-		this.entities = entities.map((entity) => ({
+		const newExtendedEntities = entities.map((entity) => ({
 			...entity,
 			shouldMask: true // Default to masking enabled
 		}));
+
+		// Use same append-only logic as conversation entities
+		const existingEntities = this.entities;
+		const mergedEntities = [...existingEntities];
+
+		console.log(`PiiSessionManager: ACCUMULATING entities in GLOBAL state (no conversation ID yet):`, {
+			newEntitiesFromApi: newExtendedEntities.length,
+			existingGlobalEntities: existingEntities.length,
+			newEntitiesLabels: newExtendedEntities.map(e => e.label),
+			existingGlobalLabels: existingEntities.map(e => e.label),
+			operation: 'APPEND_ONLY - never overwrite global entities either'
+		});
+
+		// Only append truly new entities that don't already exist in global state
+		let newEntitiesAdded = 0;
+		newExtendedEntities.forEach((newEntity) => {
+			const existingIndex = mergedEntities.findIndex((e) => e.label === newEntity.label);
+			if (existingIndex >= 0) {
+				// Entity already exists in global state - DO NOT overwrite
+				console.log(`PiiSessionManager: Global entity ${newEntity.label} already exists - preserving original (NO CHANGES)`);
+			} else {
+				// Only add truly new entities that don't exist yet
+				console.log(`PiiSessionManager: Appending NEW entity to global state: ${newEntity.label} (${newEntity.type})`);
+				mergedEntities.push(newEntity);
+				newEntitiesAdded++;
+			}
+		});
+
+		// Update global entities with accumulated result
+		this.entities = mergedEntities;
+
+		console.log(`PiiSessionManager: GLOBAL ACCUMULATION COMPLETE:`, {
+			beforeCount: existingEntities.length,
+			afterCount: mergedEntities.length,
+			newEntitiesAdded,
+			allGlobalEntitiesLabels: mergedEntities.map(e => e.label),
+			guaranteedPersistence: 'Global entities now also accumulate and never get overwritten'
+		});
 	}
 
 	// Get entities for the current global session (backwards compatibility)
@@ -236,48 +278,92 @@ export class PiiSessionManager {
 		const existingState = this.conversationStates.get(conversationId);
 		const existingEntities = existingState?.entities || [];
 
-		// Merge new entities with existing ones, avoiding duplicates by label
+		// CRITICAL DEBUG: Check if we're losing existing entities
+		console.log(`PiiSessionManager: CRITICAL DEBUG - setConversationEntities called:`, {
+			conversationId,
+			entitiesFromApiResponse: entities.length,
+			apiResponseEntities: entities.map(e => ({ id: e.id, label: e.label, type: e.type, rawText: e.raw_text })),
+			existingEntitiesInConversationState: existingEntities.length,
+			existingEntitiesDetails: existingEntities.map(e => ({ id: e.id, label: e.label, type: e.type, rawText: e.raw_text, shouldMask: e.shouldMask })),
+			conversationStateExists: !!existingState,
+			warning: existingEntities.length > 0 && entities.length > 0 ? 'BOTH API RESPONSE AND EXISTING ENTITIES PRESENT' : 'Normal case'
+		});
+
+		// Start with ALL existing entities (never lose them)
 		const mergedEntities = [...existingEntities];
 
-		console.log(
-			`PiiSessionManager: Merging ${newExtendedEntities.length} new entities with ${existingEntities.length} existing entities for conversation: ${conversationId}`
-		);
+		console.log(`PiiSessionManager: ACCUMULATING entities for conversation ${conversationId}:`, {
+			newEntitiesFromApi: newExtendedEntities.length,
+			existingEntitiesInConversation: existingEntities.length,
+			newEntitiesLabels: newExtendedEntities.map(e => e.label),
+			existingEntitiesLabels: existingEntities.map(e => e.label),
+			operation: 'APPEND_ONLY - never overwrite or lose existing entities'
+		});
 
+		// Only append truly new entities that don't already exist
+		let newEntitiesAdded = 0;
 		newExtendedEntities.forEach((newEntity) => {
 			const existingIndex = mergedEntities.findIndex((e) => e.label === newEntity.label);
 			if (existingIndex >= 0) {
-				// Update existing entity (preserve shouldMask state)
-				console.log(`PiiSessionManager: Updating existing entity: ${newEntity.label}`);
-				mergedEntities[existingIndex] = {
-					...newEntity,
-					shouldMask: mergedEntities[existingIndex].shouldMask
-				};
+				// Entity already exists - DO NOT overwrite, completely preserve original
+				console.log(`PiiSessionManager: Entity ${newEntity.label} already exists - preserving original entity (NO CHANGES)`);
+				// Existing entity remains completely unchanged
 			} else {
-				// Add new entity
-				console.log(`PiiSessionManager: Adding new entity: ${newEntity.label}`);
+				// Only add truly new entities that don't exist yet
+				console.log(`PiiSessionManager: Appending NEW entity: ${newEntity.label} (${newEntity.type})`);
 				mergedEntities.push(newEntity);
+				newEntitiesAdded++;
 			}
 		});
 
-		console.log(`PiiSessionManager: Final merged entities count: ${mergedEntities.length}`);
+		console.log(`PiiSessionManager: ACCUMULATION COMPLETE for conversation ${conversationId}:`, {
+			beforeCount: existingEntities.length,
+			afterCount: mergedEntities.length,
+			newEntitiesAdded,
+			allEntitiesLabels: mergedEntities.map(e => e.label),
+			guaranteedPersistence: 'All previously detected entities remain forever in this conversation'
+		});
 
-		this.conversationStates.set(conversationId, {
+		const newState = {
 			entities: mergedEntities,
+			modifiers: existingState?.modifiers || [], // Preserve existing modifiers
 			sessionId: sessionId || existingState?.sessionId,
 			apiKey: this.apiKey || existingState?.apiKey,
 			lastUpdated: Date.now()
-		});
+		};
+
+		this.conversationStates.set(conversationId, newState);
 
 		// Also update global state for current conversation
 		this.entities = mergedEntities;
 		if (sessionId) {
 			this.sessionId = sessionId;
 		}
+
+		// Trigger async save to localStorage via custom event
+		// This allows Chat.svelte to handle the actual localStorage persistence
+		setTimeout(() => {
+			console.log('PiiSessionManager: Dispatching pii-state-updated event for conversation:', conversationId);
+			window.dispatchEvent(new CustomEvent('pii-state-updated', {
+				detail: { conversationId, piiState: newState }
+			}));
+		}, 0);
 	}
 
 	getConversationEntities(conversationId: string): ExtendedPiiEntity[] {
 		const state = this.conversationStates.get(conversationId);
-		return state?.entities || [];
+		const entities = state?.entities || [];
+		
+		console.log(`PiiSessionManager: CRITICAL DEBUG - getConversationEntities called:`, {
+			conversationId,
+			stateExists: !!state,
+			entitiesCount: entities.length,
+			entitiesLabels: entities.map(e => e.label),
+			allConversationIds: Array.from(this.conversationStates.keys()),
+			warning: entities.length === 0 ? 'NO ENTITIES FOUND - this might be the problem!' : 'Entities found'
+		});
+		
+		return entities;
 	}
 
 	getConversationState(conversationId: string): ConversationPiiState | null {
@@ -287,11 +373,24 @@ export class PiiSessionManager {
 	// Load conversation state from localStorage (chat data)
 	loadConversationState(conversationId: string, piiState?: ConversationPiiState) {
 		if (piiState) {
-			this.conversationStates.set(conversationId, piiState);
+			// Ensure modifiers field exists for backward compatibility
+			const stateWithModifiers = {
+				...piiState,
+				modifiers: piiState.modifiers || []
+			};
+			
+			this.conversationStates.set(conversationId, stateWithModifiers);
 			// Set as current global state
-			this.entities = piiState.entities;
-			this.sessionId = piiState.sessionId || null;
-			this.apiKey = piiState.apiKey || this.apiKey;
+			this.entities = stateWithModifiers.entities;
+			this.modifiers = stateWithModifiers.modifiers;
+			this.sessionId = stateWithModifiers.sessionId || null;
+			this.apiKey = stateWithModifiers.apiKey || this.apiKey;
+			
+			console.log('PiiSessionManager: Loaded conversation state with modifiers:', {
+				conversationId,
+				entitiesCount: stateWithModifiers.entities.length,
+				modifiersCount: stateWithModifiers.modifiers.length
+			});
 		}
 	}
 
@@ -304,12 +403,24 @@ export class PiiSessionManager {
 	getKnownEntitiesForApi(
 		conversationId: string
 	): Array<{ id: number; label: string; name: string }> {
+		const conversationState = this.conversationStates.get(conversationId);
 		const entities = this.getConversationEntities(conversationId);
-		return entities.map((entity) => ({
+		const knownEntities = entities.map((entity) => ({
 			id: entity.id,
 			label: entity.label,
 			name: entity.raw_text
 		}));
+		
+		console.log(`PiiSessionManager: CRITICAL DEBUG - getKnownEntitiesForApi called:`, {
+			conversationId,
+			conversationStateExists: !!conversationState,
+			entitiesInConversationState: entities.length,
+			entitiesDetails: entities.map(e => ({ id: e.id, label: e.label, type: e.type, rawText: e.raw_text, shouldMask: e.shouldMask })),
+			knownEntitiesForApi: knownEntities,
+			note: 'These are the entities being sent to API as known_entities to maintain consistent labeling'
+		});
+		
+		return knownEntities;
 	}
 
 	// Toggle entity masking for specific conversation
@@ -330,6 +441,14 @@ export class PiiSessionManager {
 				if (globalEntity) {
 					globalEntity.shouldMask = entity.shouldMask;
 				}
+
+				// Trigger async save to localStorage via custom event
+				setTimeout(() => {
+					console.log('PiiSessionManager: Dispatching pii-state-updated event for toggle in conversation:', conversationId);
+					window.dispatchEvent(new CustomEvent('pii-state-updated', {
+						detail: { conversationId, piiState: state }
+					}));
+				}, 0);
 			}
 		}
 	}
@@ -360,6 +479,215 @@ export class PiiSessionManager {
 	// Clear all conversation states
 	clearAllConversationStates() {
 		this.conversationStates.clear();
+	}
+
+	// Transfer global entities to a specific conversation (for when chat ID becomes available)
+	transferGlobalEntitiesToConversation(conversationId: string) {
+		if ((this.entities.length > 0 || this.modifiers.length > 0) && conversationId) {
+			// Check if this conversation already has entities to avoid duplicate transfers
+			const existingState = this.conversationStates.get(conversationId);
+			if (existingState && (existingState.entities.length > 0 || existingState.modifiers.length > 0)) {
+				console.log('PiiSessionManager: Conversation already has entities/modifiers, skipping transfer:', {
+					conversationId,
+					existingEntitiesCount: existingState.entities.length,
+					existingModifiersCount: existingState.modifiers.length
+				});
+				return;
+			}
+
+			console.log('PiiSessionManager: Transferring global entities AND modifiers to conversation:', {
+				conversationId,
+				globalEntitiesCount: this.entities.length,
+				globalModifiersCount: this.modifiers.length,
+				entities: this.entities.map(e => ({ label: e.label, rawText: e.raw_text })),
+				modifiers: this.modifiers.map(m => ({ action: m.action, entity: m.entity, type: m.type }))
+			});
+
+			// Convert ExtendedPiiEntity back to PiiEntity for setConversationEntities
+			const piiEntities = this.entities.map(entity => ({
+				id: entity.id,
+				type: entity.type,
+				label: entity.label,
+				raw_text: entity.raw_text,
+				occurrences: entity.occurrences
+			}));
+
+			// Set conversation entities (this will merge with any existing entities)
+			this.setConversationEntities(conversationId, piiEntities);
+
+			// Transfer modifiers separately
+			if (this.modifiers.length > 0) {
+				this.setConversationModifiers(conversationId, this.modifiers);
+			}
+
+			// Keep global entities and modifiers for potential use by other components
+			// Don't clear them - they may be needed elsewhere
+			console.log('PiiSessionManager: Global entities and modifiers transferred (keeping global copy for compatibility)');
+		}
+	}
+
+	// MODIFIER MANAGEMENT METHODS
+	// ============================
+
+	// Set modifiers for the current global session (when no conversationId)
+	setModifiers(modifiers: PiiModifier[]) {
+		// Use same append-only logic as entities
+		const existingModifiers = this.modifiers;
+		const mergedModifiers = [...existingModifiers];
+
+		console.log(`PiiSessionManager: ACCUMULATING modifiers in GLOBAL state (no conversation ID yet):`, {
+			newModifiersFromExtension: modifiers.length,
+			existingGlobalModifiers: existingModifiers.length,
+			newModifiersDetails: modifiers.map(m => ({ action: m.action, entity: m.entity, type: m.type })),
+			existingGlobalDetails: existingModifiers.map(m => ({ action: m.action, entity: m.entity, type: m.type })),
+			operation: 'APPEND_ONLY - never overwrite global modifiers'
+		});
+
+		// Only append truly new modifiers that don't already exist in global state
+		let newModifiersAdded = 0;
+		modifiers.forEach((newModifier) => {
+			const existingIndex = mergedModifiers.findIndex((m) => 
+				m.action === newModifier.action && 
+				m.entity.toLowerCase() === newModifier.entity.toLowerCase() &&
+				m.type === newModifier.type
+			);
+			if (existingIndex >= 0) {
+				// Modifier already exists in global state - DO NOT overwrite
+				console.log(`PiiSessionManager: Global modifier ${newModifier.action}:${newModifier.entity} already exists - preserving original (NO CHANGES)`);
+			} else {
+				// Only add truly new modifiers that don't exist yet
+				console.log(`PiiSessionManager: Appending NEW modifier to global state: ${newModifier.action}:${newModifier.entity} (${newModifier.type || 'no type'})`);
+				mergedModifiers.push(newModifier);
+				newModifiersAdded++;
+			}
+		});
+
+		// Update global modifiers with accumulated result
+		this.modifiers = mergedModifiers;
+
+		console.log(`PiiSessionManager: GLOBAL MODIFIER ACCUMULATION COMPLETE:`, {
+			beforeCount: existingModifiers.length,
+			afterCount: mergedModifiers.length,
+			newModifiersAdded,
+			allGlobalModifiersDetails: mergedModifiers.map(m => ({ action: m.action, entity: m.entity, type: m.type })),
+			guaranteedPersistence: 'Global modifiers now also accumulate and never get overwritten'
+		});
+	}
+
+	// Get modifiers for the current global session (backwards compatibility)
+	getModifiers(): PiiModifier[] {
+		return this.modifiers;
+	}
+
+	// Set modifiers for a specific conversation
+	setConversationModifiers(conversationId: string, modifiers: PiiModifier[]) {
+		// Get existing state for this conversation
+		const existingState = this.conversationStates.get(conversationId);
+		const existingModifiers = existingState?.modifiers || [];
+
+		// Start with ALL existing modifiers (never lose them)
+		const mergedModifiers = [...existingModifiers];
+
+		console.log(`PiiSessionManager: ACCUMULATING modifiers for conversation ${conversationId}:`, {
+			newModifiersFromExtension: modifiers.length,
+			existingModifiersInConversation: existingModifiers.length,
+			newModifiersDetails: modifiers.map(m => ({ action: m.action, entity: m.entity, type: m.type })),
+			existingModifiersDetails: existingModifiers.map(m => ({ action: m.action, entity: m.entity, type: m.type })),
+			operation: 'APPEND_ONLY - never overwrite or lose existing modifiers'
+		});
+
+		let newModifiersAdded = 0;
+		modifiers.forEach((newModifier) => {
+			const existingIndex = mergedModifiers.findIndex((m) => 
+				m.action === newModifier.action && 
+				m.entity.toLowerCase() === newModifier.entity.toLowerCase() &&
+				m.type === newModifier.type
+			);
+			
+			if (existingIndex >= 0) {
+				// Modifier already exists - DO NOT overwrite, completely preserve original
+				console.log(`PiiSessionManager: Modifier ${newModifier.action}:${newModifier.entity} already exists - preserving original modifier (NO CHANGES)`);
+			} else {
+				// Only add truly new modifiers that don't exist yet
+				console.log(`PiiSessionManager: Appending NEW modifier: ${newModifier.action}:${newModifier.entity} (${newModifier.type || 'no type'})`);
+				mergedModifiers.push(newModifier);
+				newModifiersAdded++;
+			}
+		});
+
+		console.log(`PiiSessionManager: MODIFIER ACCUMULATION COMPLETE for conversation ${conversationId}:`, {
+			beforeCount: existingModifiers.length,
+			afterCount: mergedModifiers.length,
+			newModifiersAdded,
+			allModifiersDetails: mergedModifiers.map(m => ({ action: m.action, entity: m.entity, type: m.type })),
+			guaranteedPersistence: 'All previously created modifiers remain forever in this conversation'
+		});
+
+		// Update conversation state with merged modifiers
+		const newState = {
+			entities: existingState?.entities || [],
+			modifiers: mergedModifiers,
+			sessionId: existingState?.sessionId,
+			apiKey: this.apiKey || existingState?.apiKey,
+			lastUpdated: Date.now()
+		};
+
+		this.conversationStates.set(conversationId, newState);
+
+		// Also update global state for current conversation
+		this.modifiers = mergedModifiers;
+
+		// Trigger async save to localStorage via custom event
+		setTimeout(() => {
+			console.log('PiiSessionManager: Dispatching pii-state-updated event for modifier update in conversation:', conversationId);
+			window.dispatchEvent(new CustomEvent('pii-state-updated', {
+				detail: { conversationId, piiState: newState }
+			}));
+		}, 0);
+	}
+
+	// Get modifiers for a specific conversation
+	getConversationModifiers(conversationId: string): PiiModifier[] {
+		const state = this.conversationStates.get(conversationId);
+		const modifiers = state?.modifiers || [];
+		
+		console.log(`PiiSessionManager: CRITICAL DEBUG - getConversationModifiers called:`, {
+			conversationId,
+			stateExists: !!state,
+			modifiersCount: modifiers.length,
+			modifiersDetails: modifiers.map(m => ({ action: m.action, entity: m.entity, type: m.type })),
+			allConversationIds: Array.from(this.conversationStates.keys()),
+			warning: modifiers.length === 0 ? 'NO MODIFIERS FOUND - this might be the problem!' : 'Modifiers found'
+		});
+		
+		return modifiers;
+	}
+
+	// Convert modifiers to API format for both global and conversation contexts
+	getModifiersForApi(conversationId?: string): Array<{ action: 'ignore' | 'mask'; entity: string; type?: string }> {
+		let modifiers: PiiModifier[];
+		
+		if (conversationId) {
+			modifiers = this.getConversationModifiers(conversationId);
+		} else {
+			modifiers = this.getModifiers();
+		}
+		
+		const apiModifiers = modifiers.map((modifier) => ({
+			action: modifier.action,
+			entity: modifier.entity,
+			...(modifier.type && { type: modifier.type })
+		}));
+		
+		console.log(`PiiSessionManager: CRITICAL DEBUG - getModifiersForApi called:`, {
+			conversationId: conversationId || 'GLOBAL',
+			modifiersCount: modifiers.length,
+			modifiersDetails: modifiers.map(m => ({ action: m.action, entity: m.entity, type: m.type })),
+			apiModifiersForRequest: apiModifiers,
+			note: 'These are the modifiers being sent to API for ignore/mask instructions'
+		});
+		
+		return apiModifiers;
 	}
 }
 
@@ -576,6 +904,7 @@ export function unmaskAndHighlightTextForDisplay(text: string, entities: Extende
 
 		// Create more comprehensive patterns for the exact label as it appears in masked text
 		const patterns = [
+			`\\{\\[${labelVariations}_${labelId}\\]\\}`,  // {[TYPE_ID]}
 			`\\[\\{${labelVariations}_${labelId}\\}\\]`,  // [{TYPE_ID}]
 			`\\[${labelVariations}_${labelId}\\]`,        // [TYPE_ID]
 			`\\{${labelVariations}_${labelId}\\}`,        // {TYPE_ID}
