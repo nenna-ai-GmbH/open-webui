@@ -217,8 +217,8 @@ function createPiiDecorations(entities: ExtendedPiiEntity[], modifiers: PiiModif
 						// Ensure positions are valid
 						if (matchStart >= 0 && matchEnd <= doc.content.size && matchStart < matchEnd) {
 							// Determine the decoration class based on modifier types
-							const hasIgnoreModifier = entityModifiers.some(m => m.type === 'ignore');
-							const hasMaskModifier = entityModifiers.some(m => m.type === 'mask');
+							const hasIgnoreModifier = entityModifiers.some(m => m.action === 'ignore');
+							const hasMaskModifier = entityModifiers.some(m => m.action === 'mask');
 							
 							let decorationClass = 'pii-modifier-highlight';
 							if (hasIgnoreModifier) {
@@ -233,8 +233,8 @@ function createPiiDecorations(entities: ExtendedPiiEntity[], modifiers: PiiModif
 								Decoration.inline(matchStart, matchEnd, {
 									class: decorationClass,
 									'data-modifier-entity': entityModifiers[0].entity,
-									'data-modifier-types': entityModifiers.map(m => m.type).join(','),
-									'data-modifier-labels': entityModifiers.filter(m => m.label).map(m => m.label).join(',')
+									'data-modifier-action': entityModifiers.map(m => m.action).join(','),
+									'data-modifier-types': entityModifiers.filter(m => m.type).map(m => m.type).join(',')
 								})
 							);
 						}
@@ -252,9 +252,9 @@ const piiDetectionPluginKey = new PluginKey<PiiDetectionState>('piiDetection');
 // Convert PiiModifier objects to ShieldApiModifier format
 function convertModifiersToApiFormat(modifiers: PiiModifier[]): ShieldApiModifier[] {
 	return modifiers.map(modifier => ({
-		type: modifier.type,
+		action: modifier.action,
 		entity: modifier.entity,
-		...(modifier.label && { label: modifier.label })
+		type: modifier.type
 	}));
 }
 
@@ -600,7 +600,7 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 					console.log('PiiDetectionExtension: Using persistent modifiers for decorations:', {
 						conversationId: conversationId || 'GLOBAL',
 						persistentModifiersCount: persistentModifiers.length,
-						modifiers: persistentModifiers.map(m => ({ type: m.type, entity: m.entity, label: m.label }))
+						modifiers: persistentModifiers.map(m => ({ action: m.action, entity: m.entity, type: m.type }))
 					});
 
 					if (!pluginState?.entities.length && !persistentModifiers.length) {

@@ -661,205 +661,212 @@ function createHoverMenu(
 			position: relative;
 		`;
 
-		const typeInput = document.createElement('input');
-		typeInput.type = 'text';
-		typeInput.value = 'CUSTOM';
-		typeInput.style.cssText = `
-		width: 100%;
-		padding: 6px 8px;
-		border: 1px solid #ddd;
-		border-radius: 4px;
-		font-size: 12px;
-		box-sizing: border-box;
-		color: #999;
-	`;
+		const labelSection = document.createElement('div');
+		labelSection.style.cssText = `
+			display: flex;
+			flex-direction: column;
+			gap: 6px;
+		`;
 
-	let isDefaultValue = true;
-	let skipAutocompletion = false;
+		const labelInput = document.createElement('input');
+		labelInput.type = 'text';
+		labelInput.value = 'CUSTOM';
+		labelInput.style.cssText = `
+			width: 100%;
+			padding: 6px 8px;
+			border: 1px solid #ddd;
+			border-radius: 4px;
+			font-size: 12px;
+			box-sizing: border-box;
+			color: #999;
+		`;
 
-	// Handle focus/click - clear default value
-	const handleInputFocus = (e: Event) => {
-		e.stopPropagation(); // Prevent click from bubbling up and closing menu
-		console.log('PiiModifierExtension: Input field focused');
-		
-		// Notify timeout manager that input is focused
-		if (timeoutManager) {
-			(timeoutManager as any).setInputFocused(true);
-		}
-		
-		if (isDefaultValue) {
-			labelInput.value = '';
-			labelInput.style.color = '#333';
-			isDefaultValue = false;
-		}
-	};
+		let isDefaultValue = true;
+		let skipAutocompletion = false;
 
-	labelInput.addEventListener('focus', handleInputFocus);
-	labelInput.addEventListener('click', handleInputFocus);
-
-	// Handle blur - restore default if empty
-	labelInput.addEventListener('blur', () => {
-		
-		// Notify timeout manager that input is no longer focused
-		if (timeoutManager) {
-			(timeoutManager as any).setInputFocused(false);
-		}
-		
-		if (labelInput.value.trim() === '') {
-			labelInput.value = 'CUSTOM';
-			labelInput.style.color = '#999';
-			isDefaultValue = true;
-		}
-	});
-
-	// Handle input for inline autocompletion
-	labelInput.addEventListener('input', (e) => {
-		e.stopPropagation();
-		
-		// Skip autocompletion if we're handling a backspace
-		if (skipAutocompletion) {
-			skipAutocompletion = false;
-			return;
-		}
-		
-		const inputValue = labelInput.value;
-		
-		// Only autocomplete if not default value and user has typed something
-		if (!isDefaultValue && inputValue) {
-			const bestMatch = findBestMatch(inputValue, PREDEFINED_LABEL_TYPES);
+		// Handle focus/click - clear default value
+		const handleInputFocus = (e: Event) => {
+			e.stopPropagation(); // Prevent click from bubbling up and closing menu
+			console.log('PiiModifierExtension: Input field focused');
 			
-			if (bestMatch && bestMatch !== inputValue.toUpperCase()) {
-				// Complete the text inline
-				const cursorPos = labelInput.selectionStart || 0;
-				labelInput.value = bestMatch;
-				
-				// Select the completed portion
-				labelInput.setSelectionRange(cursorPos, bestMatch.length);
+			// Notify timeout manager that input is focused
+			if (timeoutManager) {
+				(timeoutManager as any).setInputFocused(true);
 			}
-		}
-	});
+			
+			if (isDefaultValue) {
+				labelInput.value = '';
+				labelInput.style.color = '#333';
+				isDefaultValue = false;
+			}
+		};
 
-	// Prevent ProseMirror from intercepting keyboard events when input is focused
-	labelInput.addEventListener('keydown', (e) => {
-		// Stop propagation for all keyboard events to prevent ProseMirror interference
-		e.stopPropagation();
+		labelInput.addEventListener('focus', handleInputFocus);
+		labelInput.addEventListener('click', handleInputFocus);
+
+		// Handle blur - restore default if empty
+		labelInput.addEventListener('blur', () => {
+			
+			// Notify timeout manager that input is no longer focused
+			if (timeoutManager) {
+				(timeoutManager as any).setInputFocused(false);
+			}
+			
+			if (labelInput.value.trim() === '') {
+				labelInput.value = 'CUSTOM';
+				labelInput.style.color = '#999';
+				isDefaultValue = true;
+			}
+		});
+
+		// Handle input for inline autocompletion
+		labelInput.addEventListener('input', (e) => {
+			e.stopPropagation();
+			
+			// Skip autocompletion if we're handling a backspace
+			if (skipAutocompletion) {
+				skipAutocompletion = false;
+				return;
+			}
+			
+			const inputValue = labelInput.value;
+			
+			// Only autocomplete if not default value and user has typed something
+			if (!isDefaultValue && inputValue) {
+				const bestMatch = findBestMatch(inputValue, PREDEFINED_LABEL_TYPES);
+				
+				if (bestMatch && bestMatch !== inputValue.toUpperCase()) {
+					// Complete the text inline
+					const cursorPos = labelInput.selectionStart || 0;
+					labelInput.value = bestMatch;
+					
+					// Select the completed portion
+					labelInput.setSelectionRange(cursorPos, bestMatch.length);
+				}
+			}
+		});
+
+		// Prevent ProseMirror from intercepting keyboard events when input is focused
+		labelInput.addEventListener('keydown', (e) => {
+			// Stop propagation for all keyboard events to prevent ProseMirror interference
+			e.stopPropagation();
+			
+			// Handle specific keys
+			if (e.key === 'Enter') {
+				e.preventDefault();
+				const label = isDefaultValue ? 'CUSTOM' : labelInput.value.trim().toUpperCase();
+				if (label) {
+					onMask(label, selectedUseOriginal);
+				}
+			} else if (e.key === 'Tab') {
+				// Accept the current autocompletion on Tab
+				e.preventDefault();
+				// The text is already completed, just move cursor to end
+				labelInput.setSelectionRange(labelInput.value.length, labelInput.value.length);
+			} else if (e.key === 'Escape') {
+				// Close menu on Escape
+				e.preventDefault();
+				menu.remove();
+			} else if (e.key === 'Backspace') {
+				// Just set flag to skip autocompletion and let browser handle backspace naturally
+				skipAutocompletion = true;
+				// Don't prevent default - let browser handle backspace naturally
+			}
+			// For all other keys, let the input handle them naturally
+		});
+
+		// Also prevent keyup events from bubbling to ProseMirror
+		labelInput.addEventListener('keyup', (e) => {
+			e.stopPropagation();
+		});
+
+
+
+		const maskBtn = document.createElement('button');
+		maskBtn.textContent = 'Mark as PII';
+		maskBtn.style.cssText = `
+			width: 100%;
+			padding: 6px 10px;
+			border: 1px solid #6b46c1;
+			background: #6b46c1;
+			border-radius: 4px;
+			cursor: pointer;
+			font-size: 12px;
+			color: white;
+			font-weight: 500;
+			transition: background-color 0.2s ease;
+		`;
+
+		// Add hover effects for the button
+		maskBtn.addEventListener('mouseenter', () => {
+			maskBtn.style.backgroundColor = '#553c9a';
+		});
 		
-		// Handle specific keys
-		if (e.key === 'Enter') {
+		maskBtn.addEventListener('mouseleave', () => {
+			maskBtn.style.backgroundColor = '#6b46c1';
+		});
+
+		// Handle mask button click
+		maskBtn.addEventListener('click', (e) => {
 			e.preventDefault();
+			e.stopPropagation();
 			const label = isDefaultValue ? 'CUSTOM' : labelInput.value.trim().toUpperCase();
 			if (label) {
 				onMask(label, selectedUseOriginal);
+			} else {
+				// Highlight input if empty
+				labelInput.style.borderColor = '#ff6b6b';
+				labelInput.focus();
+				setTimeout(() => {
+					labelInput.style.borderColor = '#ddd';
+				}, 1000);
 			}
-		} else if (e.key === 'Tab') {
-			// Accept the current autocompletion on Tab
-			e.preventDefault();
-			// The text is already completed, just move cursor to end
-			labelInput.setSelectionRange(labelInput.value.length, labelInput.value.length);
-		} else if (e.key === 'Escape') {
-			// Close menu on Escape
-			e.preventDefault();
-			menu.remove();
-		} else if (e.key === 'Backspace') {
-			// Just set flag to skip autocompletion and let browser handle backspace naturally
-			skipAutocompletion = true;
-			// Don't prevent default - let browser handle backspace naturally
+		});
+
+
+
+			labelSection.appendChild(labelInput);
+			labelSection.appendChild(maskBtn);
+			menu.appendChild(labelSection);
 		}
-		// For all other keys, let the input handle them naturally
-	});
 
-	// Also prevent keyup events from bubbling to ProseMirror
-	labelInput.addEventListener('keyup', (e) => {
-		e.stopPropagation();
-	});
+		// Don't auto-focus to allow users to see the "CUSTOM" placeholder first
+		// Users can click to focus when ready
 
+		// Add hover protection to keep menu open
+		menu.addEventListener('mouseenter', () => {
+			// Cancel any pending hide timeout when hovering over menu
+			console.log('PiiModifierExtension: Mouse entered menu, keeping it open');
+			if (timeoutManager) {
+				timeoutManager.clearAll();
+			}
+		});
 
-
-	const maskBtn = document.createElement('button');
-	maskBtn.textContent = 'Mark as PII';
-	maskBtn.style.cssText = `
-		width: 100%;
-		padding: 6px 10px;
-		border: 1px solid #6b46c1;
-		background: #6b46c1;
-		border-radius: 4px;
-		cursor: pointer;
-		font-size: 12px;
-		color: white;
-		font-weight: 500;
-		transition: background-color 0.2s ease;
-	`;
-
-	// Add hover effects for the button
-	maskBtn.addEventListener('mouseenter', () => {
-		maskBtn.style.backgroundColor = '#553c9a';
-	});
-	
-	maskBtn.addEventListener('mouseleave', () => {
-		maskBtn.style.backgroundColor = '#6b46c1';
-	});
-
-	// Handle mask button click
-	maskBtn.addEventListener('click', (e) => {
-		e.preventDefault();
-		e.stopPropagation();
-		const label = isDefaultValue ? 'CUSTOM' : labelInput.value.trim().toUpperCase();
-		if (label) {
-			onMask(label, selectedUseOriginal);
-		} else {
-			// Highlight input if empty
-			labelInput.style.borderColor = '#ff6b6b';
-			labelInput.focus();
-			setTimeout(() => {
-				labelInput.style.borderColor = '#ddd';
-			}, 1000);
-		}
-	});
-
-
-
-		labelSection.appendChild(labelInput);
-		labelSection.appendChild(maskBtn);
-		menu.appendChild(labelSection);
-	}
-
-	// Don't auto-focus to allow users to see the "CUSTOM" placeholder first
-	// Users can click to focus when ready
-
-	// Add hover protection to keep menu open
-	menu.addEventListener('mouseenter', () => {
-		// Cancel any pending hide timeout when hovering over menu
-		console.log('PiiModifierExtension: Mouse entered menu, keeping it open');
-		if (timeoutManager) {
-			timeoutManager.clearAll();
-		}
-	});
-
-	menu.addEventListener('mouseleave', (e) => {
-		// Only hide menu if not moving to a child element (like the dropdown)
-		const relatedTarget = e.relatedTarget as HTMLElement;
-		if (relatedTarget && menu.contains(relatedTarget)) {
-			return; // Don't hide if moving to a child element
-		}
-		
-		// Hide menu when mouse leaves it with a longer delay
-		if (timeoutManager) {
-			timeoutManager.setFallback(() => {
-				// Double-check the menu still exists and isn't being interacted with
-				if (menu && document.body.contains(menu)) {
-					const activeElement = document.activeElement;
-					const isInputFocused = activeElement && menu.contains(activeElement);
-					
-					if (!isInputFocused) {
-						menu.remove();
+		menu.addEventListener('mouseleave', (e) => {
+			// Only hide menu if not moving to a child element (like the dropdown)
+			const relatedTarget = e.relatedTarget as HTMLElement;
+			if (relatedTarget && menu.contains(relatedTarget)) {
+				return; // Don't hide if moving to a child element
+			}
+			
+			// Hide menu when mouse leaves it with a longer delay
+			if (timeoutManager) {
+				timeoutManager.setFallback(() => {
+					// Double-check the menu still exists and isn't being interacted with
+					if (menu && document.body.contains(menu)) {
+						const activeElement = document.activeElement;
+						const isInputFocused = activeElement && menu.contains(activeElement);
+						
+						if (!isInputFocused) {
+							menu.remove();
+						}
 					}
-				}
-			}, 500);
-		}
-	});
+				}, 500);
+			}
+		});
 
-	return menu;
-}
+		return menu;
+	}
 
 export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 	name: 'piiModifier',
@@ -914,6 +921,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 
 					// Handle document changes - update positions
 					if (tr.docChanged) {
+						console.log('PiiModifierExtension: Document changed, updating modifier positions');
 						const updatedModifiers = prevState.modifiers.map(modifier => ({
 							...modifier,
 							from: tr.mapping.map(modifier.from),
@@ -939,8 +947,18 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 					// Handle plugin-specific meta actions
 					const meta = tr.getMeta(piiModifierExtensionKey);
 					if (meta) {
-						switch (meta.action) {
+						console.log('PiiModifierExtension: Processing meta action:', meta.type);
+						
+						switch (meta.type) {
 							case 'ADD_MODIFIER':
+								console.log('PiiModifierExtension: Adding new modifier:', {
+									action: meta.modifierAction,
+									entity: meta.entity,
+									type: meta.type,
+									from: meta.from,
+									to: meta.to
+								});
+
 								const newModifier: PiiModifier = {
 									id: generateModifierId(),
 									action: meta.modifierAction,
@@ -962,6 +980,11 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 									// For ignore modifiers, just add normally (ignore can coexist with masks)
 									updatedModifiers = [...newState.modifiers, newModifier];
 								}
+
+								console.log('PiiModifierExtension: Updated modifiers list:', {
+									total: updatedModifiers.length,
+									modifiers: updatedModifiers
+								});
 
 								newState = {
 									...newState,
@@ -1147,16 +1170,33 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 								};
 
 								const onMask = (label: string, useOriginalSelection?: boolean) => {
+									// Choose which selection to use based on radio button
+									const selectedEntity = useOriginalSelection ? existingEntity : {
+										from: existingEntity.from,
+										to: existingEntity.to,
+										text: existingEntity.text
+									};
+									
+									console.log('PiiModifierExtension: Creating mask modifier:', {
+										label,
+										entity: selectedEntity.text,
+										from: selectedEntity.from,
+										to: selectedEntity.to,
+										useOriginalSelection
+									});
+
 									const tr = view.state.tr.setMeta(piiModifierExtensionKey, {
 										type: 'ADD_MODIFIER',
 										modifierAction: 'mask' as ModifierAction,
-										entity: existingEntity.text,
+										entity: selectedEntity.text,
 										label,
-										from: existingEntity.from,
-										to: existingEntity.to,
+										from: selectedEntity.from,
+										to: selectedEntity.to,
 										view: view
 									});
 									view.dispatch(tr);
+
+									console.log('PiiModifierExtension: Dispatched ADD_MODIFIER transaction');
 
 									if (hoverMenuElement) {
 										hoverMenuElement.remove();
@@ -1346,6 +1386,14 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 								// Choose which selection to use based on radio button
 								const selectedEntity = useOriginalSelection ? originalSelection : entityInfo;
 								
+								console.log('PiiModifierExtension: Creating mask modifier:', {
+									label,
+									entity: selectedEntity.text,
+									from: selectedEntity.from,
+									to: selectedEntity.to,
+									useOriginalSelection
+								});
+
 								const tr = view.state.tr.setMeta(piiModifierExtensionKey, {
 									type: 'ADD_MODIFIER',
 									modifierAction: 'mask' as ModifierAction,
@@ -1356,6 +1404,8 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 									view: view
 								});
 								view.dispatch(tr);
+
+								console.log('PiiModifierExtension: Dispatched ADD_MODIFIER transaction');
 
 								if (hoverMenuElement) {
 									hoverMenuElement.remove();
