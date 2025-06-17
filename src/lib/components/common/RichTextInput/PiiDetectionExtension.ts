@@ -435,11 +435,6 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 						});
 						
 						view.dispatch(tr);
-
-						// Notify parent component
-						if (onPiiDetected) {
-							onPiiDetected(mappedEntities, response.text[0]);
-						}
 					} else {
 						console.log('PiiDetectionExtension: No entities for PII decorations (all have modifiers), but entities stored for known_entities');
 						
@@ -450,6 +445,11 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 						});
 						
 						view.dispatch(tr);
+					}
+
+					// Always notify parent component with the masked text from the API response
+					if (onPiiDetected) {
+						onPiiDetected(entitiesForDecorations, response.text[0]);
 					}
 				} else {
 					console.log('PiiDetectionExtension: No PII entities found in response');

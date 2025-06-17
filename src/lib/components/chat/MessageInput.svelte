@@ -227,73 +227,24 @@
 			return prompt;
 		}
 
-		// Create a masked version based on user's masking preferences and modifiers
-		let maskedText = prompt;
-		
-		// Process PII entities (traditional behavior)
-		const entitiesToMask = currentPiiEntities.filter((entity) => entity.shouldMask);
-		
-		// Process modifiers with labels (new behavior - this is the fix!)
-		const modifiersToReplace = currentModifiers.filter((modifier) => 
-			modifier.type === 'mask' && modifier.label && modifier.label.trim() !== ''
-		);
+		// Use the masked text from the API response
+		if (maskedPrompt) {
+			console.log('MessageInput: Using API-masked prompt:', {
+				originalPrompt: prompt.substring(0, 200),
+				maskedPrompt: maskedPrompt.substring(0, 200),
+				piiEntitiesCount: currentPiiEntities.length,
+				modifiersCount: currentModifiers.length
+			});
+			return maskedPrompt;
+		}
 
-		console.log('MessageInput: Creating masked prompt:', {
+		// Fallback to original prompt if no masked version is available
+		console.log('MessageInput: No masked prompt available, using original:', {
 			originalPrompt: prompt.substring(0, 200),
-			piiEntitiesToMask: entitiesToMask.length,
-			modifiersToReplace: modifiersToReplace.length,
-			modifiersWithLabels: modifiersToReplace.map(m => ({ entity: m.entity, label: m.label }))
+			piiEntitiesCount: currentPiiEntities.length,
+			modifiersCount: currentModifiers.length
 		});
-
-		// Combine entities and modifiers for processing - sort by text length (longest first)
-		// to avoid partial replacements
-		const allReplacements = [
-			...entitiesToMask.map(entity => ({
-				text: entity.raw_text,
-				label: entity.label,
-				type: 'pii_entity'
-			})),
-			...modifiersToReplace.map(modifier => ({
-				text: modifier.entity,
-				label: modifier.label,
-				type: 'modifier'
-			}))
-		].sort((a, b) => b.text.length - a.text.length);
-
-		console.log('MessageInput: All replacements to process:', allReplacements);
-
-		// Process all replacements
-		allReplacements.forEach((replacement) => {
-			if (!replacement.text || replacement.text.trim() === '') {
-				console.log('MessageInput: Skipping replacement with empty text:', replacement.label);
-				return;
-			}
-
-			// Escape special regex characters
-			const escapedText = replacement.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-			
-			// Use word boundaries for better matching, but handle special characters gracefully
-			const hasSpecialChars = /[^\w\s]/.test(replacement.text);
-			const regex = hasSpecialChars 
-				? new RegExp(escapedText, 'gi')
-				: new RegExp(`\\b${escapedText}\\b`, 'gi');
-
-			console.log('MessageInput: Replacing text for', replacement.type, replacement.label, 'text:', replacement.text);
-
-			// Replace all occurrences of the text with the masked pattern
-			const replacementPattern = `[{${replacement.label}}]`;
-			const beforeReplace = maskedText;
-			maskedText = maskedText.replace(regex, replacementPattern);
-			
-			if (maskedText !== beforeReplace) {
-				console.log('MessageInput: Successfully replaced', replacement.type, replacement.label);
-			} else {
-				console.log('MessageInput: No replacements made for', replacement.type, replacement.label);
-			}
-		});
-
-		console.log('MessageInput: Final masked prompt:', maskedText.substring(0, 200));
-		return maskedText;
+		return prompt;
 	};
 
 	const screenCaptureHandler = async () => {
