@@ -382,7 +382,7 @@ function findExistingEntityAtPosition(view: any, clientX: number, clientY: numbe
 }
 
 // Predefined PII labels for autocompletion (from SPACY_LABEL_MAPPINGS values)
-const PREDEFINED_LABELS = [
+const PREDEFINED_LABEL_TYPES = [
 	'ADDRESS', 'BANK_ACCOUNT_NUMBER', 'ID_NUMBER', 'HEALTH_DATA', 'LOCATION', 
 	'NUMBER', 'TAX_NUMBER', 'CREDIT_CARD', 'DATE', 'SIGNATURE', 'EMAIL', 
 	'IBAN', 'HEALTH_ID', 'IPv4v6', 'PHONENUMBER', 'LICENSE_PLATE', 'CURRENCY', 
@@ -726,7 +726,7 @@ function createHoverMenu(
 		
 		// Only autocomplete if not default value and user has typed something
 		if (!isDefaultValue && inputValue) {
-			const bestMatch = findBestMatch(inputValue, PREDEFINED_LABELS);
+			const bestMatch = findBestMatch(inputValue, PREDEFINED_LABEL_TYPES);
 			
 			if (bestMatch && bestMatch !== inputValue.toUpperCase()) {
 				// Complete the text inline
@@ -868,11 +868,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 		return {
 			enabled: false,
 			onModifiersChanged: undefined,
-			availableTypes: [
-				'PERSON', 'EMAIL', 'PHONE_NUMBER', 'ADDRESS', 'SSN', 
-				'CREDIT_CARD', 'DATE_TIME', 'IP_ADDRESS', 'URL', 'IBAN',
-				'MEDICAL_LICENSE', 'US_PASSPORT', 'US_DRIVER_LICENSE'
-			]
+			availableTypes: PREDEFINED_LABEL_TYPES
 		};
 	},
 
