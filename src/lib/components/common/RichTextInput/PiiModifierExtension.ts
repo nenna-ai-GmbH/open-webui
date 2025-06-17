@@ -947,9 +947,9 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 					// Handle plugin-specific meta actions
 					const meta = tr.getMeta(piiModifierExtensionKey);
 					if (meta) {
-						console.log('PiiModifierExtension: Processing meta action:', meta.type);
+						console.log('PiiModifierExtension: Processing meta action:', meta.transactionType);
 						
-						switch (meta.type) {
+						switch (meta.transactionType) {
 							case 'ADD_MODIFIER':
 								console.log('PiiModifierExtension: Adding new modifier:', {
 									action: meta.modifierAction,
@@ -1153,7 +1153,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 
 								const onIgnore = () => {
 									const tr = view.state.tr.setMeta(piiModifierExtensionKey, {
-										type: 'ADD_MODIFIER',
+										transactionType: 'ADD_MODIFIER',
 										modifierAction: 'ignore' as ModifierAction,
 										entity: existingEntity.text,
 										from: existingEntity.from,
@@ -1186,10 +1186,10 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 									});
 
 									const tr = view.state.tr.setMeta(piiModifierExtensionKey, {
-										type: 'ADD_MODIFIER',
+										transactionType: 'ADD_MODIFIER',
 										modifierAction: 'mask' as ModifierAction,
 										entity: selectedEntity.text,
-										label,
+										type: label,
 										from: selectedEntity.from,
 										to: selectedEntity.to,
 										view: view
@@ -1207,7 +1207,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 
 								const onRemoveModifier = (modifierId: string) => {
 									const tr = view.state.tr.setMeta(piiModifierExtensionKey, {
-										type: 'REMOVE_MODIFIER',
+										transactionType: 'REMOVE_MODIFIER',
 										modifierId,
 										view: view
 									});
@@ -1366,7 +1366,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 								// For ignore operations, we'll use the tokenized selection by default
 								// since ignore is primarily used for already-detected PII
 								const tr = view.state.tr.setMeta(piiModifierExtensionKey, {
-									type: 'ADD_MODIFIER',
+									transactionType: 'ADD_MODIFIER',
 									modifierAction: 'ignore' as ModifierAction,
 									entity: entityInfo.text,
 									from: entityInfo.from,
@@ -1395,10 +1395,10 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 								});
 
 								const tr = view.state.tr.setMeta(piiModifierExtensionKey, {
-									type: 'ADD_MODIFIER',
+									transactionType: 'ADD_MODIFIER',
 									modifierAction: 'mask' as ModifierAction,
 									entity: selectedEntity.text,
-									label,
+									type: label,
 									from: selectedEntity.from,
 									to: selectedEntity.to,
 									view: view
@@ -1416,7 +1416,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 
 							const onRemoveModifier = (modifierId: string) => {
 								const tr = view.state.tr.setMeta(piiModifierExtensionKey, {
-									type: 'REMOVE_MODIFIER',
+									transactionType: 'REMOVE_MODIFIER',
 									modifierId,
 									view: view
 								});
@@ -1558,7 +1558,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 
 				// Clear all modifiers
 				const tr = state.tr.setMeta(piiModifierExtensionKey, {
-					type: 'CLEAR_MODIFIERS'
+					transactionType: 'CLEAR_MODIFIERS'
 				});
 
 				if (dispatch) {
