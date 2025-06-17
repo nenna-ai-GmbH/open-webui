@@ -904,6 +904,7 @@ export function unmaskAndHighlightTextForDisplay(text: string, entities: Extende
 
 		// Create more comprehensive patterns for the exact label as it appears in masked text
 		const patterns = [
+			`\\{\\[${labelVariations}_${labelId}\\]\\}`,  // {[TYPE_ID]}
 			`\\[\\{${labelVariations}_${labelId}\\}\\]`,  // [{TYPE_ID}]
 			`\\[${labelVariations}_${labelId}\\]`,        // [TYPE_ID]
 			`\\{${labelVariations}_${labelId}\\}`,        // {TYPE_ID}
