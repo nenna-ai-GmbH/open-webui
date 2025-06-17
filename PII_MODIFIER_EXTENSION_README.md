@@ -165,8 +165,8 @@ The extension exports modifiers in the format expected by the Shield API:
     "ignore": ["EMAIL"]
   },
   "modifiers": [
-    { "type": "ignore", "entity": "Dr. Hahn" },
-    { "type": "mask", "entity": "A18.32", "label": "CASE" }
+    { "action": "ignore", "entity": "Dr. Hahn" },
+    { "action": "mask", "entity": "A18.32", "type": "CASE" }
   ]
 }
 ```

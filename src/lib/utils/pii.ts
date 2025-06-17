@@ -500,7 +500,7 @@ export class PiiSessionManager {
 				globalEntitiesCount: this.entities.length,
 				globalModifiersCount: this.modifiers.length,
 				entities: this.entities.map(e => ({ label: e.label, rawText: e.raw_text })),
-				modifiers: this.modifiers.map(m => ({ type: m.type, entity: m.entity, label: m.label }))
+				modifiers: this.modifiers.map(m => ({ action: m.action, entity: m.entity, type: m.type }))
 			});
 
 			// Convert ExtendedPiiEntity back to PiiEntity for setConversationEntities
@@ -538,8 +538,8 @@ export class PiiSessionManager {
 		console.log(`PiiSessionManager: ACCUMULATING modifiers in GLOBAL state (no conversation ID yet):`, {
 			newModifiersFromExtension: modifiers.length,
 			existingGlobalModifiers: existingModifiers.length,
-			newModifiersDetails: modifiers.map(m => ({ type: m.type, entity: m.entity, label: m.label })),
-			existingGlobalDetails: existingModifiers.map(m => ({ type: m.type, entity: m.entity, label: m.label })),
+			newModifiersDetails: modifiers.map(m => ({ action: m.action, entity: m.entity, type: m.type })),
+			existingGlobalDetails: existingModifiers.map(m => ({ action: m.action, entity: m.entity, type: m.type })),
 			operation: 'APPEND_ONLY - never overwrite global modifiers'
 		});
 
@@ -547,16 +547,16 @@ export class PiiSessionManager {
 		let newModifiersAdded = 0;
 		modifiers.forEach((newModifier) => {
 			const existingIndex = mergedModifiers.findIndex((m) => 
-				m.type === newModifier.type && 
+				m.action === newModifier.action && 
 				m.entity.toLowerCase() === newModifier.entity.toLowerCase() &&
-				m.label === newModifier.label
+				m.type === newModifier.type
 			);
 			if (existingIndex >= 0) {
 				// Modifier already exists in global state - DO NOT overwrite
-				console.log(`PiiSessionManager: Global modifier ${newModifier.type}:${newModifier.entity} already exists - preserving original (NO CHANGES)`);
+				console.log(`PiiSessionManager: Global modifier ${newModifier.action}:${newModifier.entity} already exists - preserving original (NO CHANGES)`);
 			} else {
 				// Only add truly new modifiers that don't exist yet
-				console.log(`PiiSessionManager: Appending NEW modifier to global state: ${newModifier.type}:${newModifier.entity} (${newModifier.label || 'no label'})`);
+				console.log(`PiiSessionManager: Appending NEW modifier to global state: ${newModifier.action}:${newModifier.entity} (${newModifier.type || 'no type'})`);
 				mergedModifiers.push(newModifier);
 				newModifiersAdded++;
 			}
@@ -569,7 +569,7 @@ export class PiiSessionManager {
 			beforeCount: existingModifiers.length,
 			afterCount: mergedModifiers.length,
 			newModifiersAdded,
-			allGlobalModifiersDetails: mergedModifiers.map(m => ({ type: m.type, entity: m.entity, label: m.label })),
+			allGlobalModifiersDetails: mergedModifiers.map(m => ({ action: m.action, entity: m.entity, type: m.type })),
 			guaranteedPersistence: 'Global modifiers now also accumulate and never get overwritten'
 		});
 	}
@@ -591,8 +591,8 @@ export class PiiSessionManager {
 		console.log(`PiiSessionManager: ACCUMULATING modifiers for conversation ${conversationId}:`, {
 			newModifiersFromExtension: modifiers.length,
 			existingModifiersInConversation: existingModifiers.length,
-			newModifiersDetails: modifiers.map(m => ({ type: m.type, entity: m.entity, label: m.label })),
-			existingModifiersDetails: existingModifiers.map(m => ({ type: m.type, entity: m.entity, label: m.label })),
+			newModifiersDetails: modifiers.map(m => ({ action: m.action, entity: m.entity, type: m.type })),
+			existingModifiersDetails: existingModifiers.map(m => ({ action: m.action, entity: m.entity, type: m.type })),
 			operation: 'APPEND_ONLY - never overwrite or lose existing modifiers'
 		});
 
@@ -600,16 +600,16 @@ export class PiiSessionManager {
 		let newModifiersAdded = 0;
 		modifiers.forEach((newModifier) => {
 			const existingIndex = mergedModifiers.findIndex((m) => 
-				m.type === newModifier.type && 
+				m.action === newModifier.action && 
 				m.entity.toLowerCase() === newModifier.entity.toLowerCase() &&
-				m.label === newModifier.label
+				m.type === newModifier.type
 			);
 			if (existingIndex >= 0) {
 				// Modifier already exists - DO NOT overwrite, completely preserve original
-				console.log(`PiiSessionManager: Modifier ${newModifier.type}:${newModifier.entity} already exists - preserving original modifier (NO CHANGES)`);
+				console.log(`PiiSessionManager: Modifier ${newModifier.action}:${newModifier.entity} already exists - preserving original modifier (NO CHANGES)`);
 			} else {
 				// Only add truly new modifiers that don't exist yet
-				console.log(`PiiSessionManager: Appending NEW modifier: ${newModifier.type}:${newModifier.entity} (${newModifier.label || 'no label'})`);
+				console.log(`PiiSessionManager: Appending NEW modifier: ${newModifier.action}:${newModifier.entity} (${newModifier.type || 'no type'})`);
 				mergedModifiers.push(newModifier);
 				newModifiersAdded++;
 			}
@@ -619,7 +619,7 @@ export class PiiSessionManager {
 			beforeCount: existingModifiers.length,
 			afterCount: mergedModifiers.length,
 			newModifiersAdded,
-			allModifiersDetails: mergedModifiers.map(m => ({ type: m.type, entity: m.entity, label: m.label })),
+			allModifiersDetails: mergedModifiers.map(m => ({ action: m.action, entity: m.entity, type: m.type })),
 			guaranteedPersistence: 'All previously created modifiers remain forever in this conversation'
 		});
 
@@ -655,7 +655,7 @@ export class PiiSessionManager {
 			conversationId,
 			stateExists: !!state,
 			modifiersCount: modifiers.length,
-			modifiersDetails: modifiers.map(m => ({ type: m.type, entity: m.entity, label: m.label })),
+			modifiersDetails: modifiers.map(m => ({ action: m.action, entity: m.entity, type: m.type })),
 			allConversationIds: Array.from(this.conversationStates.keys()),
 			warning: modifiers.length === 0 ? 'NO MODIFIERS FOUND - this might be the problem!' : 'Modifiers found'
 		});
@@ -664,7 +664,7 @@ export class PiiSessionManager {
 	}
 
 	// Convert modifiers to API format for both global and conversation contexts
-	getModifiersForApi(conversationId?: string): Array<{ type: 'ignore' | 'mask'; entity: string; label?: string }> {
+	getModifiersForApi(conversationId?: string): Array<{ action: 'ignore' | 'mask'; entity: string; type?: string }> {
 		let modifiers: PiiModifier[];
 		
 		if (conversationId) {
@@ -674,15 +674,15 @@ export class PiiSessionManager {
 		}
 		
 		const apiModifiers = modifiers.map((modifier) => ({
-			type: modifier.type,
+			action: modifier.action,
 			entity: modifier.entity,
-			...(modifier.label && { label: modifier.label })
+			...(modifier.type && { type: modifier.type })
 		}));
 		
 		console.log(`PiiSessionManager: CRITICAL DEBUG - getModifiersForApi called:`, {
 			conversationId: conversationId || 'GLOBAL',
 			modifiersCount: modifiers.length,
-			modifiersDetails: modifiers.map(m => ({ type: m.type, entity: m.entity, label: m.label })),
+			modifiersDetails: modifiers.map(m => ({ action: m.action, entity: m.entity, type: m.type })),
 			apiModifiersForRequest: apiModifiers,
 			note: 'These are the modifiers being sent to API for ignore/mask instructions'
 		});

@@ -79,7 +79,7 @@
 	// PII Modifier props
 	export let enablePiiModifiers = false;
 	export let onPiiModifiersChanged: (modifiers: PiiModifier[]) => void = () => {};
-	export let piiModifierLabels: string[] = [];
+	export let piiModifierTypes: string[] = [];
 
 	let element: HTMLElement;
 	let editor: any;
@@ -101,7 +101,7 @@
 		const sortedModifiers = [...modifiers].sort((a, b) => a.id.localeCompare(b.id));
 		
 		return sortedModifiers
-			.map(m => `${m.type}:${m.entity}:${m.label || ''}:${m.from}:${m.to}`)
+			.map(m => `${m.action}:${m.entity}:${m.type || ''}:${m.from}:${m.to}`)
 			.join('|');
 	};
 
@@ -307,7 +307,7 @@
 			hasApiKey: !!piiApiKey,
 			conversationId,
 			apiKeyLength: piiApiKey?.length || 0,
-			modifierLabels: piiModifierLabels
+			modifierTypes: piiModifierTypes
 		});
 
 		editor = new Editor({
@@ -336,9 +336,9 @@
 							PiiModifierExtension.configure({
 								enabled: true,
 								onModifiersChanged: handleModifiersChanged,
-								availableLabels: piiModifierLabels.length > 0 
-									? piiModifierLabels 
-									: undefined // Use default labels
+								availableTypes: piiModifierTypes.length > 0 
+									? piiModifierTypes 
+									: undefined // Use default types
 							})
 						]
 					: []),
@@ -618,13 +618,13 @@
 				console.log('RichTextInput: Persisting modifiers to conversation state:', {
 					conversationId,
 					modifiersCount: modifiers.length,
-					modifiers: modifiers.map(m => ({ type: m.type, entity: m.entity, label: m.label }))
+					modifiers: modifiers.map(m => ({ action: m.action, entity: m.entity, type: m.type }))
 				});
 				piiSessionManager.setConversationModifiers(conversationId, modifiers);
 			} else {
 				console.log('RichTextInput: Persisting modifiers to global state (no conversation ID yet):', {
 					modifiersCount: modifiers.length,
-					modifiers: modifiers.map(m => ({ type: m.type, entity: m.entity, label: m.label }))
+					modifiers: modifiers.map(m => ({ action: m.action, entity: m.entity, type: m.type }))
 				});
 				piiSessionManager.setModifiers(modifiers);
 			}

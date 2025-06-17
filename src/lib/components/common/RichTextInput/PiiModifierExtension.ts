@@ -1,14 +1,15 @@
 import { Extension } from '@tiptap/core';
 import { Plugin, PluginKey } from 'prosemirror-state';
 import type { Node as ProseMirrorNode } from 'prosemirror-model';
+import { PiiSessionManager } from '$lib/utils/pii';
 
 // Types for the Shield API modifiers
-export type ModifierType = 'ignore' | 'mask';
+export type ModifierAction = 'ignore' | 'mask';
 
 export interface PiiModifier {
-	type: ModifierType;
+	action: ModifierAction;
 	entity: string;
-	label?: string; // Required for 'mask' type
+	type?: string; // Required for 'mask' action
 	id: string; // Unique identifier for this modifier
 	from: number; // ProseMirror position start
 	to: number; // ProseMirror position end
@@ -17,8 +18,9 @@ export interface PiiModifier {
 // Options for the extension
 export interface PiiModifierOptions {
 	enabled: boolean;
+	conversationId?: string; // Add conversation ID for session manager lookup
 	onModifiersChanged?: (modifiers: PiiModifier[]) => void;
-	availableLabels?: string[]; // List of available PII labels for mask type
+	availableTypes?: string[]; // List of available PII types for mask action
 }
 
 // Extension state
@@ -479,8 +481,8 @@ function createHoverMenu(
 		`;
 
 		const modifierInfo = document.createElement('span');
-		const typeIcon = modifier.type === 'ignore' ? '🚫' : '🏷️';
-		const typeText = modifier.type === 'ignore' ? 'Ignored' : modifier.label;
+		const typeIcon = modifier.action === 'ignore' ? '🚫' : '🏷️';
+		const typeText = modifier.action === 'ignore' ? 'Ignored' : modifier.type;
 		modifierInfo.textContent = `${typeIcon} ${typeText}`;
 		modifierInfo.style.cssText = `
 			color: #495057;
@@ -866,7 +868,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 		return {
 			enabled: false,
 			onModifiersChanged: undefined,
-			availableLabels: [
+			availableTypes: [
 				'PERSON', 'EMAIL', 'PHONE_NUMBER', 'ADDRESS', 'SSN', 
 				'CREDIT_CARD', 'DATE_TIME', 'IP_ADDRESS', 'URL', 'IBAN',
 				'MEDICAL_LICENSE', 'US_PASSPORT', 'US_DRIVER_LICENSE'
@@ -880,12 +882,12 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 
 	addProseMirrorPlugins() {
 		const options = this.options;
-		const { enabled, onModifiersChanged, availableLabels } = options;
+		const { enabled, onModifiersChanged, availableTypes } = options;
 
 		console.log('PiiModifierExtension: Adding ProseMirror plugins', {
 			enabled,
 			hasCallback: !!onModifiersChanged,
-			labelsCount: availableLabels?.length || 0
+			labelsCount: availableTypes?.length || 0
 		});
 
 		if (!enabled) {
@@ -941,24 +943,23 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 					// Handle plugin-specific meta actions
 					const meta = tr.getMeta(piiModifierExtensionKey);
 					if (meta) {
-						console.log('PiiModifierExtension: Handling meta action:', meta.type);
-						switch (meta.type) {
+						switch (meta.action) {
 							case 'ADD_MODIFIER':
 								const newModifier: PiiModifier = {
 									id: generateModifierId(),
-									type: meta.modifierType,
+									action: meta.modifierAction,
 									entity: meta.entity,
-									label: meta.label,
+									type: meta.type,
 									from: meta.from,
 									to: meta.to
 								};
 
 								let updatedModifiers;
 								
-								if (meta.modifierType === 'mask') {
+								if (meta.modifierAction === 'mask') {
 									// For mask modifiers, replace any existing mask modifiers for the same entity
 									updatedModifiers = newState.modifiers.filter(modifier => 
-										!(modifier.type === 'mask' && modifier.entity.toLowerCase() === meta.entity.toLowerCase())
+										!(modifier.action === 'mask' && modifier.entity.toLowerCase() === meta.entity.toLowerCase())
 									);
 									updatedModifiers.push(newModifier);
 								} else {
@@ -1101,9 +1102,9 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 								}) || [];
 
 								// Check if there are any mask modifiers for this entity
-								const hasMaskModifier = existingModifiers.some(modifier => modifier.type === 'mask');
+								const hasMaskModifier = existingModifiers.some(modifier => modifier.action === 'mask');
 								// Check if there are any ignore modifiers for this entity
-								const hasIgnoreModifier = existingModifiers.some(modifier => modifier.type === 'ignore');
+								const hasIgnoreModifier = existingModifiers.some(modifier => modifier.action === 'ignore');
 
 								// For existing entities, always show ignore button if it's PII, and always show text field unless ignored
 								const isPiiEntity = existingEntity.type === 'pii';
@@ -1134,7 +1135,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 								const onIgnore = () => {
 									const tr = view.state.tr.setMeta(piiModifierExtensionKey, {
 										type: 'ADD_MODIFIER',
-										modifierType: 'ignore' as ModifierType,
+										modifierAction: 'ignore' as ModifierAction,
 										entity: existingEntity.text,
 										from: existingEntity.from,
 										to: existingEntity.to,
@@ -1152,7 +1153,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 								const onMask = (label: string, useOriginalSelection?: boolean) => {
 									const tr = view.state.tr.setMeta(piiModifierExtensionKey, {
 										type: 'ADD_MODIFIER',
-										modifierType: 'mask' as ModifierType,
+										modifierAction: 'mask' as ModifierAction,
 										entity: existingEntity.text,
 										label,
 										from: existingEntity.from,
@@ -1286,8 +1287,10 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 								return modifier.entity.toLowerCase() === entityInfo.text.toLowerCase();
 							}) || [];
 
-							const hasMaskModifier = existingModifiers.some(modifier => modifier.type === 'mask');
-							const hasIgnoreModifier = existingModifiers.some(modifier => modifier.type === 'ignore');
+
+
+							const hasMaskModifier = existingModifiers.some(modifier => modifier.action === 'mask');
+							const hasIgnoreModifier = existingModifiers.some(modifier => modifier.action === 'ignore');
 
 							// Hide existing menu first
 							if (hoverMenuElement) {
@@ -1328,7 +1331,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 								// since ignore is primarily used for already-detected PII
 								const tr = view.state.tr.setMeta(piiModifierExtensionKey, {
 									type: 'ADD_MODIFIER',
-									modifierType: 'ignore' as ModifierType,
+									modifierAction: 'ignore' as ModifierAction,
 									entity: entityInfo.text,
 									from: entityInfo.from,
 									to: entityInfo.to,
@@ -1349,7 +1352,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 								
 								const tr = view.state.tr.setMeta(piiModifierExtensionKey, {
 									type: 'ADD_MODIFIER',
-									modifierType: 'mask' as ModifierType,
+									modifierAction: 'mask' as ModifierAction,
 									entity: selectedEntity.text,
 									label,
 									from: selectedEntity.from,
@@ -1527,9 +1530,9 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 				}
 
 				return pluginState.modifiers.map(modifier => ({
-					type: modifier.type,
+					action: modifier.action,
 					entity: modifier.entity,
-					...(modifier.label && { label: modifier.label })
+					...(modifier.type && { type: modifier.type })
 				}));
 			}
 		} as any;
