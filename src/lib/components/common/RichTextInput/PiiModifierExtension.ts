@@ -407,7 +407,7 @@ function findBestMatch(input: string, labels: string[]): string | null {
 function createHoverMenu(
 	wordInfo: { word: string; from: number; to: number; x: number; y: number },
 	onIgnore: () => void,
-	onMask: (label: string, useOriginalSelection?: boolean) => void,
+	onMask: (type: string, useOriginalSelection?: boolean) => void,
 	showIgnoreButton: boolean = false,
 	existingModifiers: PiiModifier[] = [],
 	onRemoveModifier?: (modifierId: string) => void,
@@ -653,18 +653,18 @@ function createHoverMenu(
 
 	// Label input section (only show if showTextField is true)
 	if (showTextField) {
-		const labelSection = document.createElement('div');
-		labelSection.style.cssText = `
+		const typeSection = document.createElement('div');
+		typeSection.style.cssText = `
 			display: flex;
 			flex-direction: column;
 			gap: 6px;
 			position: relative;
 		`;
 
-	const labelInput = document.createElement('input');
-	labelInput.type = 'text';
-	labelInput.value = 'CUSTOM';
-	labelInput.style.cssText = `
+		const typeInput = document.createElement('input');
+		typeInput.type = 'text';
+		typeInput.value = 'CUSTOM';
+		typeInput.style.cssText = `
 		width: 100%;
 		padding: 6px 8px;
 		border: 1px solid #ddd;

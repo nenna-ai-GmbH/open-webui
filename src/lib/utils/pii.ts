@@ -596,7 +596,6 @@ export class PiiSessionManager {
 			operation: 'APPEND_ONLY - never overwrite or lose existing modifiers'
 		});
 
-		// Only append truly new modifiers that don't already exist
 		let newModifiersAdded = 0;
 		modifiers.forEach((newModifier) => {
 			const existingIndex = mergedModifiers.findIndex((m) => 
@@ -604,6 +603,7 @@ export class PiiSessionManager {
 				m.entity.toLowerCase() === newModifier.entity.toLowerCase() &&
 				m.type === newModifier.type
 			);
+			
 			if (existingIndex >= 0) {
 				// Modifier already exists - DO NOT overwrite, completely preserve original
 				console.log(`PiiSessionManager: Modifier ${newModifier.action}:${newModifier.entity} already exists - preserving original modifier (NO CHANGES)`);
