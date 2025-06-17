@@ -84,7 +84,7 @@
 	let element: HTMLElement;
 	let editor: any;
 	let currentModifiers: PiiModifier[] = [];
-	let previousModifiersLength = 0;
+	let previousModifiers: PiiModifier[] = [];
 
 	// Generate a content-based hash for modifiers to detect actual changes
 	// This is much smarter than just checking array length because it detects:
@@ -595,20 +595,22 @@
 
 	// Reactive statement to trigger PII detection when modifiers change  
 	$: if (editor && editor.view && enablePiiDetection && enablePiiModifiers) {
-		// TEMPORARY: Revert to original length-based approach to debug API issue
-		if (currentModifiers.length !== previousModifiersLength && currentModifiers.length > 0) {
-			console.log('RichTextInput: Modifiers changed (length-based), triggering PII detection', {
-				previousLength: previousModifiersLength,
-				currentLength: currentModifiers.length
+		const currentHash = getModifiersHash(currentModifiers);
+		const previousHash = getModifiersHash(previousModifiers);
+		
+		if (currentHash !== previousHash) {
+			console.log('RichTextInput: Modifiers changed (hash-based), triggering PII detection', {
+				previousHash,
+				currentHash,
+				modifiersCount: currentModifiers.length
 			});
-			previousModifiersLength = currentModifiers.length;
+			previousModifiers = [...currentModifiers];
 			editor.commands.triggerDetectionForModifiers();
 		}
 	}
 
 	// Handle modifier changes
 	const handleModifiersChanged = (modifiers: PiiModifier[]) => {
-		const wasEmpty = currentModifiers.length === 0;
 		currentModifiers = modifiers;
 		onPiiModifiersChanged(modifiers);
 		
@@ -627,25 +629,6 @@
 					modifiers: modifiers.map(m => ({ action: m.action, entity: m.entity, type: m.type }))
 				});
 				piiSessionManager.setModifiers(modifiers);
-			}
-		}
-		
-		// TEMPORARY: Revert to original length-based logic to debug API issue
-		if ((wasEmpty && modifiers.length > 0) || modifiers.length !== previousModifiersLength) {
-			console.log('RichTextInput: Modifier change detected in handler', {
-				wasEmpty,
-				previousLength: previousModifiersLength,
-				newLength: modifiers.length
-			});
-			
-			// Update the tracking variable
-			previousModifiersLength = modifiers.length;
-			
-			// Trigger detection if we have an editor and text
-			if (editor && editor.view && editor.view.state.doc.textContent.trim()) {
-				setTimeout(() => {
-					editor.commands.triggerDetectionForModifiers();
-				}, 100);
 			}
 		}
 	};
