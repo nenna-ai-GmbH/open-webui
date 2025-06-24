@@ -78,7 +78,6 @@ class SessionUserResponse(Token, UserResponse):
 async def get_session_user(
     request: Request, response: Response, user=Depends(get_current_user)
 ):
-
     auth_header = request.headers.get("Authorization")
     auth_token = get_http_authorization_cred(auth_header)
     token = auth_token.credentials
@@ -409,7 +408,6 @@ async def signin(request: Request, response: Response, form_data: SigninForm):
         user = Auths.authenticate_user(form_data.email.lower(), form_data.password)
 
     if user:
-
         expires_delta = parse_duration(request.app.state.config.JWT_EXPIRES_IN)
         expires_at = None
         if expires_delta:
@@ -462,7 +460,6 @@ async def signin(request: Request, response: Response, form_data: SigninForm):
 
 @router.post("/signup", response_model=SessionUserResponse)
 async def signup(request: Request, response: Response, form_data: SignupForm):
-
     if WEBUI_AUTH:
         if (
             not request.app.state.config.ENABLE_SIGNUP
@@ -578,34 +575,90 @@ async def signout(request: Request, response: Response):
 
     if ENABLE_OAUTH_SIGNUP.value:
         oauth_id_token = request.cookies.get("oauth_id_token")
+        oauth_provider = request.cookies.get("oauth_provider")
+
         if oauth_id_token:
             try:
-                async with ClientSession() as session:
-                    async with session.get(OPENID_PROVIDER_URL.value) as resp:
-                        if resp.status == 200:
-                            openid_data = await resp.json()
-                            logout_url = openid_data.get("end_session_endpoint")
-                            if logout_url:
-                                response.delete_cookie("oauth_id_token")
+                # Get the appropriate metadata URL based on the OAuth provider
+                metadata_url = None
 
-                                return JSONResponse(
-                                    status_code=200,
-                                    content={
-                                        "status": True,
-                                        "redirect_url": f"{logout_url}?id_token_hint={oauth_id_token}",
-                                    },
-                                    headers=response.headers,
+                if oauth_provider == "microsoft":
+                    # Import Microsoft-specific config
+                    from open_webui.config import (
+                        MICROSOFT_CLIENT_LOGIN_BASE_URL,
+                        MICROSOFT_CLIENT_TENANT_ID,
+                        MICROSOFT_CLIENT_ID,
+                    )
+
+                    if (
+                        MICROSOFT_CLIENT_LOGIN_BASE_URL.value
+                        and MICROSOFT_CLIENT_TENANT_ID.value
+                        and MICROSOFT_CLIENT_ID.value
+                    ):
+                        metadata_url = f"{MICROSOFT_CLIENT_LOGIN_BASE_URL.value}/{MICROSOFT_CLIENT_TENANT_ID.value}/v2.0/.well-known/openid-configuration?appid={MICROSOFT_CLIENT_ID.value}"
+                elif oauth_provider == "google":
+                    metadata_url = (
+                        "https://accounts.google.com/.well-known/openid-configuration"
+                    )
+                elif oauth_provider == "oidc":
+                    # Use the generic OPENID_PROVIDER_URL for OIDC
+                    metadata_url = OPENID_PROVIDER_URL.value
+                elif oauth_provider is None:
+                    # Backward compatibility: if no provider is stored, use OPENID_PROVIDER_URL as fallback
+                    if OPENID_PROVIDER_URL.value:
+                        metadata_url = OPENID_PROVIDER_URL.value
+                        log.warning(
+                            "OAuth provider not specified, falling back to OPENID_PROVIDER_URL"
+                        )
+                else:
+                    # For other providers or fallback, use OPENID_PROVIDER_URL if available
+                    if OPENID_PROVIDER_URL.value:
+                        metadata_url = OPENID_PROVIDER_URL.value
+
+                if metadata_url:
+                    async with ClientSession() as session:
+                        async with session.get(metadata_url) as resp:
+                            if resp.status == 200:
+                                openid_data = await resp.json()
+                                logout_url = openid_data.get("end_session_endpoint")
+                                if logout_url:
+                                    response.delete_cookie("oauth_id_token")
+                                    if oauth_provider:
+                                        response.delete_cookie("oauth_provider")
+
+                                    return JSONResponse(
+                                        status_code=200,
+                                        content={
+                                            "status": True,
+                                            "redirect_url": f"{logout_url}?id_token_hint={oauth_id_token}",
+                                        },
+                                        headers=response.headers,
+                                    )
+                            else:
+                                raise HTTPException(
+                                    status_code=resp.status,
+                                    detail=f"Failed to fetch OpenID configuration from {metadata_url}",
                                 )
-                        else:
-                            raise HTTPException(
-                                status_code=resp.status,
-                                detail="Failed to fetch OpenID configuration",
-                            )
+                else:
+                    provider_info = (
+                        f" (provider: {oauth_provider})" if oauth_provider else ""
+                    )
+                    log.warning(f"No metadata URL available for OAuth{provider_info}")
+                    # Clean up cookies anyway
+                    response.delete_cookie("oauth_id_token")
+                    if oauth_provider:
+                        response.delete_cookie("oauth_provider")
+
             except Exception as e:
-                log.error(f"OpenID signout error: {str(e)}")
+                provider_info = f" provider {oauth_provider}" if oauth_provider else ""
+                log.error(f"OAuth signout error for{provider_info}: {str(e)}")
+                # Clean up cookies on error
+                response.delete_cookie("oauth_id_token")
+                if oauth_provider:
+                    response.delete_cookie("oauth_provider")
                 raise HTTPException(
                     status_code=500,
-                    detail="Failed to sign out from the OpenID provider.",
+                    detail="Failed to sign out from the OAuth provider.",
                 )
 
     if WEBUI_AUTH_SIGNOUT_REDIRECT_URL:
