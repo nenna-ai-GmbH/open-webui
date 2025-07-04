@@ -33,6 +33,8 @@
 	import Typography from '@tiptap/extension-typography';
 
 	import { PASTED_TEXT_CHARACTER_LIMIT } from '$lib/constants';
+	import { PiiDetectionExtension } from './RichTextInput/PiiDetectionExtension';
+	import Spinner from '$lib/components/icons/Spinner.svelte';
 
 	export let oncompositionstart = (e) => {};
 	export let oncompositionend = (e) => {};
@@ -59,8 +61,16 @@
 	export let shiftEnter = false;
 	export let largeTextAsFile = false;
 
+	// PII Detection props
+	export let enablePiiDetection = false;
+	export let piiApiKey = '';
+	export let conversationId = '';
+	export let onPiiDetected = undefined;
+	export let onPiiToggled = undefined;
+
 	let element;
 	let editor;
+	let isPiiDetecting = false;
 
 	const options = {
 		throwOnError: false
@@ -219,6 +229,20 @@
 									}
 
 									return suggestion;
+								}
+							})
+						]
+					: []),
+				...(enablePiiDetection
+					? [
+							PiiDetectionExtension.configure({
+								enabled: enablePiiDetection,
+								apiKey: piiApiKey,
+								conversationId: conversationId,
+								onPiiDetected: onPiiDetected,
+								onPiiToggled: onPiiToggled,
+								onDetectionStateChange: (isDetecting) => {
+									isPiiDetecting = isDetecting;
 								}
 							})
 						]
@@ -453,4 +477,14 @@
 	};
 </script>
 
-<div bind:this={element} class="relative w-full min-w-full h-full min-h-fit {className}" />
+<div class="relative w-full min-w-full h-full min-h-fit">
+	<div bind:this={element} class="w-full h-full min-h-fit {className}" />
+	
+	{#if isPiiDetecting}
+		<div class="absolute top-2 right-2 z-10 pointer-events-none">
+			<div class="bg-white/80 dark:bg-gray-800/80 rounded-full p-1 shadow-sm backdrop-blur-sm">
+				<Spinner className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+			</div>
+		</div>
+	{/if}
+</div>
