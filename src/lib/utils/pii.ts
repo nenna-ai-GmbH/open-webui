@@ -550,6 +550,33 @@ export class PiiSessionManager {
 			entity.shouldMask = shouldMask;
 		}
 	}
+
+	// Clear mask modifiers (keep ignore modifiers) for conversation
+	clearMaskModifiers(conversationId: string) {
+		const state = this.conversationStates.get(conversationId);
+		if (state) {
+			// Keep only ignore modifiers, remove string-mask and word-mask
+			const filteredModifiers = state.modifiers.filter(modifier => modifier.action === 'ignore');
+			
+			const newState: ConversationPiiState = {
+				...state,
+				modifiers: filteredModifiers,
+				lastUpdated: Date.now()
+			};
+			
+			this.conversationStates.set(conversationId, newState);
+			this.errorBackup.set(conversationId, { ...newState });
+			this.triggerChatSave(conversationId);
+		}
+	}
+
+	// Clear mask modifiers (keep ignore modifiers) for temporary state
+	clearTemporaryMaskModifiers() {
+		if (this.temporaryState.isActive) {
+			// Keep only ignore modifiers, remove string-mask and word-mask
+			this.temporaryState.modifiers = this.temporaryState.modifiers.filter(modifier => modifier.action === 'ignore');
+		}
+	}
 }
 
 // Get label variations to handle different spellings

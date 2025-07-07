@@ -808,7 +808,63 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 			unmaskAllEntities: () => updateAllEntityMaskingStates(false),
 
 			// Mask all PII entities
-			maskAllEntities: () => updateAllEntityMaskingStates(true)
+			maskAllEntities: () => updateAllEntityMaskingStates(true),
+
+			// Clear mask modifiers (keep ignore modifiers)
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			clearMaskModifiers: () => ({ state, dispatch }: any) => {
+				const piiSessionManager = PiiSessionManager.getInstance();
+				
+				// Clear mask modifiers from session manager
+				if (options.conversationId) {
+					piiSessionManager.clearMaskModifiers(options.conversationId);
+				} else {
+					piiSessionManager.clearTemporaryMaskModifiers();
+				}
+
+				// Force a re-render to update decorations
+				if (dispatch) {
+					const tr = state.tr.setMeta(piiDetectionPluginKey, {
+						type: 'SYNC_WITH_SESSION_MANAGER'
+					});
+					dispatch(tr);
+					return true;
+				}
+				return false;
+			}
+		};
+	},
+
+	addKeyboardShortcuts() {
+		const options = this.options;
+		
+		// Only add shortcuts if PII detection is enabled
+		if (!options.enabled) {
+			return {};
+		}
+
+		return {
+			// Ctrl+Shift+L: Unmask all PIIs and clear mask modifiers
+			'Mod-Shift-l': () => {
+				console.log('PiiDetectionExtension: Unmask all keyboard shortcut triggered');
+				
+				// First clear mask modifiers
+				this.editor.commands.clearMaskModifiers();
+				
+				// Then unmask all entities
+				this.editor.commands.unmaskAllEntities();
+				
+				return true;
+			},
+
+			// Ctrl+Shift+O: Mask all PIIs
+			'Mod-Shift-o': () => {
+				console.log('PiiDetectionExtension: Mask all keyboard shortcut triggered');
+				
+				this.editor.commands.maskAllEntities();
+				
+				return true;
+			}
 		};
 	}
 }); 

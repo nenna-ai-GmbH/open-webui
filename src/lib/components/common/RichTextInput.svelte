@@ -429,38 +429,8 @@
 					keydown: (view, event) => {
 						ensureConversationActivated(); // Ensure conversation is activated on first keystroke
 						
-						// Handle CTRL+SHIFT+L to unmask all PIIs and clear mask modifiers
-						if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'l') {
-							if (enablePiiDetection && enablePiiModifiers && editor) {
-								event.preventDefault();
-								
-								// 1. Clear all mask modifiers (keep ignore modifiers)
-								if (editor.commands?.clearMaskModifiers) {
-									editor.commands.clearMaskModifiers();
-								}
-								
-								// 2. Unmask all PII entities
-								if (editor.commands?.unmaskAllEntities) {
-									editor.commands.unmaskAllEntities();
-								}
-								
-								return true;
-							}
-						}
-						
-						// Handle CTRL+SHIFT+O to mask all PIIs again
-						if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'o') {
-							if (enablePiiDetection && editor) {
-								event.preventDefault();
-								
-								// Mask all PII entities
-								if (editor.commands?.maskAllEntities) {
-									editor.commands.maskAllEntities();
-								}
-								
-								return true;
-							}
-						}
+						// Note: CTRL+SHIFT+L and CTRL+SHIFT+O keyboard shortcuts are now handled 
+						// by PiiDetectionExtension's addKeyboardShortcuts method
 						
 						if (messageInput) {
 							// Handle Tab Key
