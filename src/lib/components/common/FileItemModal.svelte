@@ -203,6 +203,38 @@
 				{/if}
 
 				{#if item?.file?.data?.content}
+					<!-- Progressive Processing Status -->
+					{#if item?.file?.data?.isPartialContent || item?.file?.data?.processing_status}
+						<div class="mb-3 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+							<div class="flex items-center gap-2">
+								{#if item?.file?.data?.isPartialContent}
+									<svg class="animate-spin size-4 text-blue-500" fill="none" viewBox="0 0 24 24">
+										<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+										<path class="opacity-75" fill="currentColor" d="m4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+									</svg>
+									<span class="text-sm text-blue-700 dark:text-blue-300">
+										{item?.file?.data?.processing_status || 'Processing pages...'}
+									</span>
+								{:else}
+									<svg class="size-4 text-green-500" fill="currentColor" viewBox="0 0 20 20">
+										<path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+									</svg>
+									<span class="text-sm text-green-700 dark:text-green-300">
+										{item?.file?.data?.processing_status || 'Processing complete'}
+									</span>
+								{/if}
+							</div>
+							{#if item?.file?.data?.page_count}
+								<div class="mt-1 text-xs text-gray-600 dark:text-gray-400">
+									{item?.file?.data?.page_count} page{item?.file?.data?.page_count === 1 ? '' : 's'} total
+									{#if item?.file?.data?.piiEntities?.length > 0}
+										• {item?.file?.data?.piiEntities.length} PII entit{item?.file?.data?.piiEntities.length === 1 ? 'y' : 'ies'} detected
+									{/if}
+								</div>
+							{/if}
+						</div>
+					{/if}
+
 					<!-- Show extracted text content with PII detection for both PDF and DOCX -->
 					<PiiAwareFilePreview
 						text={item?.file?.data?.content ?? 'No content'}

@@ -331,6 +331,111 @@ export const processFile = async (
 	return res;
 };
 
+export const processFilePageWise = async (
+	token: string,
+	file_id: string,
+	collection_name: string | null = null
+) => {
+	let error = null;
+
+	const res = await fetch(`${RETRIEVAL_API_BASE_URL}/process/file/pagewise`, {
+		method: 'POST',
+		headers: {
+			Accept: 'application/json',
+			'Content-Type': 'application/json',
+			authorization: `Bearer ${token}`
+		},
+		body: JSON.stringify({
+			file_id: file_id,
+			collection_name: collection_name ? collection_name : undefined
+		})
+	})
+		.then(async (res) => {
+			if (!res.ok) throw await res.json();
+			return res.json();
+		})
+		.catch((err) => {
+			error = err.detail;
+			console.error(err);
+			return null;
+		});
+
+	if (error) {
+		throw error;
+	}
+
+	return res;
+};
+
+export const getFilePagesInfo = async (
+	token: string,
+	file_id: string
+) => {
+	let error = null;
+
+	const res = await fetch(`${RETRIEVAL_API_BASE_URL}/file/pages/info`, {
+		method: 'POST',
+		headers: {
+			Accept: 'application/json',
+			'Content-Type': 'application/json',
+			authorization: `Bearer ${token}`
+		},
+		body: JSON.stringify({
+			file_id: file_id
+		})
+	})
+		.then(async (res) => {
+			if (!res.ok) throw await res.json();
+			return res.json();
+		})
+		.catch((err) => {
+			error = err.detail;
+			console.error(err);
+			return null;
+		});
+
+	if (error) {
+		throw error;
+	}
+
+	return res;
+};
+
+export const getFilePageContent = async (
+	token: string,
+	file_id: string,
+	page_number: number
+) => {
+	let error = null;
+
+	const res = await fetch(`${RETRIEVAL_API_BASE_URL}/file/pages/${page_number}`, {
+		method: 'POST',
+		headers: {
+			Accept: 'application/json',
+			'Content-Type': 'application/json',
+			authorization: `Bearer ${token}`
+		},
+		body: JSON.stringify({
+			file_id: file_id
+		})
+	})
+		.then(async (res) => {
+			if (!res.ok) throw await res.json();
+			return res.json();
+		})
+		.catch((err) => {
+			error = err.detail;
+			console.error(err);
+			return null;
+		});
+
+	if (error) {
+		throw error;
+	}
+
+	return res;
+};
+
 export const processYoutubeVideo = async (token: string, url: string) => {
 	let error = null;
 

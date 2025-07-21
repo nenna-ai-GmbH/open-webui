@@ -81,6 +81,7 @@ from open_webui.utils.misc import (
     calculate_sha256_string,
 )
 from open_webui.utils.auth import get_admin_user, get_verified_user
+from open_webui.utils.access_control import has_access, has_permission
 
 from open_webui.config import (
     ENV,
@@ -2307,3 +2308,370 @@ def process_files_batch(
                 )
 
     return BatchProcessFilesResponse(results=results, errors=errors)
+
+
+@router.post("/process/file/pagewise")
+def process_file_pagewise(
+    request: Request,
+    form_data: ProcessFileForm,
+    user=Depends(get_verified_user),
+):
+    """
+    Process file page by page for PII detection.
+    Each page is processed individually and results are combined with page separators.
+    """
+    try:
+        file = Files.get_file_by_id(form_data.file_id)
+
+        collection_name = form_data.collection_name
+        if collection_name is None:
+            collection_name = f"file-{file.id}"
+
+        # Process the file and extract pages
+        file_path = file.path
+        if not file_path:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File path not found",
+            )
+            
+        file_path = Storage.get_file(file_path)
+        loader = Loader(
+            engine=request.app.state.config.CONTENT_EXTRACTION_ENGINE,
+            DATALAB_MARKER_API_KEY=request.app.state.config.DATALAB_MARKER_API_KEY,
+            DATALAB_MARKER_LANGS=request.app.state.config.DATALAB_MARKER_LANGS,
+            DATALAB_MARKER_SKIP_CACHE=request.app.state.config.DATALAB_MARKER_SKIP_CACHE,
+            DATALAB_MARKER_FORCE_OCR=request.app.state.config.DATALAB_MARKER_FORCE_OCR,
+            DATALAB_MARKER_PAGINATE=request.app.state.config.DATALAB_MARKER_PAGINATE,
+            DATALAB_MARKER_STRIP_EXISTING_OCR=request.app.state.config.DATALAB_MARKER_STRIP_EXISTING_OCR,
+            DATALAB_MARKER_DISABLE_IMAGE_EXTRACTION=request.app.state.config.DATALAB_MARKER_DISABLE_IMAGE_EXTRACTION,
+            DATALAB_MARKER_USE_LLM=request.app.state.config.DATALAB_MARKER_USE_LLM,
+            DATALAB_MARKER_OUTPUT_FORMAT=request.app.state.config.DATALAB_MARKER_OUTPUT_FORMAT,
+            EXTERNAL_DOCUMENT_LOADER_URL=request.app.state.config.EXTERNAL_DOCUMENT_LOADER_URL,
+            EXTERNAL_DOCUMENT_LOADER_API_KEY=request.app.state.config.EXTERNAL_DOCUMENT_LOADER_API_KEY,
+            TIKA_SERVER_URL=request.app.state.config.TIKA_SERVER_URL,
+            DOCLING_SERVER_URL=request.app.state.config.DOCLING_SERVER_URL,
+            DOCLING_PARAMS={
+                "ocr_engine": request.app.state.config.DOCLING_OCR_ENGINE,
+                "ocr_lang": request.app.state.config.DOCLING_OCR_LANG,
+                "do_picture_description": request.app.state.config.DOCLING_DO_PICTURE_DESCRIPTION,
+                "picture_description_mode": request.app.state.config.DOCLING_PICTURE_DESCRIPTION_MODE,
+                "picture_description_local": request.app.state.config.DOCLING_PICTURE_DESCRIPTION_LOCAL,
+                "picture_description_api": request.app.state.config.DOCLING_PICTURE_DESCRIPTION_API,
+            },
+            PDF_EXTRACT_IMAGES=request.app.state.config.PDF_EXTRACT_IMAGES,
+            DOCUMENT_INTELLIGENCE_ENDPOINT=request.app.state.config.DOCUMENT_INTELLIGENCE_ENDPOINT,
+            DOCUMENT_INTELLIGENCE_KEY=request.app.state.config.DOCUMENT_INTELLIGENCE_KEY,
+            MISTRAL_OCR_API_KEY=request.app.state.config.MISTRAL_OCR_API_KEY,
+        )
+        
+        # Load documents (one per page for PDFs)
+        docs = loader.load(
+            file.filename, file.meta.get("content_type"), file_path
+        )
+
+        # Process each page individually
+        processed_pages = []
+        page_metadata = []
+        
+        for i, doc in enumerate(docs):
+            page_number = i + 1
+            page_content = doc.page_content.strip()
+            
+            if not page_content:
+                # Empty page
+                processed_pages.append("")
+                page_metadata.append({
+                    "page_number": page_number,
+                    "word_count": 0,
+                    "char_count": 0,
+                    **doc.metadata
+                })
+                continue
+            
+            # Add page-specific metadata
+            page_meta = {
+                "page_number": page_number,
+                "word_count": len(page_content.split()),
+                "char_count": len(page_content),
+                "name": file.filename,
+                "created_by": file.user_id,
+                "file_id": file.id,
+                "source": file.filename,
+                **doc.metadata
+            }
+            
+            processed_pages.append(page_content)
+            page_metadata.append(page_meta)
+
+        # Combine pages with separators for final content
+        text_content = "\n\n--- Page Break ---\n\n".join(processed_pages)
+        
+        log.debug(f"Page-wise text_content: {text_content[:500]}...")
+        
+        # Update file with combined content
+        Files.update_file_data_by_id(
+            file.id,
+            {
+                "content": text_content,
+                "page_count": len(docs),
+                "page_metadata": page_metadata
+            },
+        )
+
+        hash = calculate_sha256_string(text_content)
+        Files.update_file_hash_by_id(file.id, hash)
+
+        # Create documents with page separators for vector storage
+        if not request.app.state.config.BYPASS_EMBEDDING_AND_RETRIEVAL:
+            try:
+                # Create separate documents for each page for better retrieval
+                vector_docs = []
+                for i, (page_content, meta) in enumerate(zip(processed_pages, page_metadata)):
+                    if page_content.strip():  # Skip empty pages
+                        vector_docs.append(Document(
+                            page_content=page_content,
+                            metadata=meta
+                        ))
+                
+                if vector_docs:
+                    result = save_docs_to_vector_db(
+                        request,
+                        docs=vector_docs,
+                        collection_name=collection_name,
+                        metadata={
+                            "file_id": file.id,
+                            "name": file.filename,
+                            "hash": hash,
+                            "total_pages": len(docs),
+                            "processing_type": "page_wise"
+                        },
+                        add=(True if form_data.collection_name else False),
+                        user=user,
+                    )
+
+                    if result:
+                        Files.update_file_metadata_by_id(
+                            file.id,
+                            {
+                                "collection_name": collection_name,
+                            },
+                        )
+
+                        return {
+                            "status": True,
+                            "collection_name": collection_name,
+                            "filename": file.filename,
+                            "content": text_content,
+                            "total_pages": len(docs),
+                            "page_metadata": page_metadata,
+                            "processing_type": "page_wise"
+                        }
+            except Exception as e:
+                log.exception(e)
+                raise e
+        else:
+            return {
+                "status": True,
+                "collection_name": None,
+                "filename": file.filename,
+                "content": text_content,
+                "total_pages": len(docs),
+                "page_metadata": page_metadata,
+                "processing_type": "page_wise"
+            }
+
+    except Exception as e:
+        log.exception(e)
+        if "No pandoc was found" in str(e):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=ERROR_MESSAGES.PANDOC_NOT_INSTALLED,
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e),
+            )
+
+
+@router.post("/file/pages/info")
+def get_file_pages_info(
+    request: Request,
+    form_data: ProcessFileForm,
+    user=Depends(get_verified_user),
+):
+    """
+    Get page information for a file without processing content.
+    Returns page count and basic metadata for progressive processing.
+    """
+    try:
+        file = Files.get_file_by_id(form_data.file_id)
+        
+        file_path = file.path
+        if not file_path:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File path not found",
+            )
+            
+        file_path = Storage.get_file(file_path)
+        loader = Loader(
+            engine=request.app.state.config.CONTENT_EXTRACTION_ENGINE,
+            DATALAB_MARKER_API_KEY=request.app.state.config.DATALAB_MARKER_API_KEY,
+            DATALAB_MARKER_LANGS=request.app.state.config.DATALAB_MARKER_LANGS,
+            DATALAB_MARKER_SKIP_CACHE=request.app.state.config.DATALAB_MARKER_SKIP_CACHE,
+            DATALAB_MARKER_FORCE_OCR=request.app.state.config.DATALAB_MARKER_FORCE_OCR,
+            DATALAB_MARKER_PAGINATE=request.app.state.config.DATALAB_MARKER_PAGINATE,
+            DATALAB_MARKER_STRIP_EXISTING_OCR=request.app.state.config.DATALAB_MARKER_STRIP_EXISTING_OCR,
+            DATALAB_MARKER_DISABLE_IMAGE_EXTRACTION=request.app.state.config.DATALAB_MARKER_DISABLE_IMAGE_EXTRACTION,
+            DATALAB_MARKER_USE_LLM=request.app.state.config.DATALAB_MARKER_USE_LLM,
+            DATALAB_MARKER_OUTPUT_FORMAT=request.app.state.config.DATALAB_MARKER_OUTPUT_FORMAT,
+            EXTERNAL_DOCUMENT_LOADER_URL=request.app.state.config.EXTERNAL_DOCUMENT_LOADER_URL,
+            EXTERNAL_DOCUMENT_LOADER_API_KEY=request.app.state.config.EXTERNAL_DOCUMENT_LOADER_API_KEY,
+            TIKA_SERVER_URL=request.app.state.config.TIKA_SERVER_URL,
+            DOCLING_SERVER_URL=request.app.state.config.DOCLING_SERVER_URL,
+            DOCLING_PARAMS={
+                "ocr_engine": request.app.state.config.DOCLING_OCR_ENGINE,
+                "ocr_lang": request.app.state.config.DOCLING_OCR_LANG,
+                "do_picture_description": request.app.state.config.DOCLING_DO_PICTURE_DESCRIPTION,
+                "picture_description_mode": request.app.state.config.DOCLING_PICTURE_DESCRIPTION_MODE,
+                "picture_description_local": request.app.state.config.DOCLING_PICTURE_DESCRIPTION_LOCAL,
+                "picture_description_api": request.app.state.config.DOCLING_PICTURE_DESCRIPTION_API,
+            },
+            PDF_EXTRACT_IMAGES=request.app.state.config.PDF_EXTRACT_IMAGES,
+            DOCUMENT_INTELLIGENCE_ENDPOINT=request.app.state.config.DOCUMENT_INTELLIGENCE_ENDPOINT,
+            DOCUMENT_INTELLIGENCE_KEY=request.app.state.config.DOCUMENT_INTELLIGENCE_KEY,
+            MISTRAL_OCR_API_KEY=request.app.state.config.MISTRAL_OCR_API_KEY,
+        )
+        
+        # Load documents to get page count
+        docs = loader.load(
+            file.filename, file.meta.get("content_type"), file_path
+        )
+        
+        # Return basic page information
+        pages_info = []
+        for i, doc in enumerate(docs):
+            page_number = i + 1
+            page_content = doc.page_content.strip()
+            
+            pages_info.append({
+                "page_number": page_number,
+                "word_count": len(page_content.split()) if page_content else 0,
+                "char_count": len(page_content) if page_content else 0,
+                "has_content": bool(page_content)
+            })
+        
+        return {
+            "status": True,
+            "file_id": file.id,
+            "filename": file.filename,
+            "total_pages": len(docs),
+            "pages_info": pages_info
+        }
+
+    except Exception as e:
+        log.exception(e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+
+@router.post("/file/pages/{page_number}")
+def get_file_page_content(
+    request: Request,
+    page_number: int,
+    form_data: ProcessFileForm,
+    user=Depends(get_verified_user),
+):
+    """
+    Get content for a specific page of a file.
+    Used for progressive page-by-page processing.
+    """
+    try:
+        file = Files.get_file_by_id(form_data.file_id)
+        
+        file_path = file.path
+        if not file_path:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File path not found",
+            )
+            
+        file_path = Storage.get_file(file_path)
+        loader = Loader(
+            engine=request.app.state.config.CONTENT_EXTRACTION_ENGINE,
+            DATALAB_MARKER_API_KEY=request.app.state.config.DATALAB_MARKER_API_KEY,
+            DATALAB_MARKER_LANGS=request.app.state.config.DATALAB_MARKER_LANGS,
+            DATALAB_MARKER_SKIP_CACHE=request.app.state.config.DATALAB_MARKER_SKIP_CACHE,
+            DATALAB_MARKER_FORCE_OCR=request.app.state.config.DATALAB_MARKER_FORCE_OCR,
+            DATALAB_MARKER_PAGINATE=request.app.state.config.DATALAB_MARKER_PAGINATE,
+            DATALAB_MARKER_STRIP_EXISTING_OCR=request.app.state.config.DATALAB_MARKER_STRIP_EXISTING_OCR,
+            DATALAB_MARKER_DISABLE_IMAGE_EXTRACTION=request.app.state.config.DATALAB_MARKER_DISABLE_IMAGE_EXTRACTION,
+            DATALAB_MARKER_USE_LLM=request.app.state.config.DATALAB_MARKER_USE_LLM,
+            DATALAB_MARKER_OUTPUT_FORMAT=request.app.state.config.DATALAB_MARKER_OUTPUT_FORMAT,
+            EXTERNAL_DOCUMENT_LOADER_URL=request.app.state.config.EXTERNAL_DOCUMENT_LOADER_URL,
+            EXTERNAL_DOCUMENT_LOADER_API_KEY=request.app.state.config.EXTERNAL_DOCUMENT_LOADER_API_KEY,
+            TIKA_SERVER_URL=request.app.state.config.TIKA_SERVER_URL,
+            DOCLING_SERVER_URL=request.app.state.config.DOCLING_SERVER_URL,
+            DOCLING_PARAMS={
+                "ocr_engine": request.app.state.config.DOCLING_OCR_ENGINE,
+                "ocr_lang": request.app.state.config.DOCLING_OCR_LANG,
+                "do_picture_description": request.app.state.config.DOCLING_DO_PICTURE_DESCRIPTION,
+                "picture_description_mode": request.app.state.config.DOCLING_PICTURE_DESCRIPTION_MODE,
+                "picture_description_local": request.app.state.config.DOCLING_PICTURE_DESCRIPTION_LOCAL,
+                "picture_description_api": request.app.state.config.DOCLING_PICTURE_DESCRIPTION_API,
+            },
+            PDF_EXTRACT_IMAGES=request.app.state.config.PDF_EXTRACT_IMAGES,
+            DOCUMENT_INTELLIGENCE_ENDPOINT=request.app.state.config.DOCUMENT_INTELLIGENCE_ENDPOINT,
+            DOCUMENT_INTELLIGENCE_KEY=request.app.state.config.DOCUMENT_INTELLIGENCE_KEY,
+            MISTRAL_OCR_API_KEY=request.app.state.config.MISTRAL_OCR_API_KEY,
+        )
+        
+        # Load documents
+        docs = loader.load(
+            file.filename, file.meta.get("content_type"), file_path
+        )
+        
+        # Validate page number
+        if page_number < 1 or page_number > len(docs):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid page number. File has {len(docs)} pages.",
+            )
+        
+        # Get the specific page (convert to 0-based index)
+        doc = docs[page_number - 1]
+        page_content = doc.page_content.strip()
+        
+        page_info = {
+            "page_number": page_number,
+            "content": page_content,
+            "word_count": len(page_content.split()) if page_content else 0,
+            "char_count": len(page_content) if page_content else 0,
+            "has_content": bool(page_content),
+            "metadata": {
+                "name": file.filename,
+                "created_by": file.user_id,
+                "file_id": file.id,
+                "source": file.filename,
+                **doc.metadata
+            }
+        }
+        
+        return {
+            "status": True,
+            "file_id": file.id,
+            "filename": file.filename,
+            "total_pages": len(docs),
+            "page": page_info
+        }
+
+    except Exception as e:
+        log.exception(e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )

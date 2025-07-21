@@ -48,6 +48,7 @@
 	import { uploadFile } from '$lib/apis/files';
 	import { generateAutoCompletion } from '$lib/apis';
 	import { deleteFileById } from '$lib/apis/files';
+	import { processFile, processFilePageWise, getFilePagesInfo, getFilePageContent } from '$lib/apis/retrieval';
 
 	import { WEBUI_BASE_URL, WEBUI_API_BASE_URL, PASTED_TEXT_CHARACTER_LIMIT } from '$lib/constants';
 
@@ -481,6 +482,172 @@
 		}
 	};
 
+	/**
+	 * Page-wise PII processing for files
+	 * Processes each page sequentially and accumulates known entities for consistent labeling
+	 */
+	const processFileContentWithPIIPageWise = async (pageData, fileName: string) => {
+		if (!enablePiiDetection || !piiApiKey || !pageData?.pages?.length) {
+			// If PII detection is disabled, just concatenate all pages with separators
+			const allContent = pageData.pages
+				.map(page => page.content)
+				.join('\n\n--- Page Break ---\n\n');
+			return {
+				processedContent: allContent,
+				piiEntities: [],
+				detectionTimestamp: Date.now(),
+				pageCount: pageData.totalPages
+			};
+		}
+
+		try {
+			console.log(`Processing file page-wise for PII detection:`, fileName, `(${pageData.totalPages} pages)`);
+			
+			let accumulatedEntities = [];
+			let processedPages = [];
+			let totalEntitiesDetected = 0;
+
+			// Get initial known entities for consistent labeling
+			let knownEntities = chatId 
+				? piiSessionManager.getKnownEntitiesForApi(chatId)
+				: [];
+
+			// Process each page sequentially
+			for (let i = 0; i < pageData.pages.length; i++) {
+				const page = pageData.pages[i];
+				const pageText = page.content?.trim();
+				
+				if (!pageText) {
+					// Empty page, add it with separator
+					processedPages.push({
+						pageNumber: page.pageNumber,
+						content: '',
+						processedContent: '',
+						entities: []
+					});
+					continue;
+				}
+
+				console.log(`Processing page ${page.pageNumber}/${pageData.totalPages} for PII (${pageText.length} chars)`);
+				
+				// Call PII detection API with accumulated known entities
+				const response = await maskPiiText(
+					piiApiKey,
+					[pageText],
+					knownEntities, // Pass accumulated known entities
+					false, // Don't unmask
+					false, // Don't return original
+				);
+
+				let pageEntities = [];
+				let processedPageText = pageText;
+
+				if (response.pii && response.pii[0] && response.pii[0].length > 0) {
+					pageEntities = response.pii[0];
+					processedPageText = response.text[0] || pageText;
+					totalEntitiesDetected += pageEntities.length;
+					
+					console.log(`Page ${page.pageNumber}: Found ${pageEntities.length} PII entities`);
+
+					// Add new entities to accumulated list (with shouldMask: true)
+					const newExtendedEntities = pageEntities.map(entity => ({ ...entity, shouldMask: true }));
+					accumulatedEntities.push(...newExtendedEntities);
+
+					// Update known entities for next page by converting current entities to known format
+					knownEntities = pageEntities.map(entity => ({
+						id: entity.id,
+						label: entity.label,
+						name: entity.raw_text
+					}));
+				} else {
+					console.log(`Page ${page.pageNumber}: No PII detected`);
+				}
+
+				processedPages.push({
+					pageNumber: page.pageNumber,
+					content: pageText,
+					processedContent: processedPageText,
+					entities: pageEntities,
+					wordCount: page.wordCount
+				});
+
+				// Small delay to avoid overwhelming the API
+				if (i < pageData.pages.length - 1) {
+					await new Promise(resolve => setTimeout(resolve, 100));
+				}
+			}
+
+			// Store all accumulated entities in session manager for conversation consistency
+			if (accumulatedEntities.length > 0) {
+				if (chatId) {
+					// For existing conversations, merge with conversation entities
+					piiSessionManager.setConversationEntities(chatId, accumulatedEntities.map(e => ({
+						id: e.id,
+						label: e.label,
+						type: e.type,
+						raw_text: e.raw_text,
+						occurrences: e.occurrences
+					})));
+				} else {
+					// For new chats, use temporary state
+					if (!piiSessionManager.isTemporaryStateActive()) {
+						piiSessionManager.activateTemporaryState();
+					}
+					piiSessionManager.setTemporaryStateEntities(accumulatedEntities);
+				}
+
+				// Show toast notification about detected PII
+				toast.success(
+					$i18n.t('File processed: {{count}} PII {{entities}} detected across {{pages}} pages', {
+						count: totalEntitiesDetected,
+						entities: totalEntitiesDetected === 1 ? 'entity' : 'entities',
+						pages: pageData.totalPages
+					})
+				);
+			} else {
+				console.log('No PII detected in any pages');
+			}
+
+			// Combine all pages with page separators
+			const allContent = processedPages
+				.map(page => page.processedContent)
+				.join('\n\n--- Page Break ---\n\n');
+
+			// Return comprehensive result
+			return {
+				processedContent: allContent,
+				piiEntities: accumulatedEntities.map(e => ({
+					id: e.id,
+					label: e.label,
+					type: e.type,
+					raw_text: e.raw_text,
+					occurrences: e.occurrences
+				})), // Convert back to base PiiEntity format for storage
+				detectionTimestamp: Date.now(),
+				pageCount: pageData.totalPages,
+				pageDetails: processedPages,
+				totalEntitiesDetected
+			};
+
+		} catch (error) {
+			console.error('Page-wise PII detection failed for file:', fileName, error);
+			toast.warning($i18n.t('PII detection failed for {{fileName}}, file uploaded without scanning', { fileName }));
+			
+			// Fallback: concatenate all pages without processing
+			const allContent = pageData.pages
+				.map(page => page.content)
+				.join('\n\n--- Page Break ---\n\n');
+				
+			return {
+				processedContent: allContent,
+				piiEntities: [],
+				detectionTimestamp: Date.now(),
+				pageCount: pageData.totalPages,
+				error: error.message || 'PII detection failed'
+			};
+		}
+	};
+
 	let visionCapableModels = [];
 	$: visionCapableModels = (atSelectedModel?.id ? [atSelectedModel.id] : selectedModels).filter(
 		(model) => $models.find((m) => m.id === model)?.info?.meta?.capabilities?.vision ?? true
@@ -736,96 +903,10 @@
 						name: fileItem.name,
 						collection: uploadedFile?.meta?.collection_name
 					});
-					
-					// DEBUG: Log the full response structure to understand data location
-					console.log('Full uploadedFile structure:', uploadedFile);
 
 					if (uploadedFile.error) {
 						console.warn('File upload warning:', uploadedFile.error);
 						toast.warning(uploadedFile.error);
-					}
-
-					// **IMMEDIATE PII DETECTION**: Process extracted text content for PII
-					// Check multiple possible locations for extracted content
-					let extractedContent = null;
-					
-					if (uploadedFile.data?.content) {
-						extractedContent = uploadedFile.data.content;
-						console.log('Found content at uploadedFile.data.content');
-					} else if (uploadedFile.file?.data?.content) {
-						extractedContent = uploadedFile.file.data.content;
-						console.log('Found content at uploadedFile.file.data.content');
-					} else {
-						console.log('No extracted content found in uploadedFile response');
-					}
-
-					if (extractedContent) {
-						const piiResult = await processFileContentWithPII(
-							extractedContent,
-							fileItem.name
-						);
-						
-						// Update the content and store PII entities in the correct location
-						if (uploadedFile.data) {
-							uploadedFile.data.content = piiResult.processedContent;
-							uploadedFile.data.piiEntities = piiResult.piiEntities;
-							uploadedFile.data.piiDetectionTimestamp = piiResult.detectionTimestamp;
-						} else if (uploadedFile.file?.data) {
-							uploadedFile.file.data.content = piiResult.processedContent;
-							uploadedFile.file.data.piiEntities = piiResult.piiEntities;
-							uploadedFile.file.data.piiDetectionTimestamp = piiResult.detectionTimestamp;
-						}
-						
-						console.log(`Stored ${piiResult.piiEntities.length} PII entities with file:`, fileItem.name, {
-					entities: piiResult.piiEntities.map(e => ({ label: e.label, raw_text: e.raw_text, type: e.type })),
-					storagePath: uploadedFile.data ? 'uploadedFile.data' : 'uploadedFile.file.data'
-				});
-					} else {
-						console.log('⚠️ PII Detection: Content not in upload response, attempting to fetch...');
-						
-						// Try to fetch the file data after a brief delay to allow backend processing
-						setTimeout(async () => {
-							try {
-								const fileData = await fetch(`${WEBUI_API_BASE_URL}/files/${uploadedFile.id}`, {
-									headers: {
-										Accept: 'application/json',
-										authorization: `Bearer ${localStorage.token}`
-									}
-								}).then(res => res.json());
-								
-								console.log('Fetched file data:', fileData);
-								
-								if (fileData.data?.content) {
-									console.log('Found content after fetch, processing PII...');
-									const piiResult = await processFileContentWithPII(
-										fileData.data.content,
-										fileItem.name
-									);
-									
-									// Update the file item with processed content and PII entities
-									if (uploadedFile.data) {
-										uploadedFile.data.content = piiResult.processedContent;
-										uploadedFile.data.piiEntities = piiResult.piiEntities;
-										uploadedFile.data.piiDetectionTimestamp = piiResult.detectionTimestamp;
-									} else {
-										uploadedFile.data = { 
-											content: piiResult.processedContent,
-											piiEntities: piiResult.piiEntities,
-											piiDetectionTimestamp: piiResult.detectionTimestamp
-										};
-									}
-									
-									console.log(`Stored ${piiResult.piiEntities.length} PII entities with file (after fetch):`, fileItem.name);
-									
-									// Trigger UI update
-									files = files;
-								} else {
-									console.log('Still no content available after fetch');
-								}
-							} catch (error) {
-								console.error('Failed to fetch file data for PII processing:', error);
-							}
-						}, 1000); // 1 second delay to allow backend processing
 					}
 
 					fileItem.status = 'uploaded';
@@ -834,6 +915,271 @@
 					fileItem.collection_name =
 						uploadedFile?.meta?.collection_name || uploadedFile?.collection_name;
 					fileItem.url = `${WEBUI_API_BASE_URL}/files/${uploadedFile.id}`;
+
+					// Check if file type supports page-wise processing (PDFs, DOCX)
+					const fileType = file.type || '';
+					const fileExt = file.name.toLowerCase().split('.').pop() || '';
+					const supportsPageWise = 
+						fileType === 'application/pdf' || 
+						fileExt === 'pdf' ||
+						fileType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || 
+						fileExt === 'docx';
+
+					try {
+						if (supportsPageWise) {
+							// ✅ PROGRESSIVE PAGE-WISE PROCESSING - CORRECT ORDER:
+							// 1. Extract page 1 → 2. Send to PII API → 3. Show PII-processed text in preview
+							// 4. Extract page 2 → 5. Send to PII API → 6. Add PII-processed text to preview  
+							// NEVER show raw extracted text - only PII API responses go to preview/storage
+							console.log('Starting progressive page-wise processing for:', fileItem.name);
+							
+							// Step 1: Get page information
+							const pagesInfo = await getFilePagesInfo(localStorage.token, uploadedFile.id);
+							if (!pagesInfo || !pagesInfo.total_pages) {
+								throw new Error('Failed to get page information');
+							}
+							
+							console.log(`File has ${pagesInfo.total_pages} pages`);
+							
+							// Initialize progressive display data
+							let processedPages = [];
+							let allEntities = [];
+							let knownEntities = chatId ? piiSessionManager.getKnownEntitiesForApi(chatId) : [];
+							
+							// Step 2: Process first page immediately
+							fileItem.status = `Processing page 1 of ${pagesInfo.total_pages}...`;
+							files = files; // Trigger reactivity
+							
+							const firstPageData = await getFilePageContent(localStorage.token, uploadedFile.id, 1);
+							if (firstPageData && firstPageData.page.content) {
+								console.log(`Got page 1 content (${firstPageData.page.char_count} chars) - sending to PII API FIRST`);
+								
+								// CRITICAL: PII detection MUST happen BEFORE any preview display
+								if (enablePiiDetection && piiApiKey) {
+									// Process first page for PII IMMEDIATELY - no preview until this completes
+									const response = await maskPiiText(
+										piiApiKey,
+										[firstPageData.page.content],
+										knownEntities,
+										false, // Don't unmask
+										false, // Don't return original
+									);
+									
+									if (response.pii && response.pii[0]) {
+										const pageEntities = response.pii[0];
+										allEntities.push(...pageEntities.map(entity => ({ ...entity, shouldMask: true })));
+										
+										// Update known entities for subsequent pages
+										knownEntities = pageEntities.map(entity => ({
+											id: entity.id,
+											label: entity.label,
+											name: entity.raw_text
+										}));
+										
+										// Build processed page content from API response ONLY
+										processedPages.push(response.text[0]);
+										console.log(`Page 1: Found ${pageEntities.length} PII entities - using API response for preview`);
+									} else {
+										// No PII detected, but still use API response (should be same as original)
+										processedPages.push(response.text[0] || firstPageData.page.content);
+										console.log('Page 1: No PII detected - using API response for preview');
+									}
+								} else {
+									// PII detection disabled - use original content (but this should rarely happen)
+									processedPages.push(firstPageData.page.content);
+									console.log('Page 1: PII detection disabled - using original content');
+								}
+								
+								// Show page 1 immediately in preview - ONLY PII-processed content
+								uploadedFile.data = {
+									content: processedPages[0], // This is ONLY from PII API response
+									page_count: pagesInfo.total_pages,
+									processing_status: `Page 1 of ${pagesInfo.total_pages} ready`,
+									piiEntities: allEntities.map(e => ({
+										id: e.id,
+										label: e.label,
+										type: e.type,
+										raw_text: e.raw_text,
+										occurrences: e.occurrences
+									})),
+									piiDetectionTimestamp: Date.now(),
+									isPartialContent: pagesInfo.total_pages > 1
+								};
+								
+								fileItem.file = uploadedFile;
+								files = files; // Update preview with PII-processed content ONLY
+								
+								console.log('Page 1 preview updated with PII-processed content ONLY');
+							}
+							
+							// Step 3: Process remaining pages in background
+							if (pagesInfo.total_pages > 1) {
+								const processRemainingPages = async () => {
+									for (let pageNum = 2; pageNum <= pagesInfo.total_pages; pageNum++) {
+										try {
+											fileItem.status = `Processing page ${pageNum} of ${pagesInfo.total_pages}...`;
+											files = files; // Update status
+											
+											const pageData = await getFilePageContent(localStorage.token, uploadedFile.id, pageNum);
+											if (pageData && pageData.page.content) {
+												console.log(`Got page ${pageNum} content (${pageData.page.char_count} chars) - sending to PII API FIRST`);
+												
+												// CRITICAL: PII detection MUST happen BEFORE adding to preview
+												if (enablePiiDetection && piiApiKey) {
+													// Process page for PII with accumulated known entities - NO PREVIEW UNTIL COMPLETE
+													const response = await maskPiiText(
+														piiApiKey,
+														[pageData.page.content],
+														knownEntities,
+														false, // Don't unmask
+														false, // Don't return original
+													);
+													
+													if (response.pii && response.pii[0] && response.pii[0].length > 0) {
+														const pageEntities = response.pii[0];
+														allEntities.push(...pageEntities.map(entity => ({ ...entity, shouldMask: true })));
+														
+														// Update known entities for subsequent pages
+														knownEntities = [...knownEntities, ...pageEntities.map(entity => ({
+															id: entity.id,
+															label: entity.label,
+															name: entity.raw_text
+														}))];
+														
+														// Build processed page content from API response ONLY
+														processedPages.push(response.text[0]);
+														console.log(`Page ${pageNum}: Found ${pageEntities.length} PII entities - using API response`);
+													} else {
+														// No PII detected, but still use API response
+														processedPages.push(response.text[0] || pageData.page.content);
+														console.log(`Page ${pageNum}: No PII detected - using API response`);
+													}
+												} else {
+													// PII detection disabled - use original (should rarely happen)
+													processedPages.push(pageData.page.content);
+													console.log(`Page ${pageNum}: PII detection disabled - using original content`);
+												}
+												
+												// Update preview with all PII-processed pages so far - NEVER raw content
+												const combinedContent = processedPages.join('\n\n--- Page Break ---\n\n');
+												uploadedFile.data = {
+													content: combinedContent, // This is ONLY from PII API responses
+													page_count: pagesInfo.total_pages,
+													processing_status: pageNum === pagesInfo.total_pages 
+														? `All ${pagesInfo.total_pages} pages processed`
+														: `${pageNum} of ${pagesInfo.total_pages} pages processed`,
+													piiEntities: allEntities.map(e => ({
+														id: e.id,
+														label: e.label,
+														type: e.type,
+														raw_text: e.raw_text,
+														occurrences: e.occurrences
+													})),
+													piiDetectionTimestamp: Date.now(),
+													isPartialContent: pageNum < pagesInfo.total_pages
+												};
+												
+												fileItem.file = uploadedFile;
+												files = files; // Update preview with PII-processed content ONLY
+												
+												// Small delay to avoid overwhelming the UI and API
+												if (pageNum < pagesInfo.total_pages) {
+													await new Promise(resolve => setTimeout(resolve, 200));
+												}
+											}
+										} catch (error) {
+											console.error(`Error processing page ${pageNum}:`, error);
+											// Continue with next page even if one fails
+										}
+									}
+									
+									// Final processing complete
+									if (allEntities.length > 0) {
+										// Store all entities in session manager
+										if (chatId) {
+											piiSessionManager.setConversationEntities(chatId, allEntities.map(e => ({
+												id: e.id,
+												label: e.label,
+												type: e.type,
+												raw_text: e.raw_text,
+												occurrences: e.occurrences
+											})));
+										} else {
+											if (!piiSessionManager.isTemporaryStateActive()) {
+												piiSessionManager.activateTemporaryState();
+											}
+											piiSessionManager.setTemporaryStateEntities(allEntities);
+										}
+										
+										toast.success(
+											$i18n.t('File processed: {{count}} PII {{entities}} detected across {{pages}} pages', {
+												count: allEntities.length,
+												entities: allEntities.length === 1 ? 'entity' : 'entities',
+												pages: pagesInfo.total_pages
+											})
+										);
+									}
+									
+									fileItem.status = 'uploaded';
+									console.log(`Progressive processing completed for ${fileItem.name}: ${allEntities.length} total PII entities`);
+								};
+								
+								// Start background processing
+								processRemainingPages();
+							} else {
+								// Single page file - mark as complete
+								fileItem.status = 'uploaded';
+								if (allEntities.length > 0) {
+									toast.success(
+										$i18n.t('File uploaded with {{count}} PII {{entities}} detected and protected', {
+											count: allEntities.length,
+											entities: allEntities.length === 1 ? 'entity' : 'entities'
+										})
+									);
+								}
+							}
+							
+						} else {
+							// STANDARD PROCESSING for non-page-wise files
+							console.log('Using standard processing for:', fileItem.name);
+							const processResult = await processFile(localStorage.token, uploadedFile.id);
+
+							if (processResult) {
+								console.log('Backend processing completed - sending to PII API FIRST before any preview');
+								
+								// CRITICAL: PII detection MUST happen BEFORE any content storage/preview
+								if (enablePiiDetection && piiApiKey && processResult.content) {
+									// Process for PII IMMEDIATELY - no preview until this completes
+									const piiResult = await processFileContentWithPII(processResult.content, fileItem.name);
+									
+									// Store ONLY PII-processed content - never raw content
+									uploadedFile.data = {
+										content: piiResult.processedContent, // ONLY from PII API response
+										piiEntities: piiResult.piiEntities,
+										piiDetectionTimestamp: piiResult.detectionTimestamp,
+										processing_type: 'standard'
+									};
+
+									console.log(`Stored ${piiResult.piiEntities.length} PII entities from standard processing - preview shows PII-processed content ONLY`);
+								} else {
+									// PII detection disabled - store original (should rarely happen)
+									uploadedFile.data = {
+										content: processResult.content,
+										processing_type: 'standard'
+									};
+									console.log('PII detection disabled - storing original content');
+								}
+
+								fileItem.file = uploadedFile;
+							} else {
+								console.warn('Backend processing failed for:', fileItem.name);
+							}
+						}
+					} catch (error) {
+						console.error('Error during progressive processing:', error);
+						toast.error(`Failed to process file: ${error.message || error}`);
+						fileItem.status = 'error';
+					}
 
 					files = files;
 				} else {
@@ -845,7 +1191,20 @@
 			}
 		} else {
 			// If temporary chat is enabled, we just add the file to the list without uploading it.
+			
+			// Check if file type supports page-wise extraction (PDFs, DOCX)
+			const fileType = file.type || '';
+			const fileExt = file.name.toLowerCase().split('.').pop() || '';
+			const supportsPageWise = 
+				fileType === 'application/pdf' || 
+				fileExt === 'pdf' ||
+				fileType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || 
+				fileExt === 'docx';
 
+			// NOTE: In temporary mode, we can't do progressive page-wise processing since 
+			// the backend isn't available, so we handle everything as single-pass
+			console.log('Temporary mode: Extracting content and processing with PII API before any preview');
+			
 			const content = await extractContentFromFile(file, pdfjsLib).catch((error) => {
 				toast.error(
 					$i18n.t('Failed to extract content from the file: {{error}}', { error: error })
@@ -858,25 +1217,34 @@
 				files = files.filter((item) => item?.itemId !== tempItemId);
 				return null;
 			} else {
-				console.log('Extracted content from file:', {
+				console.log('Extracted content from file (temp mode) - sending to PII API FIRST before any storage:', {
 					name: file.name,
 					size: file.size,
-					content: content
+					contentLength: content.length
 				});
 
-				// **IMMEDIATE PII DETECTION**: Process extracted text content for PII
-				const piiResult = await processFileContentWithPII(content, file.name);
+				// CRITICAL: PII detection MUST happen BEFORE any storage/preview (temp mode)
+				if (enablePiiDetection && piiApiKey) {
+					// Process for PII IMMEDIATELY - no storage/preview until this completes
+					const piiResult = await processFileContentWithPII(content, file.name);
 
-				fileItem.status = 'uploaded';
-				fileItem.type = 'text';
-				fileItem.content = piiResult.processedContent; // Use processed content
-				fileItem.piiEntities = piiResult.piiEntities; // Store PII entities
-				fileItem.piiDetectionTimestamp = piiResult.detectionTimestamp; // Store detection time
-				fileItem.id = uuidv4(); // Temporary ID for the file
-				
-				console.log(`Stored ${piiResult.piiEntities.length} PII entities with temp file:`, file.name, {
-					entities: piiResult.piiEntities.map(e => ({ label: e.label, raw_text: e.raw_text, type: e.type }))
-				});
+					fileItem.status = 'uploaded';
+					fileItem.type = 'text';
+					fileItem.content = piiResult.processedContent; // ONLY from PII API response
+					fileItem.piiEntities = piiResult.piiEntities; 
+					fileItem.piiDetectionTimestamp = piiResult.detectionTimestamp;
+					fileItem.id = uuidv4();
+					
+					console.log(`Stored ${piiResult.piiEntities.length} PII entities with temp file - preview shows PII-processed content ONLY:`, file.name);
+				} else {
+					// PII detection disabled - use original content (should rarely happen in production)
+					fileItem.status = 'uploaded';
+					fileItem.type = 'text';
+					fileItem.content = content;
+					fileItem.id = uuidv4();
+					
+					console.log('WARNING: PII detection disabled - storing original content (temp file)');
+				}
 
 				files = files;
 			}
@@ -929,7 +1297,7 @@
 				}
 
 				const compressImageHandler = async (imageUrl, settings = {}, config = {}) => {
-					// Quick shortcut so we don’t do unnecessary work.
+					// Quick shortcut so we don't do unnecessary work.
 					const settingsCompression = settings?.imageCompression ?? false;
 					const configWidth = config?.file?.image_compression?.width ?? null;
 					const configHeight = config?.file?.image_compression?.height ?? null;
@@ -1337,7 +1705,8 @@
 													name={file.name}
 													type={file.type}
 													size={file?.size}
-													loading={file.status === 'uploading'}
+													loading={file.status === 'uploading' || (file.status && file.status.includes('Processing page'))}
+													status={file.status && file.status.includes('Processing page') ? file.status : null}
 													dismissible={true}
 													edit={true}
 													modal={['file', 'collection'].includes(file?.type)}

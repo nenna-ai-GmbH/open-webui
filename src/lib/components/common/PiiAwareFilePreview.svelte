@@ -221,6 +221,25 @@
 		}
 	};
 
+	// Process text to add page break styling
+	const processTextForDisplay = (text: string): string => {
+		if (!text) return text;
+		
+		// Replace page break markers with styled separators
+		return text.replace(/\n\n--- Page Break ---\n\n/g, 
+			'<div class="page-separator"><span class="page-separator-line"></span><span class="page-separator-text">Page Break</span><span class="page-separator-line"></span></div>');
+	};
+
+	onMount(async () => {
+		// Detect PII in the text when component mounts
+		await detectPiiInText(text);
+	});
+
+	// Watch for text changes
+	$: if (text) {
+		detectPiiInText(text);
+	}
+
 	onMount(() => {
 		// Add click listener for PII interaction
 		if (containerElement) {
@@ -259,9 +278,14 @@
 
 	<!-- Content with PII Highlighting -->
 	{#if hasHighlighting}
-		{@html DOMPurify.sanitize(processedText)}
+		{@html DOMPurify.sanitize(processTextForDisplay(processedText), {
+			ADD_ATTR: ['data-pii-type', 'data-pii-label', 'data-pii-text'],
+			ADD_TAGS: ['div', 'span']
+		})}
 	{:else}
-		{text || 'No content'}
+		{@html DOMPurify.sanitize(processTextForDisplay(text || 'No content'), {
+			ADD_TAGS: ['div', 'span']
+		})}
 	{/if}
 
 	<!-- PII Summary Footer -->
@@ -311,5 +335,42 @@
 	:global(.pii-highlight.pii-unmasked:hover) {
 		background-color: rgba(239, 68, 68, 0.3);
 		border-bottom: 2px solid #dc2626;
+	}
+
+	/* Page separator styles */
+	:global(.page-separator) {
+		display: flex;
+		align-items: center;
+		margin: 1rem 0;
+		gap: 0.5rem;
+		color: #6b7280;
+		font-size: 0.75rem;
+	}
+
+	:global(.page-separator-line) {
+		flex: 1;
+		height: 1px;
+		background: linear-gradient(to right, transparent, #d1d5db, transparent);
+	}
+
+	:global(.page-separator-text) {
+		padding: 0.25rem 0.5rem;
+		background-color: #f3f4f6;
+		border-radius: 9999px;
+		font-weight: 500;
+		white-space: nowrap;
+	}
+
+	/* Dark mode for page separators */
+	:global(.dark .page-separator) {
+		color: #9ca3af;
+	}
+
+	:global(.dark .page-separator-line) {
+		background: linear-gradient(to right, transparent, #4b5563, transparent);
+	}
+
+	:global(.dark .page-separator-text) {
+		background-color: #374151;
 	}
 </style> 

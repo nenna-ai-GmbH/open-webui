@@ -1578,3 +1578,5 @@ export const extractContentFromFile = async (file, pdfjsLib = null) => {
 		throw new Error('Unsupported or non-text file type: ' + (file.name || type));
 	}
 };
+
+
