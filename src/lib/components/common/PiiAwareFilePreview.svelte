@@ -1,10 +1,10 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, createEventDispatcher } from 'svelte';
 	import DOMPurify from 'dompurify';
 	import { maskPiiText } from '$lib/apis/pii';
 	import type { PiiEntity, KnownPiiEntity } from '$lib/apis/pii';
 	import type { ExtendedPiiEntity } from '$lib/utils/pii';
-	import { PiiSessionManager, unmaskAndHighlightTextForDisplay } from '$lib/utils/pii';
+	import { PiiSessionManager, unmaskAndHighlightTextForDisplay, highlightRawTextWithStoredEntities } from '$lib/utils/pii';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 
 	export let text: string;
@@ -13,6 +13,7 @@
 	export let piiApiKey: string = '';
 	export let enablePiiDetection: boolean = false;
 	export let conversationId: string = '';
+	export let storedPiiEntities: ExtendedPiiEntity[] = []; // Pre-detected PII entities from file upload
 
 	let containerElement: HTMLElement;
 	let isDetecting = false;
@@ -20,8 +21,41 @@
 	let hasHighlighting = false;
 	let piiEntities: ExtendedPiiEntity[] = [];
 	let detectionError: string | null = null;
+	let originalText = text; // Keep track of original text for reconstruction
 
 	const piiSessionManager = PiiSessionManager.getInstance();
+	const dispatch = createEventDispatcher();
+
+	// Function to reconstruct original text with placeholders based on masking states
+	const reconstructOriginalText = (baseText: string, entities: ExtendedPiiEntity[]): string => {
+		if (!entities.length) return baseText;
+
+		let reconstructedText = baseText;
+
+		// Sort entities by raw_text length (longest first) to handle overlapping replacements
+		const sortedEntities = [...entities].sort((a, b) => b.raw_text.length - a.raw_text.length);
+
+		sortedEntities.forEach((entity) => {
+			const { label, raw_text, shouldMask } = entity;
+
+			if (!raw_text || !label) return;
+
+			// Escape special regex characters
+			const escapedText = raw_text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+			const regex = new RegExp(escapedText, 'gi');
+
+			if (shouldMask) {
+				// Replace actual text with placeholder
+				reconstructedText = reconstructedText.replace(regex, `[{${label}}]`);
+			} else {
+				// Replace placeholder with actual text
+				const placeholderRegex = new RegExp(`\\[\\{${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\}\\]`, 'gi');
+				reconstructedText = reconstructedText.replace(placeholderRegex, raw_text);
+			}
+		});
+
+		return reconstructedText;
+	};
 
 	// Setup PII session manager
 	$: if (enablePiiDetection && piiApiKey) {
@@ -30,7 +64,36 @@
 
 	// Function to detect PII in the file text
 	const detectPiiInText = async (textContent: string) => {
-		if (!enablePiiDetection || !piiApiKey || !textContent.trim()) {
+		if (!enablePiiDetection || !textContent.trim()) {
+			processedText = textContent;
+			hasHighlighting = false;
+			return;
+		}
+
+		// Use stored entities if available (from file upload)
+		if (storedPiiEntities && storedPiiEntities.length > 0) {
+			console.log('PiiAwareFilePreview: Using stored PII entities:', storedPiiEntities.length);
+			piiEntities = storedPiiEntities;
+			
+			// Initialize originalText with the current text content (may contain placeholders)
+			originalText = textContent;
+			
+			// Use unmaskAndHighlightTextForDisplay to replace placeholders with highlighted actual text
+			processedText = unmaskAndHighlightTextForDisplay(originalText, storedPiiEntities);
+			hasHighlighting = processedText !== originalText;
+			
+			console.log('PiiAwareFilePreview: Applied placeholder replacement and highlighting:', {
+				hasHighlighting,
+				entityCount: storedPiiEntities.length,
+				entities: storedPiiEntities.map(e => ({ label: e.label, raw_text: e.raw_text, shouldMask: e.shouldMask })),
+				originalTextSample: originalText.substring(0, 200) + '...',
+				processedTextSample: processedText.substring(0, 200) + '...'
+			});
+			return;
+		}
+
+		// If no stored entities and no API key, skip detection
+		if (!piiApiKey) {
 			processedText = textContent;
 			hasHighlighting = false;
 			return;
@@ -40,7 +103,7 @@
 		detectionError = null;
 
 		try {
-			console.log('PiiAwareFilePreview: Starting PII detection for file:', fileName);
+			console.log('PiiAwareFilePreview: Starting fresh PII detection for file:', fileName);
 
 			// Get known entities for consistent labeling across the conversation
 			const knownEntities: KnownPiiEntity[] = conversationId
@@ -75,13 +138,17 @@
 					piiSessionManager.setConversationEntitiesFromLatestDetection(conversationId, response.pii[0]);
 				}
 
+				// Initialize originalText with the current text content
+				originalText = textContent;
+				
 				// Apply highlighting to the text
-				processedText = unmaskAndHighlightTextForDisplay(textContent, detectedEntities);
-				hasHighlighting = processedText !== textContent;
+				processedText = unmaskAndHighlightTextForDisplay(originalText, detectedEntities);
+				hasHighlighting = processedText !== originalText;
 
 				console.log('PiiAwareFilePreview: Applied highlighting, hasHighlighting:', hasHighlighting);
 			} else {
 				console.log('PiiAwareFilePreview: No PII detected');
+				originalText = textContent;
 				processedText = textContent;
 				hasHighlighting = false;
 				piiEntities = [];
@@ -90,6 +157,7 @@
 			console.error('PiiAwareFilePreview: PII detection failed:', error);
 			const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 			detectionError = `PII detection failed: ${errorMessage}`;
+			originalText = textContent;
 			processedText = textContent;
 			hasHighlighting = false;
 			piiEntities = [];
@@ -121,6 +189,7 @@
 				
 				if (entityIndex !== -1) {
 					// Toggle the shouldMask state
+					const wasMasked = piiEntities[entityIndex].shouldMask;
 					piiEntities[entityIndex].shouldMask = !piiEntities[entityIndex].shouldMask;
 					
 					// Update session manager
@@ -128,11 +197,25 @@
 						piiSessionManager.toggleEntityMasking(piiLabel, 0, conversationId);
 					}
 					
-					// Re-process the text with updated highlighting
-					processedText = unmaskAndHighlightTextForDisplay(text, piiEntities);
-					hasHighlighting = processedText !== text;
+					// Reconstruct the original text with updated masking states
+					originalText = reconstructOriginalText(originalText, piiEntities);
 					
-					console.log('PiiAwareFilePreview: Toggled PII masking for:', piiLabel);
+					// Re-process the display text with updated highlighting
+					processedText = unmaskAndHighlightTextForDisplay(originalText, piiEntities);
+					hasHighlighting = processedText !== originalText;
+					
+					// Emit the text change to parent component
+					dispatch('textChanged', {
+						originalText,
+						processedText,
+						entity: piiEntities[entityIndex],
+						wasUnmasked: wasMasked // true if it was masked and now unmasked
+					});
+					
+					console.log('PiiAwareFilePreview: Toggled PII masking for:', piiLabel, {
+						newMaskingState: piiEntities[entityIndex].shouldMask ? 'masked' : 'unmasked',
+						updatedOriginalText: originalText.substring(0, 200) + '...'
+					});
 				}
 			}
 		}

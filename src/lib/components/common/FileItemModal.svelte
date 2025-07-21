@@ -13,6 +13,7 @@
 	import Switch from './Switch.svelte';
 	import Tooltip from './Tooltip.svelte';
 	import PiiAwareFilePreview from './PiiAwareFilePreview.svelte';
+	import { extractStoredPiiEntities } from '$lib/utils/files';
 	import dayjs from 'dayjs';
 
 	export let item;
@@ -47,6 +48,27 @@
 			enableFullContent = true;
 		}
 	});
+
+	// Handle text changes from PII masking/unmasking
+	const handleTextChanged = (event) => {
+		const { originalText, processedText, entity, wasUnmasked } = event.detail;
+		
+		console.log('FileItemModal: Text changed due to PII toggle:', {
+			entityLabel: entity.label,
+			newState: entity.shouldMask ? 'masked' : 'unmasked',
+			wasUnmasked
+		});
+
+		// Update the item's content with the new original text
+		if (item?.file?.data) {
+			item.file.data.content = originalText;
+		} else if (item?.data) {
+			item.data.content = originalText;
+		}
+
+		// Trigger reactivity
+		item = item;
+	};
 </script>
 
 <Modal bind:show size="lg">
@@ -189,6 +211,8 @@
 						{enablePiiDetection}
 						{piiApiKey}
 						{conversationId}
+						storedPiiEntities={extractStoredPiiEntities(item)}
+						on:textChanged={handleTextChanged}
 					/>
 				{:else if isPDF}
 					<!-- Fallback: Show PDF iframe only if no extracted text is available -->

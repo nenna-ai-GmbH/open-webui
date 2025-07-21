@@ -455,16 +455,29 @@
 					})
 				);
 
-				// Return the processed text (could be masked or original based on API response)
-				return response.text[0] || content;
+				// Return both processed text and entities for storage
+				return {
+					processedContent: response.text[0] || content,
+					piiEntities: response.pii[0],
+					detectionTimestamp: Date.now()
+				};
 			} else {
 				console.log('No PII detected in file:', fileName);
-				return content;
+				return {
+					processedContent: content,
+					piiEntities: [],
+					detectionTimestamp: Date.now()
+				};
 			}
 		} catch (error) {
 			console.error('PII detection failed for file:', fileName, error);
 			toast.warning($i18n.t('PII detection failed for {{fileName}}, file uploaded without scanning', { fileName }));
-			return content; // Return original content on error
+			return {
+				processedContent: content,
+				piiEntities: [],
+				detectionTimestamp: Date.now(),
+				error: error.message || 'PII detection failed'
+			}; // Return original content on error
 		}
 	};
 
@@ -747,17 +760,26 @@
 					}
 
 					if (extractedContent) {
-						const processedContent = await processFileContentWithPII(
+						const piiResult = await processFileContentWithPII(
 							extractedContent,
 							fileItem.name
 						);
 						
-						// Update the content in the correct location
-						if (uploadedFile.data?.content) {
-							uploadedFile.data.content = processedContent;
-						} else if (uploadedFile.file?.data?.content) {
-							uploadedFile.file.data.content = processedContent;
+						// Update the content and store PII entities in the correct location
+						if (uploadedFile.data) {
+							uploadedFile.data.content = piiResult.processedContent;
+							uploadedFile.data.piiEntities = piiResult.piiEntities;
+							uploadedFile.data.piiDetectionTimestamp = piiResult.detectionTimestamp;
+						} else if (uploadedFile.file?.data) {
+							uploadedFile.file.data.content = piiResult.processedContent;
+							uploadedFile.file.data.piiEntities = piiResult.piiEntities;
+							uploadedFile.file.data.piiDetectionTimestamp = piiResult.detectionTimestamp;
 						}
+						
+						console.log(`Stored ${piiResult.piiEntities.length} PII entities with file:`, fileItem.name, {
+					entities: piiResult.piiEntities.map(e => ({ label: e.label, raw_text: e.raw_text, type: e.type })),
+					storagePath: uploadedFile.data ? 'uploadedFile.data' : 'uploadedFile.file.data'
+				});
 					} else {
 						console.log('⚠️ PII Detection: Content not in upload response, attempting to fetch...');
 						
@@ -775,17 +797,25 @@
 								
 								if (fileData.data?.content) {
 									console.log('Found content after fetch, processing PII...');
-									const processedContent = await processFileContentWithPII(
+									const piiResult = await processFileContentWithPII(
 										fileData.data.content,
 										fileItem.name
 									);
 									
-									// Update the file item with processed content
+									// Update the file item with processed content and PII entities
 									if (uploadedFile.data) {
-										uploadedFile.data.content = processedContent;
+										uploadedFile.data.content = piiResult.processedContent;
+										uploadedFile.data.piiEntities = piiResult.piiEntities;
+										uploadedFile.data.piiDetectionTimestamp = piiResult.detectionTimestamp;
 									} else {
-										uploadedFile.data = { content: processedContent };
+										uploadedFile.data = { 
+											content: piiResult.processedContent,
+											piiEntities: piiResult.piiEntities,
+											piiDetectionTimestamp: piiResult.detectionTimestamp
+										};
 									}
+									
+									console.log(`Stored ${piiResult.piiEntities.length} PII entities with file (after fetch):`, fileItem.name);
 									
 									// Trigger UI update
 									files = files;
@@ -835,12 +865,18 @@
 				});
 
 				// **IMMEDIATE PII DETECTION**: Process extracted text content for PII
-				const processedContent = await processFileContentWithPII(content, file.name);
+				const piiResult = await processFileContentWithPII(content, file.name);
 
 				fileItem.status = 'uploaded';
 				fileItem.type = 'text';
-				fileItem.content = processedContent; // Use processed content
+				fileItem.content = piiResult.processedContent; // Use processed content
+				fileItem.piiEntities = piiResult.piiEntities; // Store PII entities
+				fileItem.piiDetectionTimestamp = piiResult.detectionTimestamp; // Store detection time
 				fileItem.id = uuidv4(); // Temporary ID for the file
+				
+				console.log(`Stored ${piiResult.piiEntities.length} PII entities with temp file:`, file.name, {
+					entities: piiResult.piiEntities.map(e => ({ label: e.label, raw_text: e.raw_text, type: e.type }))
+				});
 
 				files = files;
 			}

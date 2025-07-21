@@ -706,6 +706,49 @@ export function adjustPiiEntityPositionsForDisplay(
 	});
 }
 
+// Function to highlight raw text occurrences using stored PII entities (for file previews)
+export function highlightRawTextWithStoredEntities(
+	text: string,
+	entities: ExtendedPiiEntity[]
+): string {
+	if (!entities.length || !text) return text;
+
+	// Check if text is already processed to prevent double processing
+	if (text.includes('<span class="pii-highlight')) {
+		return text;
+	}
+
+	let processedText = text;
+
+	// Sort entities by raw_text length (longest first) to handle overlapping matches
+	const sortedEntities = [...entities].sort((a, b) => b.raw_text.length - a.raw_text.length);
+
+	sortedEntities.forEach((entity) => {
+		if (!entity.raw_text || entity.raw_text.trim() === '') return;
+
+		const shouldMask = entity.shouldMask ?? true;
+		const maskingClass = shouldMask ? 'pii-masked' : 'pii-unmasked';
+		const statusText = shouldMask ? 'Was masked in input' : 'Was NOT masked in input';
+
+		// Escape special regex characters in the entity text
+		const escapedText = entity.raw_text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+		
+		// Create regex with word boundaries for better matching
+		// Use word boundary for simple text, but allow flexible matching for complex entities
+		const hasSpecialChars = /[^\w\s]/.test(entity.raw_text);
+		const regex = hasSpecialChars 
+			? new RegExp(escapedText, 'gi')
+			: new RegExp(`\\b${escapedText}\\b`, 'gi');
+
+		// Replace all occurrences with highlighted spans
+		processedText = processedText.replace(regex, (match) => {
+			return `<span class="pii-highlight ${maskingClass}" title="${entity.label} (${entity.type}) - ${statusText}" data-pii-type="${entity.type}" data-pii-label="${entity.label}" data-pii-text="${entity.raw_text}">${match}</span>`;
+		});
+	});
+
+	return processedText;
+}
+
 // Enhanced function to unmask and highlight text with modifier awareness for display
 export function unmaskAndHighlightTextForDisplay(
 	text: string,
