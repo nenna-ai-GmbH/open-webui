@@ -10,11 +10,17 @@
 	import Info from '../icons/Info.svelte';
 	import Switch from './Switch.svelte';
 	import Tooltip from './Tooltip.svelte';
+	import PiiAwareFilePreview from './PiiAwareFilePreview.svelte';
 	import dayjs from 'dayjs';
 
 	export let item;
 	export let show = false;
 	export let edit = false;
+
+	// PII Detection props
+	export let enablePiiDetection = false;
+	export let piiApiKey = '';
+	export let conversationId = '';
 
 	let enableFullContent = false;
 
@@ -179,9 +185,14 @@
 				{/if}
 
 				{#if item?.file?.data}
-					<div class="max-h-96 overflow-scroll scrollbar-hidden text-xs whitespace-pre-wrap">
-						{item?.file?.data?.content ?? 'No content'}
-					</div>
+					<PiiAwareFilePreview
+						text={item?.file?.data?.content ?? 'No content'}
+						fileId={item?.id ?? ''}
+						fileName={item?.name ?? ''}
+						{enablePiiDetection}
+						{piiApiKey}
+						{conversationId}
+					/>
 				{/if}
 			{/if}
 		</div>
