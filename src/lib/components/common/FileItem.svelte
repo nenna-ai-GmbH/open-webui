@@ -7,7 +7,7 @@
 	import Spinner from './Spinner.svelte';
 	import Tooltip from './Tooltip.svelte';
 	import XMark from '$lib/components/icons/XMark.svelte';
-	import { settings } from '$lib/stores';
+	import { settings, chatId, config } from '$lib/stores';
 
 	const i18n = getContext('i18n');
 	const dispatch = createEventDispatcher();
@@ -42,7 +42,14 @@
 </script>
 
 {#if item}
-	<FileItemModal bind:show={showModal} bind:item {edit} />
+	<FileItemModal 
+		bind:show={showModal} 
+		bind:item 
+		{edit}
+		enablePiiDetection={$config?.features?.enable_pii_detection ?? false}
+		piiApiKey={$config?.pii?.api_key ?? ''}
+		conversationId={$chatId || ''}
+	/>
 {/if}
 
 <button

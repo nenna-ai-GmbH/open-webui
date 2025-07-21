@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { getContext, onMount } from 'svelte';
+	import type { Writable } from 'svelte/store';
+	import type { i18n as i18nType } from 'i18next';
 	import { formatFileSize, getLineCount } from '$lib/utils';
 	import { WEBUI_API_BASE_URL } from '$lib/constants';
 
-	const i18n = getContext('i18n');
+	const i18n = getContext<Writable<i18nType>>('i18n');
 
 	import Modal from './Modal.svelte';
 	import XMark from '../icons/XMark.svelte';
@@ -168,12 +170,6 @@
 						</div>
 					{/each}
 				</div>
-			{:else if isPDF}
-				<iframe
-					title={item?.name}
-					src={`${WEBUI_API_BASE_URL}/files/${item.id}/content`}
-					class="w-full h-[70vh] border-0 rounded-lg mt-4"
-				/>
 			{:else}
 				{#if isAudio}
 					<audio
@@ -184,7 +180,8 @@
 					/>
 				{/if}
 
-				{#if item?.file?.data}
+				{#if item?.file?.data?.content}
+					<!-- Show extracted text content with PII detection for both PDF and DOCX -->
 					<PiiAwareFilePreview
 						text={item?.file?.data?.content ?? 'No content'}
 						fileId={item?.id ?? ''}
@@ -193,6 +190,23 @@
 						{piiApiKey}
 						{conversationId}
 					/>
+				{:else if isPDF}
+					<!-- Fallback: Show PDF iframe only if no extracted text is available -->
+					<div class="mb-4">
+						<p class="text-sm text-gray-600 dark:text-gray-400 mb-2">
+							No extracted text available. Showing PDF viewer:
+						</p>
+						<iframe
+							title={item?.name}
+							src={`${WEBUI_API_BASE_URL}/files/${item.id}/content`}
+							class="w-full h-[70vh] border-0 rounded-lg"
+						/>
+					</div>
+				{:else}
+					<!-- No content available for non-PDF files -->
+					<div class="text-center py-8 text-gray-500">
+						<p>No content available for preview</p>
+					</div>
 				{/if}
 			{/if}
 		</div>

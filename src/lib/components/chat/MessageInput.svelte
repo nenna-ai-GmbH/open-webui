@@ -74,7 +74,7 @@
 	import { KokoroWorker } from '$lib/workers/KokoroWorker';
 
 	// PII Detection imports
-	import { maskPiiTextWithSession, createPiiSession, type PiiEntity } from '$lib/apis/pii';
+	import { maskPiiTextWithSession, createPiiSession, maskPiiText, type PiiEntity } from '$lib/apis/pii';
 	import { PiiSessionManager, type ExtendedPiiEntity } from '$lib/utils/pii';
 	import InputVariablesModal from './MessageInput/InputVariablesModal.svelte';
 	const i18n = getContext('i18n');
@@ -409,6 +409,65 @@
 	$: enablePiiDetection = $config?.features?.enable_pii_detection ?? false;
 	$: piiApiKey = $config?.pii?.api_key ?? '';
 
+	// Helper function to process file content with immediate PII detection
+	const processFileContentWithPII = async (content: string, fileName: string): Promise<string> => {
+		if (!enablePiiDetection || !piiApiKey || !content?.trim()) {
+			return content; // Return original content if PII detection is disabled
+		}
+
+		try {
+			console.log('Processing file content for PII detection:', fileName);
+			
+			// Get known entities for consistent labeling
+			const knownEntities = piiSessionManager.getKnownEntitiesForApi(chatId);
+			
+			// Call PII detection API
+			const response = await maskPiiText(
+				piiApiKey,
+				[content],
+				knownEntities,
+				[], // No modifiers for file upload
+				false, // Don't create session
+				false // Don't use quiet mode
+			);
+
+			if (response.pii && response.pii[0] && response.pii[0].length > 0) {
+				console.log(`Found ${response.pii[0].length} PII entities in file:`, fileName);
+				
+				// Store entities in session manager for conversation consistency
+				if (chatId) {
+					piiSessionManager.setConversationEntitiesFromLatestDetection(chatId, response.pii[0]);
+				} else {
+					// For new chats, use temporary state
+					if (!piiSessionManager.isTemporaryStateActive()) {
+						piiSessionManager.activateTemporaryState();
+					}
+					piiSessionManager.setTemporaryStateEntities(
+						response.pii[0].map(entity => ({ ...entity, shouldMask: true }))
+					);
+				}
+
+				// Show toast notification about detected PII
+				toast.success(
+					$i18n.t('File uploaded with {{count}} PII {{entities}} detected and protected', {
+						count: response.pii[0].length,
+						entities: response.pii[0].length === 1 ? 'entity' : 'entities'
+					})
+				);
+
+				// Return the processed text (could be masked or original based on API response)
+				return response.text[0] || content;
+			} else {
+				console.log('No PII detected in file:', fileName);
+				return content;
+			}
+		} catch (error) {
+			console.error('PII detection failed for file:', fileName, error);
+			toast.warning($i18n.t('PII detection failed for {{fileName}}, file uploaded without scanning', { fileName }));
+			return content; // Return original content on error
+		}
+	};
+
 	let visionCapableModels = [];
 	$: visionCapableModels = (atSelectedModel?.id ? [atSelectedModel.id] : selectedModels).filter(
 		(model) => $models.find((m) => m.id === model)?.info?.meta?.capabilities?.vision ?? true
@@ -664,10 +723,79 @@
 						name: fileItem.name,
 						collection: uploadedFile?.meta?.collection_name
 					});
+					
+					// DEBUG: Log the full response structure to understand data location
+					console.log('Full uploadedFile structure:', uploadedFile);
 
 					if (uploadedFile.error) {
 						console.warn('File upload warning:', uploadedFile.error);
 						toast.warning(uploadedFile.error);
+					}
+
+					// **IMMEDIATE PII DETECTION**: Process extracted text content for PII
+					// Check multiple possible locations for extracted content
+					let extractedContent = null;
+					
+					if (uploadedFile.data?.content) {
+						extractedContent = uploadedFile.data.content;
+						console.log('Found content at uploadedFile.data.content');
+					} else if (uploadedFile.file?.data?.content) {
+						extractedContent = uploadedFile.file.data.content;
+						console.log('Found content at uploadedFile.file.data.content');
+					} else {
+						console.log('No extracted content found in uploadedFile response');
+					}
+
+					if (extractedContent) {
+						const processedContent = await processFileContentWithPII(
+							extractedContent,
+							fileItem.name
+						);
+						
+						// Update the content in the correct location
+						if (uploadedFile.data?.content) {
+							uploadedFile.data.content = processedContent;
+						} else if (uploadedFile.file?.data?.content) {
+							uploadedFile.file.data.content = processedContent;
+						}
+					} else {
+						console.log('⚠️ PII Detection: Content not in upload response, attempting to fetch...');
+						
+						// Try to fetch the file data after a brief delay to allow backend processing
+						setTimeout(async () => {
+							try {
+								const fileData = await fetch(`${WEBUI_API_BASE_URL}/files/${uploadedFile.id}`, {
+									headers: {
+										Accept: 'application/json',
+										authorization: `Bearer ${localStorage.token}`
+									}
+								}).then(res => res.json());
+								
+								console.log('Fetched file data:', fileData);
+								
+								if (fileData.data?.content) {
+									console.log('Found content after fetch, processing PII...');
+									const processedContent = await processFileContentWithPII(
+										fileData.data.content,
+										fileItem.name
+									);
+									
+									// Update the file item with processed content
+									if (uploadedFile.data) {
+										uploadedFile.data.content = processedContent;
+									} else {
+										uploadedFile.data = { content: processedContent };
+									}
+									
+									// Trigger UI update
+									files = files;
+								} else {
+									console.log('Still no content available after fetch');
+								}
+							} catch (error) {
+								console.error('Failed to fetch file data for PII processing:', error);
+							}
+						}, 1000); // 1 second delay to allow backend processing
 					}
 
 					fileItem.status = 'uploaded';
@@ -706,9 +834,12 @@
 					content: content
 				});
 
+				// **IMMEDIATE PII DETECTION**: Process extracted text content for PII
+				const processedContent = await processFileContentWithPII(content, file.name);
+
 				fileItem.status = 'uploaded';
 				fileItem.type = 'text';
-				fileItem.content = content;
+				fileItem.content = processedContent; // Use processed content
 				fileItem.id = uuidv4(); // Temporary ID for the file
 
 				files = files;

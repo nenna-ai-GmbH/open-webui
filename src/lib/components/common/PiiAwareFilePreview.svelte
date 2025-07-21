@@ -72,7 +72,7 @@
 
 				// Store entities in session manager for conversation consistency
 				if (conversationId) {
-					piiSessionManager.setConversationEntities(conversationId, response.pii[0]);
+					piiSessionManager.setConversationEntitiesFromLatestDetection(conversationId, response.pii[0]);
 				}
 
 				// Apply highlighting to the text
@@ -88,7 +88,8 @@
 			}
 		} catch (error) {
 			console.error('PiiAwareFilePreview: PII detection failed:', error);
-			detectionError = `PII detection failed: ${error.message || 'Unknown error'}`;
+			const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+			detectionError = `PII detection failed: ${errorMessage}`;
 			processedText = textContent;
 			hasHighlighting = false;
 			piiEntities = [];
