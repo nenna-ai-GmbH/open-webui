@@ -204,23 +204,33 @@
 
 				{#if item?.file?.data?.content}
 					<!-- Progressive Processing Status -->
-					{#if item?.file?.data?.isPartialContent || item?.file?.data?.processing_status}
-						<div class="mb-3 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+					{#if item?.file?.data?.isProcessingInProgress || item?.file?.data?.isPartialContent || item?.file?.data?.processing_status}
+						<div class="mb-3 p-3 {item?.file?.data?.isProcessingInProgress ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800' : 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'} border rounded-lg">
 							<div class="flex items-center gap-2">
-								{#if item?.file?.data?.isPartialContent}
+								{#if item?.file?.data?.isProcessingInProgress}
+									<!-- Processing in progress -->
 									<svg class="animate-spin size-4 text-blue-500" fill="none" viewBox="0 0 24 24">
 										<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
 										<path class="opacity-75" fill="currentColor" d="m4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
 									</svg>
-									<span class="text-sm text-blue-700 dark:text-blue-300">
+									<span class="text-sm text-blue-700 dark:text-blue-300 font-medium">
 										{item?.file?.data?.processing_status || 'Processing pages...'}
 									</span>
-								{:else}
+								{:else if item?.file?.data?.processing_status?.includes('✅')}
+									<!-- Completed -->
 									<svg class="size-4 text-green-500" fill="currentColor" viewBox="0 0 20 20">
 										<path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
 									</svg>
-									<span class="text-sm text-green-700 dark:text-green-300">
+									<span class="text-sm text-green-700 dark:text-green-300 font-medium">
 										{item?.file?.data?.processing_status || 'Processing complete'}
+									</span>
+								{:else}
+									<!-- Partial complete -->
+									<svg class="size-4 text-orange-500" fill="currentColor" viewBox="0 0 20 20">
+										<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+									</svg>
+									<span class="text-sm text-orange-700 dark:text-orange-300 font-medium">
+										{item?.file?.data?.processing_status || 'Partially processed'}
 									</span>
 								{/if}
 							</div>
@@ -228,7 +238,9 @@
 								<div class="mt-1 text-xs text-gray-600 dark:text-gray-400">
 									{item?.file?.data?.page_count} page{item?.file?.data?.page_count === 1 ? '' : 's'} total
 									{#if item?.file?.data?.piiEntities?.length > 0}
-										• {item?.file?.data?.piiEntities.length} PII entit{item?.file?.data?.piiEntities.length === 1 ? 'y' : 'ies'} detected
+										• <span class="font-medium text-red-600 dark:text-red-400">{item?.file?.data?.piiEntities.length} PII entit{item?.file?.data?.piiEntities.length === 1 ? 'y' : 'ies'} detected & protected</span>
+									{:else}
+										• <span class="text-green-600 dark:text-green-400">No PII detected</span>
 									{/if}
 								</div>
 							{/if}

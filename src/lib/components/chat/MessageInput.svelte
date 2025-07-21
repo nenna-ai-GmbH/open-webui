@@ -933,22 +933,35 @@
 							// NEVER show raw extracted text - only PII API responses go to preview/storage
 							console.log('Starting progressive page-wise processing for:', fileItem.name);
 							
-							// Step 1: Get page information
+							// Step 1: Get page information and show immediate feedback
 							const pagesInfo = await getFilePagesInfo(localStorage.token, uploadedFile.id);
 							if (!pagesInfo || !pagesInfo.total_pages) {
 								throw new Error('Failed to get page information');
 							}
 							
-							console.log(`File has ${pagesInfo.total_pages} pages`);
+							console.log(`File has ${pagesInfo.total_pages} pages - starting progressive processing`);
 							
 							// Initialize progressive display data
 							let processedPages = [];
 							let allEntities = [];
 							let knownEntities = chatId ? piiSessionManager.getKnownEntitiesForApi(chatId) : [];
 							
-							// Step 2: Process first page immediately
+							// Step 2: Show immediate status and start processing page 1
 							fileItem.status = `Processing page 1 of ${pagesInfo.total_pages}...`;
-							files = files; // Trigger reactivity
+							
+							// Initialize file data immediately to show processing status
+							uploadedFile.data = {
+								content: '', // Empty initially, will grow with each page
+								page_count: pagesInfo.total_pages,
+								processing_status: `Processing page 1 of ${pagesInfo.total_pages}...`,
+								piiEntities: [],
+								piiDetectionTimestamp: Date.now(),
+								isPartialContent: true,
+								isProcessingInProgress: true
+							};
+							
+							fileItem.file = uploadedFile;
+							files = files; // Show status immediately
 							
 							const firstPageData = await getFilePageContent(localStorage.token, uploadedFile.id, 1);
 							if (firstPageData && firstPageData.page.content) {
@@ -990,11 +1003,13 @@
 									console.log('Page 1: PII detection disabled - using original content');
 								}
 								
-								// Show page 1 immediately in preview - ONLY PII-processed content
+								// ✅ IMMEDIATE PREVIEW UPDATE - Page 1 shows right away with PII processing
 								uploadedFile.data = {
-									content: processedPages[0], // This is ONLY from PII API response
+									content: processedPages[0], // ONLY from PII API response - user sees this immediately
 									page_count: pagesInfo.total_pages,
-									processing_status: `Page 1 of ${pagesInfo.total_pages} ready`,
+									processing_status: pagesInfo.total_pages > 1 
+										? `Page 1 ready • Processing page 2 of ${pagesInfo.total_pages}...`
+										: `Page 1 complete`,
 									piiEntities: allEntities.map(e => ({
 										id: e.id,
 										label: e.label,
@@ -1003,13 +1018,27 @@
 										occurrences: e.occurrences
 									})),
 									piiDetectionTimestamp: Date.now(),
-									isPartialContent: pagesInfo.total_pages > 1
+									isPartialContent: pagesInfo.total_pages > 1,
+									isProcessingInProgress: pagesInfo.total_pages > 1
 								};
 								
+								fileItem.status = pagesInfo.total_pages > 1 
+									? `Processing page 2 of ${pagesInfo.total_pages}...`
+									: 'uploaded';
 								fileItem.file = uploadedFile;
-								files = files; // Update preview with PII-processed content ONLY
+								files = files; // ✅ IMMEDIATE PREVIEW UPDATE - User sees page 1 content now
 								
-								console.log('Page 1 preview updated with PII-processed content ONLY');
+								console.log(`✅ IMMEDIATE PREVIEW: Page 1 showing with ${allEntities.length} PII entities`);
+								
+								// Show toast immediately for page 1 if PII detected
+								if (allEntities.length > 0) {
+									toast.success(
+										$i18n.t('Page 1 processed: {{count}} PII {{entities}} detected', {
+											count: allEntities.length,
+											entities: allEntities.length === 1 ? 'entity' : 'entities'
+										})
+									);
+								}
 							}
 							
 							// Step 3: Process remaining pages in background
@@ -1017,8 +1046,12 @@
 								const processRemainingPages = async () => {
 									for (let pageNum = 2; pageNum <= pagesInfo.total_pages; pageNum++) {
 										try {
+											// ✅ IMMEDIATE STATUS UPDATE - User sees progress in real-time
 											fileItem.status = `Processing page ${pageNum} of ${pagesInfo.total_pages}...`;
-											files = files; // Update status
+											uploadedFile.data.processing_status = `Processing page ${pageNum} of ${pagesInfo.total_pages}...`;
+											files = files; // Show status update immediately
+											
+											console.log(`🔄 REAL-TIME STATUS: Now processing page ${pageNum} of ${pagesInfo.total_pages}`);
 											
 											const pageData = await getFilePageContent(localStorage.token, uploadedFile.id, pageNum);
 											if (pageData && pageData.page.content) {
@@ -1060,14 +1093,14 @@
 													console.log(`Page ${pageNum}: PII detection disabled - using original content`);
 												}
 												
-												// Update preview with all PII-processed pages so far - NEVER raw content
+												// ✅ IMMEDIATE PREVIEW GROWTH - Preview expands with each completed page  
 												const combinedContent = processedPages.join('\n\n--- Page Break ---\n\n');
 												uploadedFile.data = {
-													content: combinedContent, // This is ONLY from PII API responses
+													content: combinedContent, // Growing preview - ONLY from PII API responses
 													page_count: pagesInfo.total_pages,
 													processing_status: pageNum === pagesInfo.total_pages 
-														? `All ${pagesInfo.total_pages} pages processed`
-														: `${pageNum} of ${pagesInfo.total_pages} pages processed`,
+														? `✅ All ${pagesInfo.total_pages} pages processed`
+														: `Page ${pageNum} ready • ${pageNum < pagesInfo.total_pages ? `Processing page ${pageNum + 1}...` : 'Completing...'}`,
 													piiEntities: allEntities.map(e => ({
 														id: e.id,
 														label: e.label,
@@ -1076,11 +1109,17 @@
 														occurrences: e.occurrences
 													})),
 													piiDetectionTimestamp: Date.now(),
-													isPartialContent: pageNum < pagesInfo.total_pages
+													isPartialContent: pageNum < pagesInfo.total_pages,
+													isProcessingInProgress: pageNum < pagesInfo.total_pages
 												};
 												
+												fileItem.status = pageNum === pagesInfo.total_pages 
+													? 'uploaded'
+													: `Processing page ${pageNum + 1} of ${pagesInfo.total_pages}...`;
 												fileItem.file = uploadedFile;
-												files = files; // Update preview with PII-processed content ONLY
+												files = files; // ✅ PREVIEW GROWS IMMEDIATELY - User sees new page content
+												
+												console.log(`✅ PREVIEW GROWTH: Page ${pageNum} added - preview now has ${processedPages.length} pages`);
 												
 												// Small delay to avoid overwhelming the UI and API
 												if (pageNum < pagesInfo.total_pages) {
@@ -1093,9 +1132,39 @@
 										}
 									}
 									
-									// Final processing complete
+									// ✅ FINAL COMPLETION - All pages processed successfully
+									
+									// Store final processed content to backend file record
+									try {
+										const finalCombinedContent = processedPages.join('\n\n--- Page Break ---\n\n');
+										
+										// Update backend file record with PII-processed content
+										const updateResponse = await fetch(`${WEBUI_API_BASE_URL}/files/${uploadedFile.id}/data`, {
+											method: 'POST',
+											headers: {
+												'Accept': 'application/json',
+												'Content-Type': 'application/json',
+												'authorization': `Bearer ${localStorage.token}`
+											},
+											body: JSON.stringify({
+												content: finalCombinedContent,
+												piiEntities: allEntities,
+												piiDetectionTimestamp: Date.now(),
+												processingType: 'progressive_page_wise'
+											})
+										});
+										
+										if (updateResponse.ok) {
+											console.log('✅ BACKEND UPDATE: Final PII-processed content saved to database');
+										} else {
+											console.warn('⚠️ BACKEND UPDATE: Failed to save processed content, but preview remains correct');
+										}
+									} catch (error) {
+										console.warn('⚠️ BACKEND UPDATE ERROR:', error, '- Preview remains correct');
+									}
+									
+									// Store all entities in session manager
 									if (allEntities.length > 0) {
-										// Store all entities in session manager
 										if (chatId) {
 											piiSessionManager.setConversationEntities(chatId, allEntities.map(e => ({
 												id: e.id,
@@ -1112,16 +1181,28 @@
 										}
 										
 										toast.success(
-											$i18n.t('File processed: {{count}} PII {{entities}} detected across {{pages}} pages', {
+											$i18n.t('✅ File completed: {{count}} PII {{entities}} detected across {{pages}} pages', {
 												count: allEntities.length,
 												entities: allEntities.length === 1 ? 'entity' : 'entities',
 												pages: pagesInfo.total_pages
 											})
 										);
+									} else {
+										toast.success(
+											$i18n.t('✅ File completed: {{pages}} pages processed, no PII detected', {
+												pages: pagesInfo.total_pages
+											})
+										);
 									}
 									
+									// Final status update
+									uploadedFile.data.processing_status = `✅ All ${pagesInfo.total_pages} pages completed`;
+									uploadedFile.data.isPartialContent = false;
+									uploadedFile.data.isProcessingInProgress = false;
 									fileItem.status = 'uploaded';
-									console.log(`Progressive processing completed for ${fileItem.name}: ${allEntities.length} total PII entities`);
+									files = files; // Final UI update
+									
+									console.log(`✅ PROGRESSIVE PROCESSING COMPLETE: ${fileItem.name} - ${allEntities.length} total PII entities across ${pagesInfo.total_pages} pages`);
 								};
 								
 								// Start background processing
