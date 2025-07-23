@@ -871,6 +871,10 @@
 			size: file.size,
 			error: '',
 			itemId: tempItemId,
+			// Progress tracking properties
+			uploadProgress: 0,
+			piiProgress: 0,
+			currentPhase: 'uploading' as 'uploading' | 'processing' | 'complete',
 			...(fullContext ? { context: 'full' } : {})
 		};
 
@@ -895,7 +899,11 @@
 				}
 
 				// During the file upload, file content is automatically extracted.
-				const uploadedFile = await uploadFile(localStorage.token, file, metadata);
+				const uploadedFile = await uploadFile(localStorage.token, file, metadata, (progress) => {
+					// Update upload progress
+					fileItem.uploadProgress = progress;
+					files = files; // Trigger reactivity
+				});
 
 				if (uploadedFile) {
 					console.log('File upload completed:', {
@@ -915,6 +923,10 @@
 					fileItem.collection_name =
 						uploadedFile?.meta?.collection_name || uploadedFile?.collection_name;
 					fileItem.url = `${WEBUI_API_BASE_URL}/files/${uploadedFile.id}`;
+					
+					// Upload complete, now start processing phase
+					fileItem.currentPhase = 'processing';
+					fileItem.uploadProgress = 100;
 
 					// Check if file type supports page-wise processing (PDFs, DOCX)
 					const fileType = file.type || '';
@@ -948,6 +960,7 @@
 							
 							// Step 2: Show immediate status and start processing page 1
 							fileItem.status = `Processing page 1 of ${pagesInfo.total_pages}...`;
+							fileItem.piiProgress = 0;
 							
 							// Initialize file data immediately to show processing status
 							uploadedFile.data = {
@@ -1030,6 +1043,9 @@
 								
 								console.log(`✅ IMMEDIATE PREVIEW: Page 1 showing with ${allEntities.length} PII entities`);
 								
+								// Update progress for page 1 completion
+								fileItem.piiProgress = (1 / pagesInfo.total_pages) * 100;
+								
 								// Show toast immediately for page 1 if PII detected
 								if (allEntities.length > 0) {
 									toast.success(
@@ -1049,6 +1065,8 @@
 											// ✅ IMMEDIATE STATUS UPDATE - User sees progress in real-time
 											fileItem.status = `Processing page ${pageNum} of ${pagesInfo.total_pages}...`;
 											uploadedFile.data.processing_status = `Processing page ${pageNum} of ${pagesInfo.total_pages}...`;
+											// Update PII progress based on page completion
+											fileItem.piiProgress = ((pageNum - 1) / pagesInfo.total_pages) * 100;
 											files = files; // Show status update immediately
 											
 											console.log(`🔄 REAL-TIME STATUS: Now processing page ${pageNum} of ${pagesInfo.total_pages}`);
@@ -1117,6 +1135,8 @@
 													? 'uploaded'
 													: `Processing page ${pageNum + 1} of ${pagesInfo.total_pages}...`;
 												fileItem.file = uploadedFile;
+												// Update PII progress after page completion
+												fileItem.piiProgress = (pageNum / pagesInfo.total_pages) * 100;
 												files = files; // ✅ PREVIEW GROWS IMMEDIATELY - User sees new page content
 												
 												console.log(`✅ PREVIEW GROWTH: Page ${pageNum} added - preview now has ${processedPages.length} pages`);
@@ -1200,6 +1220,8 @@
 									uploadedFile.data.isPartialContent = false;
 									uploadedFile.data.isProcessingInProgress = false;
 									fileItem.status = 'uploaded';
+									fileItem.currentPhase = 'complete';
+									fileItem.piiProgress = 100;
 									files = files; // Final UI update
 									
 									console.log(`✅ PROGRESSIVE PROCESSING COMPLETE: ${fileItem.name} - ${allEntities.length} total PII entities across ${pagesInfo.total_pages} pages`);
@@ -1210,6 +1232,8 @@
 							} else {
 								// Single page file - mark as complete
 								fileItem.status = 'uploaded';
+								fileItem.currentPhase = 'complete';
+								fileItem.piiProgress = 100;
 								if (allEntities.length > 0) {
 									toast.success(
 										$i18n.t('File uploaded with {{count}} PII {{entities}} detected and protected', {
@@ -1223,7 +1247,9 @@
 						} else {
 							// STANDARD PROCESSING for non-page-wise files
 							console.log('Using standard processing for:', fileItem.name);
+							fileItem.piiProgress = 0;
 							const processResult = await processFile(localStorage.token, uploadedFile.id);
+							fileItem.piiProgress = 50; // Halfway through processing
 
 							if (processResult) {
 								console.log('Backend processing completed - sending to PII API FIRST before any preview');
@@ -1232,6 +1258,7 @@
 								if (enablePiiDetection && piiApiKey && processResult.content) {
 									// Process for PII IMMEDIATELY - no preview until this completes
 									const piiResult = await processFileContentWithPII(processResult.content, fileItem.name);
+									fileItem.piiProgress = 100;
 									
 									// Store ONLY PII-processed content - never raw content
 									uploadedFile.data = {
@@ -1244,6 +1271,7 @@
 									console.log(`Stored ${piiResult.piiEntities.length} PII entities from standard processing - preview shows PII-processed content ONLY`);
 								} else {
 									// PII detection disabled - store original (should rarely happen)
+									fileItem.piiProgress = 100;
 									uploadedFile.data = {
 										content: processResult.content,
 										processing_type: 'standard'
@@ -1252,6 +1280,8 @@
 								}
 
 								fileItem.file = uploadedFile;
+								fileItem.status = 'uploaded';
+								fileItem.currentPhase = 'complete';
 							} else {
 								console.warn('Backend processing failed for:', fileItem.name);
 							}
@@ -1310,6 +1340,8 @@
 					const piiResult = await processFileContentWithPII(content, file.name);
 
 					fileItem.status = 'uploaded';
+					fileItem.currentPhase = 'complete';
+					fileItem.piiProgress = 100;
 					fileItem.type = 'text';
 					fileItem.content = piiResult.processedContent; // ONLY from PII API response
 					fileItem.piiEntities = piiResult.piiEntities; 
@@ -1320,6 +1352,8 @@
 				} else {
 					// PII detection disabled - use original content (should rarely happen in production)
 					fileItem.status = 'uploaded';
+					fileItem.currentPhase = 'complete';
+					fileItem.piiProgress = 100;
 					fileItem.type = 'text';
 					fileItem.content = content;
 					fileItem.id = uuidv4();
@@ -1781,25 +1815,28 @@
 													</div>
 												</div>
 											{:else}
-												<FileItem
-													item={file}
-													name={file.name}
-													type={file.type}
-													size={file?.size}
-													loading={file.status === 'uploading' || (file.status && file.status.includes('Processing page'))}
-													status={file.status && file.status.includes('Processing page') ? file.status : null}
-													dismissible={true}
-													edit={true}
-													modal={['file', 'collection'].includes(file?.type)}
-													on:dismiss={async () => {
-														// Remove from UI state
-														files.splice(fileIdx, 1);
-														files = files;
-													}}
-													on:click={() => {
-														console.log(file);
-													}}
-												/>
+																							<FileItem
+												item={file}
+												name={file.name}
+												type={file.type}
+												size={file?.size}
+												loading={file.status === 'uploading' || (file.status && file.status.includes('Processing page'))}
+												status={file.status && file.status.includes('Processing page') ? file.status : null}
+												uploadProgress={file.uploadProgress || 0}
+												piiProgress={file.piiProgress || 0}
+												currentPhase={file.currentPhase || 'uploading'}
+												dismissible={true}
+												edit={true}
+												modal={['file', 'collection'].includes(file?.type)}
+												on:dismiss={async () => {
+													// Remove from UI state
+													files.splice(fileIdx, 1);
+													files = files;
+												}}
+												on:click={() => {
+													console.log(file);
+												}}
+											/>
 											{/if}
 										{/each}
 									</div>

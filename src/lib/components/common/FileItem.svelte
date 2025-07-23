@@ -5,6 +5,7 @@
 	import FileItemModal from './FileItemModal.svelte';
 	import GarbageBin from '../icons/GarbageBin.svelte';
 	import Spinner from './Spinner.svelte';
+	import FileUploadProgressBar from './FileUploadProgressBar.svelte';
 	import Tooltip from './Tooltip.svelte';
 	import XMark from '$lib/components/icons/XMark.svelte';
 	import { settings, chatId, config } from '$lib/stores';
@@ -19,6 +20,12 @@
 	export let dismissible = false;
 	export let modal = false;
 	export let loading = false;
+
+	// Progress tracking props
+	export let uploadProgress: number = 0;
+	export let piiProgress: number = 0; 
+	export let currentPhase: 'uploading' | 'processing' | 'complete' = 'uploading';
+	export let status: string = '';
 
 	export let item = null;
 	export let edit = false;
@@ -93,7 +100,11 @@
 					/>
 				</svg>
 			{:else}
-				<Spinner />
+				<div class="flex items-center justify-center size-5">
+					<div class="size-3">
+						<Spinner className="size-3" />
+					</div>
+				</div>
 			{/if}
 		</div>
 	{/if}
@@ -104,24 +115,37 @@
 				{decodeString(name)}
 			</div>
 
-			<div
-				class=" flex justify-between text-xs line-clamp-1 {($settings?.highContrastMode ?? false)
-					? 'text-gray-800 dark:text-gray-100'
-					: 'text-gray-500'}"
-			>
-				{#if type === 'file'}
-					{$i18n.t('File')}
-				{:else if type === 'doc'}
-					{$i18n.t('Document')}
-				{:else if type === 'collection'}
-					{$i18n.t('Collection')}
-				{:else}
-					<span class=" capitalize line-clamp-1">{type}</span>
-				{/if}
-				{#if size}
-					<span class="capitalize">{formatFileSize(size)}</span>
-				{/if}
-			</div>
+			{#if loading}
+				<!-- Show progress bar when loading -->
+				<div class="mb-2">
+					<FileUploadProgressBar 
+						{uploadProgress}
+						{piiProgress}
+						{currentPhase}
+						{status}
+						size="small"
+					/>
+				</div>
+			{:else}
+				<div
+					class=" flex justify-between text-xs line-clamp-1 {($settings?.highContrastMode ?? false)
+						? 'text-gray-800 dark:text-gray-100'
+						: 'text-gray-500'}"
+				>
+					{#if type === 'file'}
+						{$i18n.t('File')}
+					{:else if type === 'doc'}
+						{$i18n.t('Document')}
+					{:else if type === 'collection'}
+						{$i18n.t('Collection')}
+					{:else}
+						<span class=" capitalize line-clamp-1">{type}</span>
+					{/if}
+					{#if size}
+						<span class="capitalize">{formatFileSize(size)}</span>
+					{/if}
+				</div>
+			{/if}
 		</div>
 	{:else}
 		<Tooltip content={decodeString(name)} className="flex flex-col w-full" placement="top-start">
@@ -135,6 +159,19 @@
 					<div class="font-medium line-clamp-1 flex-1">{decodeString(name)}</div>
 					<div class="text-gray-500 text-xs capitalize shrink-0">{formatFileSize(size)}</div>
 				</div>
+				
+				{#if loading}
+					<!-- Show progress bar when loading -->
+					<div class="mt-1">
+						<FileUploadProgressBar 
+							{uploadProgress}
+							{piiProgress}
+							{currentPhase}
+							{status}
+							size="small"
+						/>
+					</div>
+				{/if}
 			</div>
 		</Tooltip>
 	{/if}
