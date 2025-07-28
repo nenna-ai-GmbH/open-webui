@@ -163,11 +163,24 @@
 					{/each}
 				</div>
 			{:else if isPDF}
-				<iframe
-					title={item?.name}
-					src={`${WEBUI_API_BASE_URL}/files/${item.id}/content`}
-					class="w-full h-[70vh] border-0 rounded-lg mt-4"
-				/>
+				{#if item?.file?.data?.content}
+					<!-- Show extracted text instead of PDF -->
+					<div
+						class="max-h-96 overflow-scroll scrollbar-hidden text-xs whitespace-pre-wrap bg-gray-50 dark:bg-gray-800 p-4 rounded-lg mt-4"
+					>
+						<div class="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+							📄 Extracted Text ({getLineCount(item?.file?.data?.content)} lines)
+						</div>
+						{item?.file?.data?.content ?? 'No content'}
+					</div>
+				{:else}
+					<!-- Fallback to PDF iframe if no text extracted -->
+					<iframe
+						title={item?.name}
+						src={`${WEBUI_API_BASE_URL}/files/${item.id}/content`}
+						class="w-full h-[70vh] border-0 rounded-lg mt-4"
+					/>
+				{/if}
 			{:else}
 				{#if isAudio}
 					<audio
