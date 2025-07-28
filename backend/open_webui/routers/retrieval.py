@@ -1461,7 +1461,20 @@ def process_file(
                         },
                     )
                 ]
-            text_content = " ".join([doc.page_content for doc in docs])
+            # Preserve page breaks when page information is available
+            if len(docs) > 1 and any(doc.metadata.get("page") is not None for doc in docs):
+                # Multiple documents with page info - add page break markers
+                page_contents = []
+                for doc in docs:
+                    page_num = doc.metadata.get("page", doc.metadata.get("page_label", ""))
+                    if page_num is not None and page_num != "":
+                        page_contents.append(f"--- PAGE {page_num + 1 if isinstance(page_num, int) else page_num} ---\n{doc.page_content}")
+                    else:
+                        page_contents.append(doc.page_content)
+                text_content = "\n\n".join(page_contents)
+            else:
+                # Single document or no page info - keep as simple concatenation
+                text_content = " ".join([doc.page_content for doc in docs])
 
         log.debug(f"text_content: {text_content}")
         Files.update_file_data_by_id(

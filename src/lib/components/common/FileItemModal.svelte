@@ -10,6 +10,7 @@
 	import Info from '../icons/Info.svelte';
 	import Switch from './Switch.svelte';
 	import Tooltip from './Tooltip.svelte';
+	import PiiFileTextPreview from './PiiFileTextPreview.svelte';
 	import dayjs from 'dayjs';
 
 	export let item;
@@ -164,15 +165,12 @@
 				</div>
 			{:else if isPDF}
 				{#if item?.file?.data?.content}
-					<!-- Show extracted text instead of PDF -->
-					<div
-						class="max-h-96 overflow-scroll scrollbar-hidden text-xs whitespace-pre-wrap bg-gray-50 dark:bg-gray-800 p-4 rounded-lg mt-4"
-					>
-						<div class="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">
-							📄 Extracted Text ({getLineCount(item?.file?.data?.content)} lines)
-						</div>
-						{item?.file?.data?.content ?? 'No content'}
-					</div>
+					<!-- Show extracted text with page breaks -->
+					<PiiFileTextPreview
+						content={item?.file?.data?.content ?? ''}
+						filename={item?.name ?? 'Unknown'}
+						lineCount={getLineCount(item?.file?.data?.content)}
+					/>
 				{:else}
 					<!-- Fallback to PDF iframe if no text extracted -->
 					<iframe
@@ -191,10 +189,12 @@
 					/>
 				{/if}
 
-				{#if item?.file?.data}
-					<div class="max-h-96 overflow-scroll scrollbar-hidden text-xs whitespace-pre-wrap">
-						{item?.file?.data?.content ?? 'No content'}
-					</div>
+				{#if item?.file?.data?.content}
+					<PiiFileTextPreview
+						content={item?.file?.data?.content ?? ''}
+						filename={item?.name ?? 'Unknown'}
+						lineCount={getLineCount(item?.file?.data?.content)}
+					/>
 				{/if}
 			{/if}
 		</div>
