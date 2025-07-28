@@ -1,7 +1,7 @@
 <script lang="ts">
 	/**
 	 * PiiFileTextPreview.svelte
-	 * 
+	 *
 	 * Enhanced file text preview component with:
 	 * - Page break visualization
 	 * - Future PII highlighting capabilities
@@ -18,14 +18,11 @@
 
 		// Split on page markers that we added in the backend
 		const pagePattern = /^--- PAGE (\d+) ---$/gm;
-		
+
 		// Check if content has page markers
 		if (pagePattern.test(text)) {
 			// Replace page markers with styled HTML
-			return text.replace(
-				pagePattern, 
-				'<div class="page-break-marker">📄 Page $1</div>'
-			);
+			return text.replace(pagePattern, '<div class="page-break-marker">📄 Page $1</div>');
 		}
 
 		// No page markers - return content as-is
@@ -35,9 +32,13 @@
 	$: processedContent = processContentWithPageBreaks(content);
 </script>
 
-<div class="pii-file-preview max-h-96 overflow-scroll scrollbar-hidden text-xs bg-gray-50 dark:bg-gray-800 p-4 rounded-lg mt-4">
+<div
+	class="pii-file-preview max-h-96 overflow-scroll scrollbar-hidden text-xs bg-gray-50 dark:bg-gray-800 p-4 rounded-lg mt-4"
+>
 	<!-- Header with file info -->
-	<div class="mb-3 text-sm font-medium text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-600 pb-2">
+	<div
+		class="mb-3 text-sm font-medium text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-600 pb-2"
+	>
 		📄 {filename} ({lineCount} lines)
 	</div>
 
@@ -85,4 +86,4 @@
 		background-color: #92400e;
 		color: #fed7aa;
 	}
-</style> 
+</style>
