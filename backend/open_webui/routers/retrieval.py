@@ -1463,7 +1463,9 @@ def process_file(
                     )
                 ]
             # Use utility function to handle both page markers and chunking
-            text_content = format_text_with_breaks(docs, chunk_size=1000, chunk_threshold=1200)
+            text_content = format_text_with_breaks(
+                docs, chunk_size=1000, chunk_threshold=1200
+            )
 
         log.debug(f"text_content: {text_content}")
         Files.update_file_data_by_id(

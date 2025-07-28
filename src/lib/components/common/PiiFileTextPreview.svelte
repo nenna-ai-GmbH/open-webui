@@ -22,18 +22,12 @@
 
 		// Check for page markers first (higher priority)
 		if (pagePattern.test(text)) {
-			return text.replace(
-				pagePattern, 
-				'<div class="break-marker page-marker">📄 Page $1</div>'
-			);
+			return text.replace(pagePattern, '<div class="break-marker page-marker">📄 Page $1</div>');
 		}
-		
+
 		// Check for chunk markers
 		if (chunkPattern.test(text)) {
-			return text.replace(
-				chunkPattern, 
-				'<div class="break-marker chunk-marker">📝 Chunk $1</div>'
-			);
+			return text.replace(chunkPattern, '<div class="break-marker chunk-marker">📝 Chunk $1</div>');
 		}
 
 		// No markers - return content as-is
