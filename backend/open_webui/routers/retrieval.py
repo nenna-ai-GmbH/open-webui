@@ -1462,13 +1462,19 @@ def process_file(
                     )
                 ]
             # Preserve page breaks when page information is available
-            if len(docs) > 1 and any(doc.metadata.get("page") is not None for doc in docs):
+            if len(docs) > 1 and any(
+                doc.metadata.get("page") is not None for doc in docs
+            ):
                 # Multiple documents with page info - add page break markers
                 page_contents = []
                 for doc in docs:
-                    page_num = doc.metadata.get("page", doc.metadata.get("page_label", ""))
+                    page_num = doc.metadata.get(
+                        "page", doc.metadata.get("page_label", "")
+                    )
                     if page_num is not None and page_num != "":
-                        page_contents.append(f"--- PAGE {page_num + 1 if isinstance(page_num, int) else page_num} ---\n{doc.page_content}")
+                        page_contents.append(
+                            f"--- PAGE {page_num + 1 if isinstance(page_num, int) else page_num} ---\n{doc.page_content}"
+                        )
                     else:
                         page_contents.append(doc.page_content)
                 text_content = "\n\n".join(page_contents)
