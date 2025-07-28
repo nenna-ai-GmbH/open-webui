@@ -12,24 +12,35 @@
 	export let filename = '';
 	export let lineCount = 0;
 
-	// Process content to detect and style page breaks
-	function processContentWithPageBreaks(text: string): string {
+	// Process content to detect and style page/chunk breaks
+	function processContentWithBreaks(text: string): string {
 		if (!text) return '';
 
-		// Split on page markers that we added in the backend
+		// Patterns for both page and chunk markers
 		const pagePattern = /^--- PAGE (\d+) ---$/gm;
+		const chunkPattern = /^--- CHUNK (\d+) ---$/gm;
 
-		// Check if content has page markers
+		// Check for page markers first (higher priority)
 		if (pagePattern.test(text)) {
-			// Replace page markers with styled HTML
-			return text.replace(pagePattern, '<div class="page-break-marker">📄 Page $1</div>');
+			return text.replace(
+				pagePattern, 
+				'<div class="break-marker page-marker">📄 Page $1</div>'
+			);
+		}
+		
+		// Check for chunk markers
+		if (chunkPattern.test(text)) {
+			return text.replace(
+				chunkPattern, 
+				'<div class="break-marker chunk-marker">📝 Chunk $1</div>'
+			);
 		}
 
-		// No page markers - return content as-is
+		// No markers - return content as-is
 		return text;
 	}
 
-	$: processedContent = processContentWithPageBreaks(content);
+	$: processedContent = processContentWithBreaks(content);
 </script>
 
 <div
@@ -55,24 +66,41 @@
 		line-height: 1.4;
 	}
 
-	:global(.page-break-marker) {
-		/* Style for page break indicators */
+	:global(.break-marker) {
+		/* Base styling for all break markers */
 		display: block;
 		margin: 1rem 0;
 		padding: 0.5rem 1rem;
-		background: linear-gradient(90deg, #e5e7eb 0%, #f3f4f6 50%, #e5e7eb 100%);
-		border-left: 4px solid #6b7280;
 		border-radius: 0.25rem;
 		font-weight: 600;
 		font-size: 0.75rem;
-		color: #374151;
 		text-align: center;
 	}
 
-	:global(.dark .page-break-marker) {
+	:global(.page-marker) {
+		/* Page-specific styling */
+		background: linear-gradient(90deg, #e5e7eb 0%, #f3f4f6 50%, #e5e7eb 100%);
+		border-left: 4px solid #6b7280;
+		color: #374151;
+	}
+
+	:global(.chunk-marker) {
+		/* Chunk-specific styling */
+		background: linear-gradient(90deg, #fef3c7 0%, #fef9e7 50%, #fef3c7 100%);
+		border-left: 4px solid #d97706;
+		color: #92400e;
+	}
+
+	:global(.dark .page-marker) {
 		background: linear-gradient(90deg, #374151 0%, #4b5563 50%, #374151 100%);
 		border-left-color: #9ca3af;
 		color: #d1d5db;
+	}
+
+	:global(.dark .chunk-marker) {
+		background: linear-gradient(90deg, #92400e 0%, #b45309 50%, #92400e 100%);
+		border-left-color: #f59e0b;
+		color: #fed7aa;
 	}
 
 	/* Future PII highlighting styles (placeholder) */
