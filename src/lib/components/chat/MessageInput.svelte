@@ -45,7 +45,7 @@
 		getUserTimezone,
 		getWeekday
 	} from '$lib/utils';
-	import { uploadFile } from '$lib/apis/files';
+    import { uploadFile, getFileById } from '$lib/apis/files';
 	import { generateAutoCompletion } from '$lib/apis';
 	import { deleteFileById } from '$lib/apis/files';
 	import { processFile as triggerProcessFile } from '$lib/apis/retrieval';
@@ -699,51 +699,43 @@
 					const pollIntervalMs = 800;
 					const maxPollMs = 30 * 60 * 1000; // 30 minutes safety cap
 					let elapsed = 0;
-					const poll = async () => {
-						try {
-							const res = await fetch(`${WEBUI_API_BASE_URL}/files/${uploadedFile.id}`, {
-								method: 'GET',
-								headers: {
-									Accept: 'application/json',
-									'Content-Type': 'application/json',
-									Authorization: `Bearer ${localStorage.token}`
-								}
-							});
-							if (res.ok) {
-								const json = await res.json();
-								const processing = json?.meta?.processing;
-								if (processing) {
-									console.log('Processing progress:', processing);
-									fileItem.progress =
-										typeof processing.progress === 'number'
-											? processing.progress
-											: (fileItem.progress ?? 0);
-									files = files;
-									if (
-										processing.status === 'done' ||
-										(typeof processing.progress === 'number' && processing.progress >= 100)
-									) {
-										fileItem.status = 'uploaded';
-										console.log('Processing completed');
-										files = files;
-										return; // stop polling
-									}
-									if (processing.status === 'error') {
-										fileItem.status = 'error';
-										fileItem.error = processing.error || 'Processing failed';
-										files = files;
-										return; // stop polling
-									}
-								}
-							}
-						} catch (e) {
-							// ignore transient errors
-						}
-						elapsed += pollIntervalMs;
-						if (elapsed < maxPollMs && fileItem.status === 'processing') {
-							setTimeout(poll, pollIntervalMs);
-						}
-					};
+                    const poll = async () => {
+                        try {
+                            const json = await getFileById(localStorage.token, uploadedFile.id);
+                            if (json) {
+                                const processing = json?.meta?.processing;
+                                if (processing) {
+                                    console.log('Processing progress:', processing);
+                                    fileItem.progress =
+                                        typeof processing.progress === 'number'
+                                            ? processing.progress
+                                            : (fileItem.progress ?? 0);
+                                    files = files;
+                                    if (
+                                        processing.status === 'done' ||
+                                        (typeof processing.progress === 'number' && processing.progress >= 100)
+                                    ) {
+                                        fileItem.status = 'uploaded';
+                                        console.log('Processing completed');
+                                        files = files;
+                                        return; // stop polling
+                                    }
+                                    if (processing.status === 'error') {
+                                        fileItem.status = 'error';
+                                        fileItem.error = processing.error || 'Processing failed';
+                                        files = files;
+                                        return; // stop polling
+                                    }
+                                }
+                            }
+                        } catch (e) {
+                            // ignore transient errors
+                        }
+                        elapsed += pollIntervalMs;
+                        if (elapsed < maxPollMs && fileItem.status === 'processing') {
+                            setTimeout(poll, pollIntervalMs);
+                        }
+                    };
 					// Start polling immediately, then at interval
 					poll();
 
