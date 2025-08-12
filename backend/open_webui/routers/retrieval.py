@@ -1556,8 +1556,10 @@ def process_file(
 
                                 for occurrence in pii_entity.occurrences:
                                     adjusted_occurrence = {
-                                        "start_idx": occurrence.start_idx + current_page_offset,
-                                        "end_idx": occurrence.end_idx + current_page_offset,
+                                        "start_idx": occurrence.start_idx
+                                        + current_page_offset,
+                                        "end_idx": occurrence.end_idx
+                                        + current_page_offset,
                                     }
                                     updated_occurences.append(adjusted_occurrence)
 
@@ -1565,9 +1567,17 @@ def process_file(
 
                                 if pii_entity.text not in detections:
                                     detections[pii_entity.text] = pii_entity
-                                    known_entities.append({'id': pii_entity.id, 'label': pii_entity.label, 'name': pii_entity.text})
+                                    known_entities.append(
+                                        {
+                                            "id": pii_entity.id,
+                                            "label": pii_entity.label,
+                                            "name": pii_entity.text,
+                                        }
+                                    )
                                 else:
-                                    detections[pii_entity.text].occurrences.extend(pii_entity.occurrences)
+                                    detections[pii_entity.text].occurrences.extend(
+                                        pii_entity.occurrences
+                                    )
 
                     except Exception:
                         pii = None
@@ -1591,7 +1601,6 @@ def process_file(
 
             # Extraction completed
             _set_processing(file.id, "processing", "extracting", 20)
-
 
         # About to embed/index
         _set_processing(file.id, "processing", "embedding", 30)
