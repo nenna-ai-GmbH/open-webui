@@ -31,6 +31,7 @@
 	import { deleteFileById } from '$lib/apis/files';
 
 	let showModal = false;
+export let disableModal = false;
 
 	const decodeString = (str: string) => {
 		try {
@@ -41,8 +42,8 @@
 	};
 </script>
 
-{#if item}
-	<FileItemModal bind:show={showModal} bind:item {edit} />
+{#if item && !disableModal}
+    <FileItemModal bind:show={showModal} bind:item {edit} />
 {/if}
 
 <button
@@ -59,8 +60,8 @@
 				'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
 			(item?.name && item?.name.toLowerCase().endsWith('.docx'));
 
-		// Always open modal for PDF/DOCX to show extracted text preview with PII highlights
-		if (item?.file?.data?.content || modal || isPdf || isDocx) {
+        // Open modal unless disabled (used in KnowledgeBase)
+        if (!disableModal && (item?.file?.data?.content || modal || isPdf || isDocx)) {
 			showModal = !showModal;
 		} else {
 			if (url) {

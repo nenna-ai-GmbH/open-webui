@@ -1161,7 +1161,8 @@
 								getShouldMask: () => piiMaskingEnabled,
 								onPiiDetected: onPiiDetected,
 								onPiiToggled: onPiiToggled,
-								onPiiDetectionStateChanged: handlePiiDetectionStateChanged
+										onPiiDetectionStateChanged: handlePiiDetectionStateChanged,
+										detectOnlyAfterUserEdit: messageInput ? false : true
 							})
 						]
 					: []),

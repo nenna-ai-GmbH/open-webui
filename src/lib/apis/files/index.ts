@@ -162,6 +162,39 @@ export const updateFileDataContentById = async (token: string, id: string, conte
 	return res;
 };
 
+export const updateFilePiiStateById = async (
+  token: string,
+  id: string,
+  pii_state: Record<string, any>
+) => {
+  let error = null;
+
+  const res = await fetch(`${WEBUI_API_BASE_URL}/files/${id}/data/pii/state/update`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({ pii_state })
+  })
+    .then(async (res) => {
+      if (!res.ok) throw await res.json();
+      return res.json();
+    })
+    .catch((err) => {
+      error = err.detail;
+      console.error(err);
+      return null;
+    });
+
+  if (error) {
+    throw error;
+  }
+
+  return res;
+};
+
 export const getFileContentById = async (id: string) => {
 	let error = null;
 

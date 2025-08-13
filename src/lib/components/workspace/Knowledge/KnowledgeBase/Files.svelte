@@ -20,6 +20,7 @@
 					: 'bg-transparent'} hover:bg-gray-50 dark:hover:bg-gray-850 transition"
 				{small}
 				item={file}
+				disableModal={true}
 				name={file?.name ?? file?.meta?.name}
 				type="file"
 				size={file?.size ?? file?.meta?.size ?? ''}

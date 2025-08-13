@@ -436,6 +436,51 @@ async def update_file_data_content_by_id(
 
 
 ############################
+# Update File PII State By Id
+############################
+
+
+class PiiStateForm(BaseModel):
+    pii_state: dict
+
+
+@router.post("/{id}/data/pii/state/update")
+async def update_file_pii_state_by_id(
+    id: str, form_data: PiiStateForm, user=Depends(get_verified_user)
+):
+    file = Files.get_file_by_id(id)
+
+    if not file:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ERROR_MESSAGES.NOT_FOUND,
+        )
+
+    if (
+        file.user_id == user.id
+        or user.role == "admin"
+        or has_access_to_file(id, "write", user)
+    ):
+        try:
+            # Store under camelCase key to match frontend expectations
+            updated = Files.update_file_data_by_id(
+                id, {"piiState": form_data.pii_state}
+            )
+            return updated
+        except Exception as e:
+            log.exception(e)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=ERROR_MESSAGES.DEFAULT("Error updating file PII state"),
+            )
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ERROR_MESSAGES.NOT_FOUND,
+        )
+
+
+############################
 # Get File Content By Id
 ############################
 

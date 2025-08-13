@@ -26,6 +26,7 @@ interface PiiDetectionState {
 	isDetecting: boolean;
 	lastText: string;
 	needsSync: boolean;
+  userEdited?: boolean;
 }
 
 export interface PiiDetectionOptions {
@@ -37,6 +38,7 @@ export interface PiiDetectionOptions {
 	onPiiToggled?: (entities: ExtendedPiiEntity[]) => void;
 	onPiiDetectionStateChanged?: (isDetecting: boolean) => void;
 	debounceMs?: number;
+  detectOnlyAfterUserEdit?: boolean; // If true, do not auto-detect on initial load; wait for user edits
 }
 
 // Removed unused interfaces - let TypeScript infer TipTap command types
@@ -389,7 +391,8 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 			onPiiDetected: undefined,
 			onPiiToggled: undefined,
 			onPiiDetectionStateChanged: undefined,
-			debounceMs: 500
+      debounceMs: 500,
+      detectOnlyAfterUserEdit: false
 		};
 	},
 
@@ -539,7 +542,10 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 
 					const meta = tr.getMeta(piiDetectionPluginKey);
 					if (meta) {
-						switch (meta.type) {
+                        switch (meta.type) {
+                            case 'SET_USER_EDITED':
+                                newState.userEdited = true;
+                                break;
 							case 'SET_DETECTING':
 								newState.isDetecting = meta.isDetecting;
 								// Call the callback to notify parent component
@@ -552,19 +558,37 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 								newState.entities = meta.entities || [];
 								break;
 
-							case 'SYNC_WITH_SESSION_MANAGER': {
-								// Sync plugin state with session manager
-								if (newState.positionMapping) {
-									newState.entities = syncWithSessionManager(
-										options.conversationId,
-										piiSessionManager,
-										newState.entities,
-										newState.positionMapping,
-										tr.doc
-									);
-								}
-								break;
-							}
+                            case 'SYNC_WITH_SESSION_MANAGER': {
+                                // Sync plugin state with session manager, and populate from session if empty
+                                if (newState.positionMapping) {
+                                    const sessionEntities = piiSessionManager.getEntitiesForDisplay(
+                                        options.conversationId
+                                    );
+
+                                    if (!newState.entities.length && sessionEntities.length) {
+                                        // Populate entities from session and remap to current doc positions
+                                        const remapped = remapEntitiesForCurrentDocument(
+                                            sessionEntities,
+                                            newState.positionMapping,
+                                            tr.doc
+                                        );
+                                        newState.entities = validateAndFilterEntities(
+                                            remapped,
+                                            tr.doc,
+                                            newState.positionMapping
+                                        );
+                                    } else {
+                                        newState.entities = syncWithSessionManager(
+                                            options.conversationId,
+                                            piiSessionManager,
+                                            newState.entities,
+                                            newState.positionMapping,
+                                            tr.doc
+                                        );
+                                    }
+                                }
+                                break;
+                            }
 
 							case 'TOGGLE_ENTITY_MASKING': {
 								const { entityIndex, occurrenceIndex } = meta;
@@ -604,26 +628,39 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 								break;
 							}
 
-							case 'RELOAD_CONVERSATION_STATE': {
-								options.conversationId = meta.conversationId;
+                            case 'RELOAD_CONVERSATION_STATE': {
+                                options.conversationId = meta.conversationId;
 
-								const newMapping = buildPositionMapping(tr.doc);
-								newState.positionMapping = newMapping;
+                                const newMapping = buildPositionMapping(tr.doc);
+                                newState.positionMapping = newMapping;
 
-								if (newMapping.plainText.trim()) {
-									performPiiDetection(newMapping.plainText);
-								}
-								break;
-							}
+                                // Populate entities from session immediately without triggering detection
+                                const sessionEntities = piiSessionManager.getEntitiesForDisplay(
+                                    options.conversationId
+                                );
+                                if (sessionEntities.length) {
+                                    const remapped = remapEntitiesForCurrentDocument(
+                                        sessionEntities,
+                                        newMapping,
+                                        tr.doc
+                                    );
+                                    newState.entities = validateAndFilterEntities(
+                                        remapped,
+                                        tr.doc,
+                                        newMapping
+                                    );
+                                }
+                                break;
+                            }
 						}
 					}
 
-					if (tr.docChanged) {
+                    if (tr.docChanged) {
 						const newMapping = buildPositionMapping(tr.doc);
 						newState.positionMapping = newMapping;
 
 						// Remap existing entities to current document positions immediately
-						if (newState.entities.length > 0) {
+                        if (newState.entities.length > 0) {
 							// First, try to remap entities to current positions
 							const remappedEntities = remapEntitiesForCurrentDocument(
 								newState.entities,
@@ -639,6 +676,23 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 								newMapping,
 								tr.doc
 							);
+                        } else {
+                            // If we have no entities yet, populate from session if available
+                            const sessionEntities = piiSessionManager.getEntitiesForDisplay(
+                                options.conversationId
+                            );
+                            if (sessionEntities.length) {
+                                const remapped = remapEntitiesForCurrentDocument(
+                                    sessionEntities,
+                                    newMapping,
+                                    tr.doc
+                                );
+                                newState.entities = validateAndFilterEntities(
+                                    remapped,
+                                    tr.doc,
+                                    newMapping
+                                );
+                            }
 						}
 
 						// CRITICAL FIX: If we need to sync after toggle, do it now BEFORE detection
@@ -655,7 +709,11 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 						}
 
 						// Trigger detection if text changed significantly
-						if (!newState.isDetecting && newMapping.plainText !== newState.lastText) {
+                        if (
+                          !newState.isDetecting &&
+                          newMapping.plainText !== newState.lastText &&
+                          (!options.detectOnlyAfterUserEdit || newState.userEdited)
+                        ) {
 							newState.lastText = newMapping.plainText;
 
 							if (newMapping.plainText.trim()) {
@@ -782,6 +840,16 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 			};
 
 		return {
+      // Mark that the user edited the document (used to gate auto-detection on load)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      markUserEdited:
+        () =>
+        ({ state, dispatch }: any) => {
+          if (!dispatch) return false;
+          const tr = state.tr.setMeta(piiDetectionPluginKey, { type: 'SET_USER_EDITED' });
+          dispatch(tr);
+          return true;
+        },
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			triggerDetection:
 				() =>

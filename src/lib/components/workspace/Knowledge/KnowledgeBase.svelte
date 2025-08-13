@@ -22,7 +22,8 @@
 		updateFileDataContentById,
 		uploadFile,
 		deleteFileById,
-		getFileById
+		getFileById,
+		updateFilePiiStateById
 	} from '$lib/apis/files';
 	import {
 		addFileToKnowledgeById,
@@ -50,6 +51,28 @@
 	import LockClosed from '$lib/components/icons/LockClosed.svelte';
 	import AccessControlModal from '../common/AccessControlModal.svelte';
 	import Search from '$lib/components/icons/Search.svelte';
+	// PII session manager to seed backend-detected entities for highlighting
+	import { PiiSessionManager, type ExtendedPiiEntity } from '$lib/utils/pii';
+
+	// Reference to the embedded editor to trigger sync-after-seed
+	let kbEditor = null;
+
+	// Debounced PII state saver
+	let savePiiTimeout: any = null;
+	const savePiiStateDebounced = (fileId: string) => {
+		if (savePiiTimeout) clearTimeout(savePiiTimeout);
+		savePiiTimeout = setTimeout(async () => {
+			try {
+				const convoId = `${id || 'kb'}:${fileId}`;
+				const state = PiiSessionManager.getInstance().getConversationState(convoId);
+				if (state) {
+					await updateFilePiiStateById(localStorage.token, fileId, state);
+				}
+			} catch (e) {
+				// silent
+			}
+		}, 400);
+	};
 
 	let largeScreen = true;
 
@@ -490,6 +513,56 @@
 			const response = await getFileById(localStorage.token, file.id);
 			if (response) {
 				selectedFileContent = response.data.content;
+				// Load saved PII state if present
+				try {
+					const convoId = `${id || 'kb'}:${file.id}`;
+					if (response?.data?.piiState) {
+						PiiSessionManager.getInstance().loadConversationState(convoId, response.data.piiState);
+					}
+				} catch (e) {}
+				// Seed PII entities from backend analysis into the session manager so RichTextInput highlights immediately
+				try {
+					const piiMap = response?.data?.pii || {};
+					const entities: ExtendedPiiEntity[] = Object.values(piiMap)
+						.filter(Boolean)
+						.map((e: any) => ({
+							id: e.id,
+							label: e.label,
+							type: e.type || e.entity_type || 'PII',
+							raw_text: e.raw_text || e.text || e.name || '',
+							occurrences: (e.occurrences || []).map((o: any) => ({
+								start_idx: o.start_idx,
+								end_idx: o.end_idx
+							})),
+							shouldMask: true
+						}));
+
+					const convoId = `${id || 'kb'}:${file.id}`;
+					PiiSessionManager.getInstance().setConversationEntitiesFromLatestDetection(
+						convoId,
+						entities
+					);
+
+					// Give the editor a moment to mount with new content, then sync highlights from the session manager
+					await tick();
+					setTimeout(() => {
+						try {
+							if (kbEditor?.commands) {
+								if (typeof kbEditor.commands.reloadConversationState === 'function') {
+									kbEditor.commands.reloadConversationState(convoId);
+								}
+								if (typeof kbEditor.commands.syncWithSessionManager === 'function') {
+									kbEditor.commands.syncWithSessionManager();
+								}
+								if (typeof kbEditor.commands.forceEntityRemapping === 'function') {
+									kbEditor.commands.forceEntityRemapping();
+								}
+							}
+						} catch (e) {}
+					}, 50);
+				} catch (e) {
+					// Ignore seeding errors; editor can still run detection if enabled
+				}
 				// Cache the content
 				fileContentCache.set(file.id, response.data.content);
 			} else {
@@ -777,10 +850,33 @@
 							>
 								{#key selectedFile.id}
 									<RichTextInput
+									bind:editor={kbEditor}
 										className="input-prose-sm"
 										bind:value={selectedFileContent}
 										placeholder={$i18n.t('Add content here')}
-										preserveBreaks={false}
+									preserveBreaks={false}
+									enablePiiDetection={$config?.features?.enable_pii_detection ?? false}
+									piiApiKey={$config?.pii?.api_key ?? ''}
+									enablePiiModifiers={true}
+									piiMaskingEnabled={true}
+									piiModifierLabels={[
+										'PERSON',
+										'EMAIL',
+										'PHONE_NUMBER',
+										'ADDRESS',
+										'SSN',
+										'CREDIT_CARD',
+										'DATE_TIME',
+										'IP_ADDRESS',
+										'URL',
+										'IBAN',
+										'MEDICAL_LICENSE',
+										'US_PASSPORT',
+										'US_DRIVER_LICENSE'
+									]}
+									conversationId={`${id || 'kb'}:${selectedFile?.id || ''}`}
+									onPiiToggled={() => selectedFile?.id && savePiiStateDebounced(selectedFile.id)}
+									onPiiModifiersChanged={() => selectedFile?.id && savePiiStateDebounced(selectedFile.id)}
 									/>
 								{/key}
 							</div>
@@ -834,11 +930,34 @@
 								class=" flex-1 w-full h-full max-h-full py-2.5 px-3.5 rounded-lg text-sm bg-transparent overflow-y-auto scrollbar-hidden"
 							>
 								{#key selectedFile.id}
-									<RichTextInput
+										<RichTextInput
+										bind:editor={kbEditor}
 										className="input-prose-sm"
 										bind:value={selectedFileContent}
 										placeholder={$i18n.t('Add content here')}
 										preserveBreaks={false}
+											enablePiiDetection={$config?.features?.enable_pii_detection ?? false}
+											piiApiKey={$config?.pii?.api_key ?? ''}
+											enablePiiModifiers={true}
+											piiMaskingEnabled={true}
+											piiModifierLabels={[
+												'PERSON',
+												'EMAIL',
+												'PHONE_NUMBER',
+												'ADDRESS',
+												'SSN',
+												'CREDIT_CARD',
+												'DATE_TIME',
+												'IP_ADDRESS',
+												'URL',
+												'IBAN',
+												'MEDICAL_LICENSE',
+												'US_PASSPORT',
+												'US_DRIVER_LICENSE'
+											]}
+											conversationId={`${id || 'kb'}:${selectedFile?.id || ''}`}
+												onPiiToggled={() => selectedFile?.id && savePiiStateDebounced(selectedFile.id)}
+												onPiiModifiersChanged={() => selectedFile?.id && savePiiStateDebounced(selectedFile.id)}
 									/>
 								{/key}
 							</div>
