@@ -109,6 +109,11 @@ export let conversationId: string | undefined = undefined; // chat conversation 
 
   // All entity interactions handled by TipTap extensions; remove custom menu
 
+  // Compute external URL for non-previewable types
+  $: externalUrl = item?.url
+    ? (item.type === 'file' ? `${item.url}/content` : `${item.url}`)
+    : '';
+
 	// Build extended entities from backend detections (shape from retrieval.py)
 	$: extendedEntities = (() => {
 		const detections: any = item?.file?.data?.pii || null;
@@ -195,18 +200,17 @@ export let conversationId: string | undefined = undefined; // chat conversation 
 			<div class="flex items-start justify-between">
 				<div>
 					<div class=" font-medium text-lg dark:text-gray-100">
-						<a
-							href="#"
+                        <a
+                            href={externalUrl || undefined}
+                            rel="noopener noreferrer"
+                            target="_blank"
 							class="hover:underline line-clamp-1"
-							on:click|preventDefault={() => {
-								// Keep external open behavior; preview inside modal uses extracted text
-								if (!(isPdf || isDocx) && item.url) {
-									window.open(
-										item.type === 'file' ? `${item.url}/content` : `${item.url}`,
-										'_blank'
-									);
-								}
-							}}
+                            on:click|preventDefault={() => {
+                                // Keep external open behavior only for non-previewable types
+                                if (!(isPdf || isDocx) && externalUrl) {
+                                    window.open(externalUrl, '_blank');
+                                }
+                            }}
 						>
 							{item?.name ?? 'File'}
 						</a>
@@ -342,7 +346,8 @@ export let conversationId: string | undefined = undefined; // chat conversation 
                                                 bind:editor={editors[idx]}
                                                 className="input-prose-sm"
                                                 value={pageText}
-                                                preserveBreaks={true}
+                                                preserveBreaks={false}
+                                                raw={false}
                                                 editable={true}
                                                 preventDocEdits={true}
                                                 showFormattingToolbar={false}

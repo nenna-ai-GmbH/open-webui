@@ -19,6 +19,29 @@ interface PositionMapping {
 	proseMirrorToPlainText: Map<number, number>;
 	plainText: string;
 }
+// Decode common HTML entities to plain characters for matching
+function decodeHtmlEntities(text: string): string {
+  if (!text) return text;
+  // Fast path for numeric entities and a few named ones we often see
+  const named: Record<string, string> = {
+    '&amp;': '&',
+    '&lt;': '<',
+    '&gt;': '>',
+    '&quot;': '"',
+    '&#39;': "'"
+  };
+  let result = text.replace(/&(amp|lt|gt|quot|#39);/g, (m) => named[m] || m);
+  // Generic numeric (decimal or hex)
+  result = result.replace(/&#(x?[0-9a-fA-F]+);/g, (_m, code) => {
+    try {
+      const num = code[0] === 'x' || code[0] === 'X' ? parseInt(code.slice(1), 16) : parseInt(code, 10);
+      if (!isNaN(num)) return String.fromCharCode(num);
+    } catch {}
+    return _m;
+  });
+  return result;
+}
+
 
 interface PiiDetectionState {
 	entities: ExtendedPiiEntity[];
@@ -91,7 +114,7 @@ function mapPiiEntitiesToProseMirror(
 	existingEntities: ExtendedPiiEntity[] = [],
 	defaultShouldMask: boolean = true
 ): ExtendedPiiEntity[] {
-	return entities.map((entity) => {
+  return entities.map((entity) => {
 		// Find existing entity with same label to preserve shouldMask state
 		const existingEntity = existingEntities.find((existing) => existing.label === entity.label);
 		const shouldMask = existingEntity?.shouldMask ?? defaultShouldMask; // Use defaultShouldMask if not found
@@ -165,17 +188,18 @@ function remapEntitiesForCurrentDocument(
 		return [];
 	}
 
-	const remappedEntities = entities.map((entity) => {
-		const entityText = entity.raw_text;
-		const searchText = entityText.toLowerCase();
-		const plainText = mapping.plainText.toLowerCase();
+  const remappedEntities = entities.map((entity) => {
+    // Decode HTML entities in raw_text so matching aligns with rendered text
+    const entityText = decodeHtmlEntities(entity.raw_text);
+    const searchText = entityText.toLowerCase();
+    const plainText = decodeHtmlEntities(mapping.plainText).toLowerCase();
 
 		// Find all occurrences of this entity in the current text
 		const newOccurrences = [];
 		let searchIndex = 0;
 
 		// Use word boundary matching for better accuracy
-		const entityWords = entityText.split(/\s+/);
+    const entityWords = entityText.split(/\s+/);
 		const isMultiWord = entityWords.length > 1;
 
 		while (searchIndex < plainText.length) {
@@ -197,8 +221,8 @@ function remapEntitiesForCurrentDocument(
 				}
 			}
 
-			const plainTextStart = foundIndex;
-			const plainTextEnd = foundIndex + entityText.length;
+      const plainTextStart = foundIndex;
+      const plainTextEnd = foundIndex + entityText.length;
 
 			// Convert to ProseMirror positions
 			const proseMirrorStart = mapping.plainTextToProseMirror.get(plainTextStart);
@@ -563,7 +587,15 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 								break;
 
 							case 'UPDATE_ENTITIES':
-								newState.entities = meta.entities || [];
+							// Recompute occurrences against current document to avoid shifted offsets
+							// (e.g., when original indices were based on markdown source rather than rendered doc)
+							if (meta.entities && meta.entities.length) {
+								const mapping = newState.positionMapping || buildPositionMapping(tr.doc);
+								const remapped = remapEntitiesForCurrentDocument(meta.entities, mapping, tr.doc);
+								newState.entities = validateAndFilterEntities(remapped, tr.doc, mapping);
+							} else {
+								newState.entities = [];
+							}
 								break;
 
                             case 'SYNC_WITH_SESSION_MANAGER': {
