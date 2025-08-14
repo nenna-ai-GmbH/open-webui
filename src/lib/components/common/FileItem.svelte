@@ -32,6 +32,7 @@
 
 	let showModal = false;
 export let disableModal = false;
+export let conversationId: string | undefined = undefined;
 
 	const decodeString = (str: string) => {
 		try {
@@ -43,7 +44,7 @@ export let disableModal = false;
 </script>
 
 {#if item && !disableModal}
-    <FileItemModal bind:show={showModal} bind:item {edit} />
+    <FileItemModal bind:show={showModal} bind:item {edit} {conversationId} />
 {/if}
 
 <button

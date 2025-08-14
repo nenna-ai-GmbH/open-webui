@@ -3,13 +3,14 @@
 	import { formatFileSize, getLineCount } from '$lib/utils';
 	import { WEBUI_API_BASE_URL } from '$lib/constants';
 	import { getKnowledgeById } from '$lib/apis/knowledge';
-	import { getFileById } from '$lib/apis/files';
-	import DOMPurify from 'dompurify';
-	import {
-		createPiiHighlightStyles,
-		highlightUnmaskedEntities,
-		type ExtendedPiiEntity
-	} from '$lib/utils/pii';
+import { getFileById } from '$lib/apis/files';
+  import {
+    createPiiHighlightStyles,
+    PiiSessionManager,
+    type ExtendedPiiEntity
+  } from '$lib/utils/pii';
+  import RichTextInput from '$lib/components/common/RichTextInput.svelte';
+  import { config } from '$lib/stores';
 
 	const i18n = getContext('i18n');
 
@@ -24,6 +25,7 @@
 	export let item: any;
 	export let show = false;
 	export let edit = false;
+export let conversationId: string | undefined = undefined; // chat conversation context to store known entities/modifiers
 
 	let enableFullContent = false;
 
@@ -31,6 +33,7 @@
 	let isDocx = false;
 	let isAudio = false;
 	let loading = false;
+  let contextMenuEl: HTMLElement | null = null; // legacy, will be removed
 
 	// Detect file types we render as extracted text (pdf, docx)
 	$: isPdf =
@@ -100,7 +103,11 @@
 			enableFullContent = true;
 		}
 		ensureHighlightStyles();
+
+    // No custom context menu needed; TipTap handles clicks/menus
 	});
+
+  // All entity interactions handled by TipTap extensions; remove custom menu
 
 	// Build extended entities from backend detections (shape from retrieval.py)
 	$: extendedEntities = (() => {
@@ -124,6 +131,25 @@
 		return entities;
 	})();
 
+  // When modal opens, seed PII session so RichTextInput-like behavior is possible in chat
+  $: if (show) {
+    try {
+      const manager = PiiSessionManager.getInstance();
+      if (Array.isArray(extendedEntities) && extendedEntities.length > 0) {
+        if (conversationId && conversationId.trim() !== '') {
+          // Persist entities for this conversation as known entities
+          manager.setConversationEntitiesFromLatestDetection(conversationId, extendedEntities);
+        } else {
+          // New chat without conversationId: seed temporary state so extensions can render
+          if (!manager.isTemporaryStateActive()) {
+            manager.activateTemporaryState();
+          }
+          manager.setTemporaryStateEntities(extendedEntities);
+        }
+      }
+    } catch (e) {}
+  }
+
 	// Determine pages to render; if page_content is missing, fall back to single content string
 	$: pageContents = (() => {
 		const pc = item?.file?.data?.page_content;
@@ -132,10 +158,35 @@
 		return content ? [content] : [];
 	})();
 
-	// Compute highlighted HTML per page
-	$: highlightedPages = pageContents.map((text: string) =>
-		highlightUnmaskedEntities(text, extendedEntities)
-	);
+  // No precomputed HTML highlights; TipTap handles decorations
+
+  // Keep per-page editor refs to sync PII entities from session
+  let editors: any[] = [];
+
+  function syncEditorsNow() {
+    editors.forEach((ed) => {
+      try {
+        if (!ed || !ed.commands) return;
+        if (typeof ed.commands.reloadConversationState === 'function') {
+          ed.commands.reloadConversationState(conversationId);
+        }
+        if (typeof ed.commands.syncWithSessionManager === 'function') {
+          ed.commands.syncWithSessionManager();
+        }
+        if (typeof ed.commands.forceEntityRemapping === 'function') {
+          ed.commands.forceEntityRemapping();
+        }
+      } catch (e) {}
+    });
+  }
+
+  // After showing modal, extended entities seeded (conv or temp), and editors mounted → sync twice
+  $: if (show && Array.isArray(editors) && editors.length > 0 && extendedEntities.length > 0) {
+    setTimeout(() => {
+      syncEditorsNow();
+      setTimeout(() => syncEditorsNow(), 150);
+    }, 50);
+  }
 </script>
 
 <Modal bind:show size="lg">
@@ -271,37 +322,62 @@
 						/>
 					{/if}
 
-					{#if isPdf || isDocx}
-						<!-- Render extracted text with page breaks and PII highlights -->
-						{#if pageContents.length > 0}
-							<div class="space-y-6 mt-3">
-								{#each highlightedPages as html, idx}
-									<div
-										class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-850"
-									>
-										<div
-											class="px-3 py-2 text-xs text-gray-500 dark:text-gray-400 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between"
-										>
-											<div>Page {idx + 1}</div>
-											{#if item?.status === 'processing'}
-												<div class="flex items-center gap-1">
-													<Spinner className="size-3" />
-													<span>Extracting...</span>
-												</div>
-											{/if}
-										</div>
-										<div class="p-3 text-xs leading-relaxed whitespace-pre-wrap break-words">
-											{@html DOMPurify.sanitize(html)}
-										</div>
-									</div>
-								{/each}
-							</div>
-						{:else}
-							<div class="flex items-center justify-center py-6 text-sm text-gray-500">
-								No extracted text available yet.
-							</div>
-						{/if}
-					{:else if item?.file?.data}
+                    {#if isPdf || isDocx}
+                        <!-- Render extracted text with TipTap editors per page (PII + Modifiers like RichTextInput) -->
+                        {#if pageContents.length > 0}
+                            <div class="space-y-6 mt-3">
+                                {#each pageContents as pageText, idx}
+                                    <div class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-850">
+                                        <div class="px-3 py-2 text-xs text-gray-500 dark:text-gray-400 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
+                                            <div>Page {idx + 1}</div>
+                                            {#if item?.status === 'processing'}
+                                                <div class="flex items-center gap-1">
+                                                    <Spinner className="size-3" />
+                                                    <span>Extracting...</span>
+                                                </div>
+                                            {/if}
+                                        </div>
+                                        <div class="p-3">
+                                            <RichTextInput
+                                                bind:editor={editors[idx]}
+                                                className="input-prose-sm"
+                                                value={pageText}
+                                                preserveBreaks={true}
+                                                editable={true}
+                                                preventDocEdits={true}
+                                                showFormattingToolbar={false}
+                                                enablePiiDetection={true}
+                                                piiApiKey={$config?.pii?.api_key ?? 'preview-only'}
+                                                conversationId={conversationId}
+                                                piiMaskingEnabled={true}
+                                                enablePiiModifiers={true}
+                                                piiModifierLabels={[
+                                                    'PERSON',
+                                                    'EMAIL',
+                                                    'PHONE_NUMBER',
+                                                    'ADDRESS',
+                                                    'SSN',
+                                                    'CREDIT_CARD',
+                                                    'DATE_TIME',
+                                                    'IP_ADDRESS',
+                                                    'URL',
+                                                    'IBAN',
+                                                    'MEDICAL_LICENSE',
+                                                    'US_PASSPORT',
+                                                    'US_DRIVER_LICENSE'
+                                                ]}
+                                                messageInput={false}
+                                            />
+                                        </div>
+                                    </div>
+                                {/each}
+                            </div>
+                        {:else}
+                            <div class="flex items-center justify-center py-6 text-sm text-gray-500">
+                                No extracted text available yet.
+                            </div>
+                        {/if}
+                    {:else if item?.file?.data}
 						<div class="max-h-96 overflow-scroll scrollbar-hidden text-xs whitespace-pre-wrap">
 							{item?.file?.data?.content ?? 'No content'}
 						</div>

@@ -404,6 +404,13 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 			return [];
 		}
 
+		console.log('PiiDetectionExtension: initialized', {
+			conversationId: options.conversationId,
+			enabled,
+			hasApiKey: !!apiKey,
+			debounceMs: debounceMs || 500
+		});
+
 		const piiSessionManager = PiiSessionManager.getInstance();
 		piiSessionManager.setApiKey(apiKey);
 
@@ -542,7 +549,8 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 
 					const meta = tr.getMeta(piiDetectionPluginKey);
 					if (meta) {
-                        switch (meta.type) {
+							console.log('PiiDetectionExtension: meta action', meta.type);
+							 switch (meta.type) {
                             case 'SET_USER_EDITED':
                                 newState.userEdited = true;
                                 break;
@@ -631,8 +639,9 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
                             case 'RELOAD_CONVERSATION_STATE': {
                                 options.conversationId = meta.conversationId;
 
-                                const newMapping = buildPositionMapping(tr.doc);
+							const newMapping = buildPositionMapping(tr.doc);
                                 newState.positionMapping = newMapping;
+							console.log('PiiDetectionExtension: docChanged plainText length', newMapping.plainText.length);
 
                                 // Populate entities from session immediately without triggering detection
                                 const sessionEntities = piiSessionManager.getEntitiesForDisplay(
@@ -708,7 +717,7 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 							newState.needsSync = false;
 						}
 
-						// Trigger detection if text changed significantly
+                    // Trigger detection if text changed significantly
                         if (
                           !newState.isDetecting &&
                           newMapping.plainText !== newState.lastText &&
@@ -725,7 +734,7 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 						}
 					}
 
-					return newState;
+                    return newState;
 				}
 			},
 
@@ -737,9 +746,22 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 					const piiSessionManager = PiiSessionManager.getInstance();
 					const modifiers = piiSessionManager.getModifiersForDisplay(options.conversationId);
 
-					if (!pluginState?.entities.length && !modifiers.length) {
-						return DecorationSet.empty;
-					}
+                    // If no entities yet, pull from session to allow immediate rendering
+                    if (!pluginState?.entities.length) {
+                        const sessionEntities = piiSessionManager.getEntitiesForDisplay(options.conversationId);
+                        if (sessionEntities.length) {
+                            const mapping = buildPositionMapping(state.doc);
+                            const remapped = remapEntitiesForCurrentDocument(sessionEntities, mapping, state.doc);
+                            const validated = validateAndFilterEntities(remapped, state.doc, mapping);
+
+                            // Create decorations for these remapped entities + modifiers
+                            const decorations = createPiiDecorations(validated, modifiers, state.doc);
+                            return DecorationSet.create(state.doc, decorations);
+                        }
+                    }
+                    if (!pluginState?.entities.length && !modifiers.length) {
+                        return DecorationSet.empty;
+                    }
 
 					const decorations = createPiiDecorations(
 						pluginState?.entities || [],

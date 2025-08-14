@@ -1239,7 +1239,7 @@
 													</div>
 												</div>
 											{:else}
-												<FileItem
+                                                <FileItem
 													item={file}
 													name={file.name}
 													type={file.type}
@@ -1248,6 +1248,7 @@
 													dismissible={true}
 													edit={true}
 													modal={['file', 'collection'].includes(file?.type)}
+                                                    conversationId={chatId}
 													on:dismiss={async () => {
 														// Remove from UI state
 														files.splice(fileIdx, 1);

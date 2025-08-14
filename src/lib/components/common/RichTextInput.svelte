@@ -246,6 +246,9 @@
 	export let insertPromptAsRichText = false;
 	export let floatingMenuPlacement = 'bottom-start';
 
+	// Prevent document edits while still allowing selection and extension interactions
+	export let preventDocEdits = false;
+
 	let content = null;
 	let htmlValue = '';
 	let jsonValue = '';
@@ -1280,7 +1283,15 @@
 			},
 			editorProps: {
 				attributes: { id },
-				handleDOMEvents: {
+					handleDOMEvents: {
+					beforeinput: (view, event) => {
+						if (preventDocEdits) {
+							// Block any content mutation
+							event.preventDefault();
+							return true;
+						}
+						return false;
+					},
 					compositionstart: (view, event) => {
 						oncompositionstart(event);
 						return false;
@@ -1316,6 +1327,15 @@
 						return false;
 					},
 					keydown: (view, event) => {
+						if (preventDocEdits) {
+							// Allow navigation keys; block editing keys
+							const k = event.key.toLowerCase();
+							const isEditKey = ['enter', 'backspace', 'delete'].includes(k);
+							if (isEditKey || (!event.ctrlKey && !event.metaKey && k.length === 1)) {
+								event.preventDefault();
+								return true;
+							}
+						}
 						ensureConversationActivated(); // Ensure conversation is activated on first keystroke
 
 						// Handle CTRL+SHIFT+L to toggle PII masking (mask all <-> unmask all)
@@ -1440,6 +1460,10 @@
 						return false;
 					},
 					paste: (view, event) => {
+						if (preventDocEdits) {
+							event.preventDefault();
+							return true;
+						}
 						if (event.clipboardData) {
 							const plainText = event.clipboardData.getData('text/plain');
 							if (plainText) {
@@ -1508,10 +1532,17 @@
 								return true;
 							}
 						}
-						// For all other cases, let ProseMirror perform its default paste behavior.
-						view.dispatch(view.state.tr.scrollIntoView());
-						return false;
-					}
+							// For all other cases, let ProseMirror perform its default paste behavior.
+							view.dispatch(view.state.tr.scrollIntoView());
+							return false;
+						},
+						drop: (view, event) => {
+							if (preventDocEdits) {
+								event.preventDefault();
+								return true;
+							}
+							return false;
+						}
 				}
 			},
 			onBeforeCreate: ({ editor }) => {
@@ -1524,6 +1555,37 @@
 
 		if (messageInput) {
 			selectTemplate();
+		}
+
+		// Force initial sync of PII entities from session for non-message editors
+		// so existing backend-detected highlights show immediately without re-scanning
+		if (enablePiiDetection && conversationId && editor && !messageInput) {
+			setTimeout(() => {
+				try {
+					if (typeof editor.commands.reloadConversationState === 'function') {
+						editor.commands.reloadConversationState(conversationId);
+					}
+					if (typeof editor.commands.syncWithSessionManager === 'function') {
+						editor.commands.syncWithSessionManager();
+					}
+					if (typeof editor.commands.forceEntityRemapping === 'function') {
+						editor.commands.forceEntityRemapping();
+					}
+				} catch (e) {
+					// no-op
+				}
+			}, 0);
+			// Do a second pass shortly after to catch late-mount decorations
+			setTimeout(() => {
+				try {
+					if (typeof editor.commands.syncWithSessionManager === 'function') {
+						editor.commands.syncWithSessionManager();
+					}
+					if (typeof editor.commands.forceEntityRemapping === 'function') {
+						editor.commands.forceEntityRemapping();
+					}
+				} catch (e) {}
+			}, 150);
 		}
 	});
 

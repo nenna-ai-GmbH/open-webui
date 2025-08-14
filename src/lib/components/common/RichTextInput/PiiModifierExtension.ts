@@ -1072,37 +1072,58 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 		let isInputFocused = false;
 		let globalMouseUpListener: ((event: MouseEvent) => void) | null = null;
 
-		// Shared function to handle text selection for both editor and global mouseup
-		const handleTextSelection = (event: MouseEvent, view: any) => {
+			// Shared function to handle text selection for both editor and global mouseup
+			const handleTextSelection = (event: MouseEvent, view: any) => {
 			// Clear any existing selection timeout
 			if (selectionTimeout) {
 				clearTimeout(selectionTimeout);
 				selectionTimeout = null;
 			}
 
-			// Handle text selection for selection menu
-			const selection = view.state.selection;
+				// Handle text selection for selection menu
+				let pmFrom = view.state.selection.from;
+				let pmTo = view.state.selection.to;
+				let selectedText = '';
 
-			// Only show selection menu if there's actual text selected
-			if (selection.empty || selection.from === selection.to) {
-				// Close selection menu if no selection
-				if (selectionMenuElement) {
-					selectionMenuElement.remove();
-					selectionMenuElement = null;
+				// Fallback: if PM selection is empty but the browser selection has a range, map it
+				if (pmFrom === pmTo) {
+					try {
+						const sel = window.getSelection();
+						if (sel && sel.rangeCount > 0) {
+							const range = sel.getRangeAt(0);
+							const rect = range.getBoundingClientRect();
+							const startPos = view.posAtCoords({ left: rect.left, top: rect.top });
+							const endPos = view.posAtCoords({ left: rect.right, top: rect.bottom });
+							if (startPos && endPos && endPos.pos > startPos.pos) {
+								pmFrom = startPos.pos;
+								pmTo = endPos.pos;
+							}
+						}
+					} catch (_e) {
+						// ignore
+					}
 				}
-				return false;
-			}
 
-			// Get selected text
-			const selectedText = view.state.doc.textBetween(selection.from, selection.to);
+				// Only show selection menu if there's actual text selected
+				if (pmFrom === pmTo) {
+					// Close selection menu if no selection
+					if (selectionMenuElement) {
+						selectionMenuElement.remove();
+						selectionMenuElement = null;
+					}
+					return false;
+				}
+
+				// Get selected text
+				selectedText = view.state.doc.textBetween(pmFrom, pmTo);
 
 			// Don't show menu for very short selections or selections longer than 100 characters
 			if (selectedText.length < 2 || selectedText.length > 50) {
 				return false;
 			}
 
-			// Find tokenized words touched by the selection
-			const tokenizedWords = findTokenizedWords(view.state.doc, selection.from, selection.to);
+				// Find tokenized words touched by the selection
+				const tokenizedWords = findTokenizedWords(view.state.doc, pmFrom, pmTo);
 
 			// Don't show menu if no words found
 			if (tokenizedWords.length === 0) {
@@ -1167,12 +1188,12 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 				};
 
 				// Create selection menu (advanced if SHIFT, simplified otherwise)
-				selectionMenuElement = createSelectionMenu(
+					selectionMenuElement = createSelectionMenu(
 					{
-						selectedText,
-						tokenizedWords,
-						from: selection.from,
-						to: selection.to,
+							selectedText,
+							tokenizedWords,
+							from: pmFrom,
+							to: pmTo,
 						x: event.clientX,
 						y: event.clientY
 					},
@@ -1653,12 +1674,24 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 			view(editorView) {
 				// Set up global mouseup listener to catch selections that end outside the editor
 				globalMouseUpListener = (event: MouseEvent) => {
-					// Only handle if the selection is in our editor
-					if (editorView.hasFocus() || document.activeElement === editorView.dom) {
-						// Small delay to ensure selection state is updated
-						setTimeout(() => {
-							handleTextSelection(event, editorView);
-						}, 10);
+					// Don't require focus. Instead, check if the current selection belongs to this editor DOM
+					try {
+						const sel = window.getSelection();
+						if (sel && sel.rangeCount > 0) {
+							const range = sel.getRangeAt(0);
+							const container = range.commonAncestorContainer as Node;
+							const element = (container.nodeType === 1
+								? (container as HTMLElement)
+								: (container.parentElement as HTMLElement));
+							if (element && editorView.dom.contains(element)) {
+								// Small delay to ensure selection state is updated
+								setTimeout(() => {
+									handleTextSelection(event, editorView);
+								}, 10);
+							}
+						}
+					} catch (_e) {
+						// no-op
 					}
 				};
 
