@@ -1282,7 +1282,10 @@ def save_docs_to_vector_db(
         for pii_entity in doc.metadata.get("pii", []):
             updated_occurrences = []
             for occurrence in doc.metadata["pii"][pii_entity]["occurrences"]:
-                if occurrence["start_idx"] >= start_index and occurrence["end_idx"] <= end_index:
+                if (
+                    occurrence["start_idx"] >= start_index
+                    and occurrence["end_idx"] <= end_index
+                ):
                     occurrence["start_idx"] = occurrence["start_idx"] - start_index
                     occurrence["end_idx"] = occurrence["end_idx"] - start_index
                     updated_occurrences.append(occurrence)
@@ -1290,7 +1293,7 @@ def save_docs_to_vector_db(
                 doc.metadata["pii"][pii_entity]["occurrences"] = updated_occurrences
             else:
                 pii_to_remove.append(pii_entity)
-        
+
         for pii_entity in pii_to_remove:
             del doc.metadata["pii"][pii_entity]
 
