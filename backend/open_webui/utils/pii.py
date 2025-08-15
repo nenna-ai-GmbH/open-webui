@@ -4,9 +4,15 @@ from typing import Any, Dict, List, Optional, Tuple
 
 
 import logging
-import re
+import sys
 
-logger = logging.getLogger("uvicorn")
+from open_webui.env import (
+    SRC_LOG_LEVELS,
+    GLOBAL_LOG_LEVEL)
+
+logging.basicConfig(stream=sys.stdout, level=GLOBAL_LOG_LEVEL)
+log = logging.getLogger(__name__)
+log.setLevel(SRC_LOG_LEVELS["MAIN"])
 
 
 def _check_overlap(range1: tuple[int, int], range2: tuple[int, int]) -> bool:
@@ -158,14 +164,14 @@ def text_masking(
     replacements = []
     for pii in pii_list:
         # Handle both dictionary and PiiEntity object formats
-        if hasattr(pii, "label"):
+        if hasattr(pii, "type"):
             # PiiEntity object
-            label = pii.label
+            label = pii.type + "_" + str(pii.id)
             text_value = pii.text
             occurrences = pii.occurrences
         else:
             # Dictionary
-            label = pii["label"]
+            label = pii["type"] + "_" + str(pii["id"])
             text_value = pii.get("text", pii.get("name", ""))
             occurrences = pii["occurrences"]
 
@@ -199,7 +205,7 @@ def text_masking(
 
     # Apply all replacements
     for replacement in resolved_replacements:
-        logger.debug("Replacing: %s, in text: %s", replacement, text)
+        log.debug("Replacing: %s, in text: %s", replacement, text)
 
         start_idx = replacement["start_idx"]
         end_idx = replacement["end_idx"]
@@ -207,3 +213,14 @@ def text_masking(
         text = text[:start_idx] + replacement_text + text[end_idx:]
 
     return text
+
+
+def consolidate_pii_data(known_entities: list[dict], pii_data: list[dict]) -> dict:
+    """
+    Consolidate PII data by merging overlapping ranges.
+    """
+    for pii in known_entities:
+        for file_pii in pii_data:
+            if pii['name'].lower() == file_pii['text']:
+                file_pii['id'] = pii['id']
+    return pii_data
