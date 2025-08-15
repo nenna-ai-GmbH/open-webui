@@ -1313,6 +1313,7 @@ async def generate_chat_completion(
 
     if isinstance(form_data, BaseModel):
         payload = {**form_data.model_dump(exclude_none=True)}
+        payload.pop("known_entities", None)
 
     if "metadata" in payload:
         del payload["metadata"]

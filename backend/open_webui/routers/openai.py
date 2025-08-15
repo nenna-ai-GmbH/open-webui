@@ -733,6 +733,7 @@ async def generate_chat_completion(
     idx = 0
 
     payload = {**form_data}
+    payload.pop("known_entities", None)
     metadata = payload.pop("metadata", None)
 
     model_id = form_data.get("model")
@@ -874,7 +875,7 @@ async def generate_chat_completion(
         session = aiohttp.ClientSession(
             trust_env=True, timeout=aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT)
         )
-
+        log.info(f"openai:payload: {payload}")
         r = await session.request(
             method="POST",
             url=request_url,
