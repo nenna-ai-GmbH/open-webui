@@ -979,7 +979,9 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                         citation_idx_map[source_id] = len(citation_idx_map) + 1
 
                     # Debug logging for PII processing
-                    log.debug(f"Processing PII for document: {document_metadata.get('source', 'unknown')}")
+                    log.debug(
+                        f"Processing PII for document: {document_metadata.get('source', 'unknown')}"
+                    )
 
                     # Parse PII data from metadata - it's stored as a JSON string
                     pii_data = []
