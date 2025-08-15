@@ -90,6 +90,7 @@
 	import { fade } from 'svelte/transition';
 	import Tooltip from '../common/Tooltip.svelte';
 	import Sidebar from '../icons/Sidebar.svelte';
+	import { PiiSessionManager } from '$lib/utils/pii';
 
 	export let chatIdProp = '';
 
@@ -1742,6 +1743,7 @@
 		const res = await generateOpenAIChatCompletion(
 			localStorage.token,
 			{
+				known_entities: PiiSessionManager.getInstance().getKnownEntitiesForApi($chatId),
 				stream: stream,
 				model: model.id,
 				messages: messages,
