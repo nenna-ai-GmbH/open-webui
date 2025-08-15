@@ -6,9 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import logging
 import sys
 
-from open_webui.env import (
-    SRC_LOG_LEVELS,
-    GLOBAL_LOG_LEVEL)
+from open_webui.env import SRC_LOG_LEVELS, GLOBAL_LOG_LEVEL
 
 logging.basicConfig(stream=sys.stdout, level=GLOBAL_LOG_LEVEL)
 log = logging.getLogger(__name__)
@@ -221,6 +219,6 @@ def consolidate_pii_data(known_entities: list[dict], pii_data: list[dict]) -> di
     """
     for pii in known_entities:
         for file_pii in pii_data:
-            if pii['name'].lower() == file_pii['text']:
-                file_pii['id'] = pii['id']
+            if pii["name"].lower() == file_pii["text"]:
+                file_pii["id"] = pii["id"]
     return pii_data
