@@ -84,6 +84,7 @@ from open_webui.utils.filter import (
 )
 from open_webui.utils.code_interpreter import execute_code_jupyter
 from open_webui.utils.payload import apply_model_system_prompt_to_body
+from open_webui.utils.pii import text_masking
 
 from open_webui.tasks import create_task
 
@@ -977,10 +978,27 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                     if source_id not in citation_idx_map:
                         citation_idx_map[source_id] = len(citation_idx_map) + 1
 
+                    # Debug logging for PII processing
+                    log.debug(f"Processing PII for document: {document_metadata.get('source', 'unknown')}")
+
+                    # Parse PII data from metadata - it's stored as a JSON string
+                    pii_data = []
+                    if "pii" in document_metadata:
+                        try:
+                            pii_dict = json.loads(document_metadata["pii"])
+                            # Convert dict values to list for text_masking function
+                            pii_data = list(pii_dict.values())
+                        except (json.JSONDecodeError, TypeError) as e:
+                            log.warning(f"Failed to parse PII data: {e}")
+                            pii_data = []
+
+                    # Mask PII in the document text using metadata from the vector DB
+                    masked_text = text_masking(document_text, pii_data, [])
+
                     context_string += (
                         f'<source id="{citation_idx_map[source_id]}"'
                         + (f' name="{source_name}"' if source_name else "")
-                        + f">{document_text}</source>\n"
+                        + f">{masked_text}</source>\n"
                     )
 
         context_string = context_string.strip()
