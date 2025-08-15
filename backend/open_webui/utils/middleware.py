@@ -995,7 +995,7 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                             pii_data = []
 
                     consolidated_pii = consolidate_pii_data(
-                        form_data["known_entities"], pii_data
+                        metadata["known_entities"], pii_data
                     )
                     # Mask PII in the document text using metadata from the vector DB
                     masked_text = text_masking(document_text, consolidated_pii, [])
