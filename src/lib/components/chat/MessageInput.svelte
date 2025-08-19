@@ -662,10 +662,14 @@
 					};
 				}
 
+				// Decide processing mode based on file type
+				// - Audio/Video: let backend process immediately (e.g., transcription)
+				// - Documents (pdf/docx/txt/etc.): upload first, then trigger retrieval processing
+				const shouldProcessOnUpload = file.type.startsWith('audio/') || file.type.startsWith('video/');
+
 				// During the file upload, file content is automatically extracted.
-				// Upload without server-side processing; we'll trigger processing and poll progress
 				const uploadedFile = await uploadFile(localStorage.token, file, metadata, {
-					process: false
+					process: shouldProcessOnUpload
 				});
 
 				if (uploadedFile) {
@@ -688,12 +692,14 @@
 						uploadedFile?.meta?.collection_name || uploadedFile?.collection_name;
 					fileItem.url = `${WEBUI_API_BASE_URL}/files/${uploadedFile.id}`;
 
-					// Kick off processing (fire-and-forget)
-					try {
-						// Do not await to keep UI responsive
-						// eslint-disable-next-line @typescript-eslint/no-floating-promises
-						triggerProcessFile(localStorage.token, uploadedFile.id).catch(() => {});
-					} catch (e) {}
+					// Kick off retrieval processing only for non-audio/video documents
+					if (!shouldProcessOnUpload) {
+						try {
+							// Do not await to keep UI responsive
+							// eslint-disable-next-line @typescript-eslint/no-floating-promises
+							triggerProcessFile(localStorage.token, uploadedFile.id).catch(() => {});
+						} catch (e) {}
+					}
 
 					// Poll for processing progress via /files/{id}
 					const pollIntervalMs = 800;
