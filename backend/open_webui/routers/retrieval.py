@@ -432,6 +432,7 @@ async def get_rag_config(request: Request, user=Depends(get_admin_user)):
         "DOCLING_PICTURE_DESCRIPTION_MODE": request.app.state.config.DOCLING_PICTURE_DESCRIPTION_MODE,
         "DOCLING_PICTURE_DESCRIPTION_LOCAL": request.app.state.config.DOCLING_PICTURE_DESCRIPTION_LOCAL,
         "DOCLING_PICTURE_DESCRIPTION_API": request.app.state.config.DOCLING_PICTURE_DESCRIPTION_API,
+        "DOCLING_MD_PAGE_BREAK_PLACEHOLDER": request.app.state.config.DOCLING_MD_PAGE_BREAK_PLACEHOLDER,
         "DOCUMENT_INTELLIGENCE_ENDPOINT": request.app.state.config.DOCUMENT_INTELLIGENCE_ENDPOINT,
         "DOCUMENT_INTELLIGENCE_KEY": request.app.state.config.DOCUMENT_INTELLIGENCE_KEY,
         "MISTRAL_OCR_API_KEY": request.app.state.config.MISTRAL_OCR_API_KEY,
@@ -600,6 +601,7 @@ class ConfigForm(BaseModel):
     DOCLING_PICTURE_DESCRIPTION_MODE: Optional[str] = None
     DOCLING_PICTURE_DESCRIPTION_LOCAL: Optional[dict] = None
     DOCLING_PICTURE_DESCRIPTION_API: Optional[dict] = None
+    DOCLING_MD_PAGE_BREAK_PLACEHOLDER: Optional[str] = None
     DOCUMENT_INTELLIGENCE_ENDPOINT: Optional[str] = None
     DOCUMENT_INTELLIGENCE_KEY: Optional[str] = None
     MISTRAL_OCR_API_KEY: Optional[str] = None
@@ -799,6 +801,13 @@ async def update_rag_config(
         form_data.DOCLING_PICTURE_DESCRIPTION_API
         if form_data.DOCLING_PICTURE_DESCRIPTION_API is not None
         else request.app.state.config.DOCLING_PICTURE_DESCRIPTION_API
+    )
+
+    # Docling page-break placeholder string
+    request.app.state.config.DOCLING_MD_PAGE_BREAK_PLACEHOLDER = (
+        form_data.DOCLING_MD_PAGE_BREAK_PLACEHOLDER
+        if form_data.DOCLING_MD_PAGE_BREAK_PLACEHOLDER is not None
+        else request.app.state.config.DOCLING_MD_PAGE_BREAK_PLACEHOLDER
     )
 
     request.app.state.config.DOCUMENT_INTELLIGENCE_ENDPOINT = (
@@ -1431,9 +1440,18 @@ def process_file(
 
             # Pre-mark extracting so clients see progress immediately
             _set_processing(file.id, "processing", "extracting", 10)
-            # Simulate slow extraction before collecting full text
-            time.sleep(2)
+            # Persist content immediately so UI can display it without waiting
             text_content = form_data.content
+            try:
+                Files.update_file_data_by_id(
+                    file.id,
+                    {
+                        "content": text_content,
+                        "page_content": [text_content],
+                    },
+                )
+            except Exception:
+                pass
             # Content provided directly; extraction stage completed
             _set_processing(file.id, "processing", "extracting", 20)
         elif form_data.collection_name:
@@ -1496,6 +1514,7 @@ def process_file(
                     DOCLING_PARAMS={
                         "ocr_engine": request.app.state.config.DOCLING_OCR_ENGINE,
                         "ocr_lang": request.app.state.config.DOCLING_OCR_LANG,
+                        "md_page_break_placeholder": request.app.state.config.DOCLING_MD_PAGE_BREAK_PLACEHOLDER,
                         "do_picture_description": request.app.state.config.DOCLING_DO_PICTURE_DESCRIPTION,
                         "picture_description_mode": request.app.state.config.DOCLING_PICTURE_DESCRIPTION_MODE,
                         "picture_description_local": request.app.state.config.DOCLING_PICTURE_DESCRIPTION_LOCAL,
@@ -1509,6 +1528,33 @@ def process_file(
                 docs = loader.load(
                     file.filename, file.meta.get("content_type"), file_path
                 )
+
+                # If upstream loader (e.g., Docling) returned single md with explicit page breaks,
+                # split it into per-page docs so we can stream and index pages correctly.
+                try:
+                    placeholder = (
+                        request.app.state.config.DOCLING_MD_PAGE_BREAK_PLACEHOLDER
+                    )
+                    if (
+                        len(docs) == 1
+                        and isinstance(docs[0].page_content, str)
+                        and placeholder in docs[0].page_content
+                    ):
+                        parts = docs[0].page_content.split(placeholder)
+                        base_meta = {
+                            **docs[0].metadata,
+                            "name": file.filename,
+                            "created_by": file.user_id,
+                            "file_id": file.id,
+                            "source": file.filename,
+                        }
+                        docs = [
+                            Document(page_content=part.strip(), metadata=base_meta)
+                            for part in parts
+                            if part and part.strip() != ""
+                        ]
+                except Exception:
+                    pass
 
                 docs = [
                     Document(
@@ -1544,7 +1590,32 @@ def process_file(
             current_page_offset = 0
             detections = {}
 
-            for doc in docs:
+            total_pages = len(docs) if docs else 1
+
+            for page_index, doc in enumerate(docs):
+                # Save page content immediately so the UI can show it while PII runs
+                page_start_offset = current_page_offset
+                text_content.append(doc.page_content)
+                try:
+                    Files.update_file_data_by_id(
+                        file.id,
+                        {
+                            "content": " ".join(text_content),
+                            "page_content": text_content,
+                        },
+                    )
+                except Exception:
+                    pass
+                # Granular extracting progress from 10 to 20
+                try:
+                    extract_progress = 10 + int(
+                        10 * (page_index + 1) / max(total_pages, 1)
+                    )
+                    _set_processing(
+                        file.id, "processing", "extracting", extract_progress
+                    )
+                except Exception:
+                    pass
                 page_detections = {}
                 pii = None
                 if (
@@ -1583,10 +1654,11 @@ def process_file(
 
                                 for occurrence in pii_entity["occurrences"]:
                                     adjusted_occurrence = {
+                                        # Use the page's start offset to align to full-text positions
                                         "start_idx": occurrence["start_idx"]
-                                        + current_page_offset,
+                                        + page_start_offset,
                                         "end_idx": occurrence["end_idx"]
-                                        + current_page_offset,
+                                        + page_start_offset,
                                     }
                                     updated_occurences.append(adjusted_occurrence)
 
@@ -1611,19 +1683,27 @@ def process_file(
 
                     # attach PII to document metadata for downstream use
                     doc.metadata["pii"] = page_detections
+                # Persist latest PII results incrementally, without blocking content updates
+                try:
+                    Files.update_file_data_by_id(
+                        file.id,
+                        {
+                            "pii": detections,
+                        },
+                    )
+                except Exception:
+                    pass
+                # Granular PII progress from 20 to 30
+                try:
+                    pii_progress = 20 + int(10 * (page_index + 1) / max(total_pages, 1))
+                    _set_processing(
+                        file.id, "processing", "pii_detection", pii_progress
+                    )
+                except Exception:
+                    pass
 
-                text_content.append(doc.page_content)
-                current_page_offset += len(doc.page_content)
-
-                log.debug(f"text_content: {text_content}")
-                Files.update_file_data_by_id(
-                    file.id,
-                    {
-                        "content": " ".join(text_content),
-                        "pii": detections,
-                        "page_content": text_content,
-                    },
-                )
+                # Move the running offset forward for the next page
+                current_page_offset = page_start_offset + len(doc.page_content)
 
             # Extraction completed
             _set_processing(file.id, "processing", "extracting", 20)
@@ -2220,7 +2300,8 @@ def query_doc_handler(
                 collection_name=form_data.collection_name,
                 collection_result=collection_results[form_data.collection_name],
                 query=form_data.query,
-                embedding_function=lambda query, prefix: request.app.state.EMBEDDING_FUNCTION(
+                embedding_function=lambda query,
+                prefix: request.app.state.EMBEDDING_FUNCTION(
                     query, prefix=prefix, user=user
                 ),
                 k=form_data.k if form_data.k else request.app.state.config.TOP_K,
@@ -2285,7 +2366,8 @@ def query_collection_handler(
             return query_collection_with_hybrid_search(
                 collection_names=form_data.collection_names,
                 queries=[form_data.query],
-                embedding_function=lambda query, prefix: request.app.state.EMBEDDING_FUNCTION(
+                embedding_function=lambda query,
+                prefix: request.app.state.EMBEDDING_FUNCTION(
                     query, prefix=prefix, user=user
                 ),
                 k=form_data.k if form_data.k else request.app.state.config.TOP_K,
@@ -2315,7 +2397,8 @@ def query_collection_handler(
             return query_collection(
                 collection_names=form_data.collection_names,
                 queries=[form_data.query],
-                embedding_function=lambda query, prefix: request.app.state.EMBEDDING_FUNCTION(
+                embedding_function=lambda query,
+                prefix: request.app.state.EMBEDDING_FUNCTION(
                     query, prefix=prefix, user=user
                 ),
                 k=form_data.k if form_data.k else request.app.state.config.TOP_K,

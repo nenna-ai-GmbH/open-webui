@@ -41,6 +41,17 @@ export let conversationId: string | undefined = undefined;
 			return str;
 		}
 	};
+
+	// Stage label for processing
+	$: processingStage = item?.file?.meta?.processing?.stage || null;
+	$: stageText =
+		processingStage === 'extracting'
+			? 'Extracting text'
+			: processingStage === 'pii_detection'
+			? 'Masking PII'
+			: item?.status === 'uploading'
+			? 'Uploading'
+			: null;
 </script>
 
 {#if item && !disableModal}
@@ -77,15 +88,16 @@ export let conversationId: string | undefined = undefined;
 		dispatch('click');
 	}}
 >
-	{#if item?.status === 'processing'}
-		<div
-			class="absolute left-0 right-0 top-0 h-0.5 bg-gray-200 dark:bg-gray-800 overflow-hidden rounded-t-2xl"
-		>
-			<div
-				class="h-full bg-sky-500 transition-all duration-300"
-				style={`width: ${Math.min(100, Math.max(0, item?.progress ?? 0))}%`}
-			/>
-		</div>
+	{#if item?.status === 'processing' || item?.status === 'uploading'}
+		<!-- Stage-aware top progress bar -->
+		{#key item?.file?.meta?.processing?.updated_at || item?.progress}
+			<div class="absolute left-0 right-0 top-0 h-1.5 bg-gray-200 dark:bg-gray-800 overflow-hidden rounded-t-2xl">
+				<div
+					class="h-full bg-sky-500 transition-all duration-300"
+					style={`width: ${Math.min(100, Math.max(0, (item?.file?.meta?.processing?.progress ?? item?.progress ?? 0)))}%`}
+				/>
+			</div>
+		{/key}
 	{/if}
 	{#if !small}
 		<div class="p-3 bg-black/20 dark:bg-white/10 text-white rounded-xl">
@@ -132,9 +144,14 @@ export let conversationId: string | undefined = undefined;
 				{:else}
 					<span class=" capitalize line-clamp-1">{type}</span>
 				{/if}
-				{#if size}
-					<span class="capitalize">{formatFileSize(size)}</span>
-				{/if}
+				<div class="flex items-center gap-1">
+					{#if stageText}
+						<span class="text-[11px] text-sky-600 dark:text-sky-400">{stageText}</span>
+					{/if}
+					{#if size}
+						<span class="capitalize">{formatFileSize(size)}</span>
+					{/if}
+				</div>
 			</div>
 		</div>
 	{:else}

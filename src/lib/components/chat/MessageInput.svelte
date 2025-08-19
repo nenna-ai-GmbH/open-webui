@@ -635,7 +635,7 @@
 			name: file.name,
 			collection_name: '',
 			status: 'uploading',
-			progress: 0,
+			progress: 5,
 			size: file.size,
 			error: '',
 			itemId: tempItemId,

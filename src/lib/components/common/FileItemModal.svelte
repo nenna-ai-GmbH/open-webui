@@ -266,6 +266,24 @@ export let conversationId: string | undefined = undefined; // chat conversation 
 							</div>
 						{/if}
 
+						{#if item?.file?.meta?.processing?.status === 'processing'}
+							<div class="flex items-center gap-3 shrink-0">
+								<div class="h-1.5 bg-gray-200 dark:bg-gray-800 rounded w-44 overflow-hidden">
+									<div
+										class="h-full bg-sky-500 transition-all duration-300"
+										style={`width: ${Math.min(100, Math.max(0, item?.file?.meta?.processing?.progress ?? 0))}%`}
+									/>
+								</div>
+								{#if item?.file?.meta?.processing?.stage === 'extracting'}
+									<span>Extracting text…</span>
+								{:else if item?.file?.meta?.processing?.stage === 'pii_detection'}
+									<span>Masking PII…</span>
+								{:else}
+									<span>Processing…</span>
+								{/if}
+							</div>
+						{/if}
+
 						{#if item?.knowledge}
 							<div class="capitalize shrink-0">
 								{$i18n.t('Knowledge Base')}
@@ -334,10 +352,21 @@ export let conversationId: string | undefined = undefined; // chat conversation 
                                     <div class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-850">
                                         <div class="px-3 py-2 text-xs text-gray-500 dark:text-gray-400 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
                                             <div>Page {idx + 1}</div>
-                                            {#if item?.status === 'processing'}
-                                                <div class="flex items-center gap-1">
-                                                    <Spinner className="size-3" />
-                                                    <span>Extracting...</span>
+                                            {#if item?.file?.meta?.processing?.status === 'processing'}
+                                                <div class="flex items-center gap-2 w-48">
+                                                    <div class="h-1.5 bg-gray-200 dark:bg-gray-800 rounded w-full overflow-hidden">
+                                                        <div
+                                                            class="h-full bg-sky-500 transition-all duration-300"
+                                                            style={`width: ${Math.min(100, Math.max(0, item?.file?.meta?.processing?.progress ?? 0))}%`}
+                                                        />
+                                                    </div>
+                                                    {#if item?.file?.meta?.processing?.stage === 'extracting'}
+                                                        <span>Extracting</span>
+                                                    {:else if item?.file?.meta?.processing?.stage === 'pii_detection'}
+                                                        <span>Masking PII</span>
+                                                    {:else}
+                                                        <span>Processing</span>
+                                                    {/if}
                                                 </div>
                                             {/if}
                                         </div>
