@@ -1412,7 +1412,7 @@ def process_file(
             collection_name = f"file-{file.id}"
 
         # Initialize processing metadata so clients can poll
-        _set_processing(file.id, status="processing", stage="starting", progress=0)
+        _set_processing(file.id, status="processing", stage="starting", progress=5)
 
         if form_data.content:
             # Update the content in the file
@@ -1493,6 +1493,7 @@ def process_file(
             # Usage: /files/
             file_path = file.path
             if file_path:
+                _set_processing(file.id, "processing", "extracting", 10)
                 file_path = Storage.get_file(file_path)
                 loader = Loader(
                     engine=request.app.state.config.CONTENT_EXTRACTION_ENGINE,
@@ -1582,40 +1583,27 @@ def process_file(
                         },
                     )
                 ]
-            # Pre-mark extracting so clients see progress immediately
-            _set_processing(file.id, "processing", "extracting", 10)
 
-            text_content = []
+            text_content = [doc.page_content for doc in docs]
             known_entities = []
             current_page_offset = 0
             detections = {}
 
             total_pages = len(docs) if docs else 1
+            try:
+                Files.update_file_data_by_id(
+                    file.id,
+                    {
+                        "content": " ".join(text_content),
+                        "page_content": text_content,
+                    },
+                )
+            except Exception:
+                pass
 
             for page_index, doc in enumerate(docs):
-                # Save page content immediately so the UI can show it while PII runs
                 page_start_offset = current_page_offset
-                text_content.append(doc.page_content)
-                try:
-                    Files.update_file_data_by_id(
-                        file.id,
-                        {
-                            "content": " ".join(text_content),
-                            "page_content": text_content,
-                        },
-                    )
-                except Exception:
-                    pass
-                # Granular extracting progress from 10 to 20
-                try:
-                    extract_progress = 10 + int(
-                        10 * (page_index + 1) / max(total_pages, 1)
-                    )
-                    _set_processing(
-                        file.id, "processing", "extracting", extract_progress
-                    )
-                except Exception:
-                    pass
+
                 page_detections = {}
                 pii = None
                 if (
@@ -1643,6 +1631,7 @@ def process_file(
 
                         log.debug(f"response: {response}")
                         # response can be HTTPValidationError or TextMaskResponse
+                        _set_processing(file.id, "processing", "pii_detection", 20)
                         if "pii" in response:
                             # response.pii is list[list[PiiEntity]] or None/Unset
                             pii = (
@@ -1700,16 +1689,16 @@ def process_file(
                         file.id, "processing", "pii_detection", pii_progress
                     )
                 except Exception:
-                    pass
+                    log.exception(e)
 
                 # Move the running offset forward for the next page
                 current_page_offset = page_start_offset + len(doc.page_content)
 
             # Extraction completed
-            _set_processing(file.id, "processing", "extracting", 20)
+            _set_processing(file.id, "processing", "pii_detection", 70)
 
         # About to embed/index
-        _set_processing(file.id, "processing", "embedding", 30)
+        _set_processing(file.id, "processing", "embedding", 70)
 
         hash = calculate_sha256_string(" ".join(text_content))
         Files.update_file_hash_by_id(file.id, hash)
