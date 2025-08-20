@@ -1274,6 +1274,30 @@ def save_docs_to_vector_db(
     if len(docs) == 0:
         raise ValueError(ERROR_MESSAGES.EMPTY_CONTENT)
 
+    # Adjust PII entity positions for chunk
+    for doc in docs:
+        start_index = doc.metadata.get("start_index", 0)
+        end_index = len(doc.page_content) + start_index
+        pii_to_remove = []
+        for pii_entity in doc.metadata.get("pii", []):
+            updated_occurrences = []
+            for occurrence in doc.metadata["pii"][pii_entity]["occurrences"]:
+                if (
+                    occurrence["start_idx"] >= start_index
+                    and occurrence["end_idx"] <= end_index
+                ):
+                    occurrence["start_idx"] = occurrence["start_idx"] - start_index
+                    occurrence["end_idx"] = occurrence["end_idx"] - start_index
+                    updated_occurrences.append(occurrence)
+            if updated_occurrences:
+                doc.metadata["pii"][pii_entity]["occurrences"] = updated_occurrences
+            else:
+                pii_to_remove.append(pii_entity)
+
+        for pii_entity in pii_to_remove:
+            del doc.metadata["pii"][pii_entity]
+
+    log.debug(f"docs: {docs}")
     texts = [doc.page_content for doc in docs]
     metadatas = [
         {
@@ -1521,6 +1545,7 @@ def process_file(
             detections = {}
 
             for doc in docs:
+                page_detections = {}
                 pii = None
                 if (
                     request.app.state.config.ENABLE_PII_DETECTION
@@ -1544,6 +1569,8 @@ def process_file(
                             create_session=False,
                             quiet=False,
                         ).to_dict()
+
+                        log.debug(f"response: {response}")
                         # response can be HTTPValidationError or TextMaskResponse
                         if "pii" in response:
                             # response.pii is list[list[PiiEntity]] or None/Unset
@@ -1551,6 +1578,7 @@ def process_file(
                                 (response["pii"] or [[]])[0] if response["pii"] else {}
                             )
                             for pii_entity in pii:
+                                page_detections[pii_entity["text"]] = pii_entity.copy()
                                 updated_occurences = []
 
                                 for occurrence in pii_entity["occurrences"]:
@@ -1577,16 +1605,12 @@ def process_file(
                                     detections[pii_entity["text"]][
                                         "occurrences"
                                     ].extend(pii_entity["occurrences"])
-
                     except Exception as e:
                         log.exception(e)
                         pii = None
-                # attach PII to document metadata for downstream use
-                if pii is not None:
-                    try:
-                        doc.metadata["pii"] = pii
-                    except Exception:
-                        pass
+
+                    # attach PII to document metadata for downstream use
+                    doc.metadata["pii"] = page_detections
 
                 text_content.append(doc.page_content)
                 current_page_offset += len(doc.page_content)

@@ -1449,6 +1449,7 @@ async def chat_completion(
                     else "default"
                 ),
             },
+            "known_entities": form_data.pop("known_entities", []),
         }
 
         if metadata.get("chat_id") and (user and user.role != "admin"):
