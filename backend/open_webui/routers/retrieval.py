@@ -1285,12 +1285,63 @@ def save_docs_to_vector_db(
 
     # Adjust PII entity positions for chunk
     for doc in docs:
+        # Normalize/parse PII metadata which may arrive as a JSON string or list
+        try:
+            pii_meta = doc.metadata.get("pii")
+            if isinstance(pii_meta, str):
+                # Attempt to parse JSON string into dict
+                try:
+                    parsed = json.loads(pii_meta)
+                    if isinstance(parsed, dict):
+                        doc.metadata["pii"] = parsed
+                    elif isinstance(parsed, list):
+                        # Convert list of entities to dict keyed by label/text
+                        converted = {}
+                        for entity in parsed:
+                            if not isinstance(entity, dict):
+                                continue
+                            key = (
+                                entity.get("text")
+                                or entity.get("label")
+                                or entity.get("raw_text")
+                            )
+                            if key:
+                                converted[key] = entity
+                        doc.metadata["pii"] = converted
+                    else:
+                        # Unrecognized structure; drop to avoid crashes
+                        doc.metadata["pii"] = {}
+                except Exception:
+                    # If parsing fails, drop PII to avoid breaking ingestion
+                    doc.metadata["pii"] = {}
+            elif isinstance(pii_meta, list):
+                # Convert list of entities to dict keyed by label/text
+                converted = {}
+                for entity in pii_meta:
+                    if not isinstance(entity, dict):
+                        continue
+                    key = (
+                        entity.get("text")
+                        or entity.get("label")
+                        or entity.get("raw_text")
+                    )
+                    if key:
+                        converted[key] = entity
+                doc.metadata["pii"] = converted
+            elif pii_meta is None:
+                doc.metadata["pii"] = {}
+        except Exception:
+            # Never let PII normalization break ingestion
+            doc.metadata["pii"] = {}
+
         start_index = doc.metadata.get("start_index", 0)
         end_index = len(doc.page_content) + start_index
         pii_to_remove = []
-        for pii_entity in doc.metadata.get("pii", []):
+        for pii_entity in doc.metadata.get("pii") or {}:
             updated_occurrences = []
-            for occurrence in doc.metadata["pii"][pii_entity]["occurrences"]:
+            for occurrence in (
+                doc.metadata["pii"].get(pii_entity, {}).get("occurrences", [])
+            ):
                 if (
                     occurrence["start_idx"] >= start_index
                     and occurrence["end_idx"] <= end_index
@@ -1299,7 +1350,8 @@ def save_docs_to_vector_db(
                     occurrence["end_idx"] = occurrence["end_idx"] - start_index
                     updated_occurrences.append(occurrence)
             if updated_occurrences:
-                doc.metadata["pii"][pii_entity]["occurrences"] = updated_occurrences
+                if pii_entity in doc.metadata["pii"]:
+                    doc.metadata["pii"][pii_entity]["occurrences"] = updated_occurrences
             else:
                 pii_to_remove.append(pii_entity)
 
