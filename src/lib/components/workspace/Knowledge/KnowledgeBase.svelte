@@ -158,6 +158,7 @@
 			name: file.name,
 			size: file.size,
 			status: 'uploading',
+			progress: 5,
 			error: '',
 			itemId: tempItemId
 		};
@@ -204,16 +205,72 @@
 
 			if (uploadedFile) {
 				console.log(uploadedFile);
+				// Promote temp item to processing state and keep reference to server file for progress
 				knowledge.files = knowledge.files.map((item) => {
 					if (item.itemId === tempItemId) {
 						item.id = uploadedFile.id;
+						item.file = uploadedFile;
+						item.status = 'processing';
+						item.progress = 5;
 					}
-
 					// Remove temporary item id
 					delete item.itemId;
 					return item;
 				});
-				await addFileHandler(uploadedFile.id);
+
+				// Start processing by adding the file to the knowledge base (async, non-blocking)
+				// eslint-disable-next-line @typescript-eslint/no-floating-promises
+				addFileHandler(uploadedFile.id);
+
+				// Poll for processing progress via /files/{id}
+				const pollIntervalMs = 800;
+				const maxPollMs = 30 * 60 * 1000; // 30 minutes safety cap
+				let elapsed = 0;
+				const poll = async () => {
+					try {
+						const json = await getFileById(localStorage.token, uploadedFile.id);
+							// Update the temp item with fresh server state
+							knowledge.files = knowledge.files.map((item) => {
+								if (item.id === uploadedFile.id) {
+									try {
+										item.file = json;
+									} catch (e) {}
+									const processing = json?.meta?.processing;
+									if (processing) {
+										item.progress =
+											typeof processing.progress === 'number'
+												? processing.progress
+												: item.progress ?? 0;
+										if (
+											processing.status === 'done' ||
+											(typeof processing.progress === 'number' && processing.progress >= 100)
+										) {
+											item.status = 'uploaded';
+										}
+										if (processing.status === 'error') {
+											item.status = 'error';
+											item.error = processing.error || 'Processing failed';
+										}
+									}
+								}
+								return item;
+							});
+							// Trigger reactive update
+							knowledge = knowledge;
+					} catch (e) {
+						// ignore transient errors
+					}
+					elapsed += pollIntervalMs;
+					const current = knowledge?.files?.find((f) => f.id === uploadedFile.id);
+					if (
+						elapsed < maxPollMs &&
+						current &&
+						(current.status === 'processing' || current.status === 'uploading')
+					) {
+						setTimeout(poll, pollIntervalMs);
+					}
+				};
+				poll();
 			} else {
 				toast.error($i18n.t('Failed to upload file.'));
 			}
