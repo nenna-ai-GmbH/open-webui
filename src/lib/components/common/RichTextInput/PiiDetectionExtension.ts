@@ -293,29 +293,17 @@ function syncWithSessionManager(
 		return validateAndFilterEntities(filteredEntities, doc, mapping);
 	}
 
-	// Sync shouldMask state: plugin state takes precedence over session manager
+	// Sync shouldMask state: Use session manager state as source of truth
 	const updatedEntities = currentEntities.map((currentEntity) => {
 		const sessionEntity = sessionEntities.find(
 			(e: ExtendedPiiEntity) => e.label === currentEntity.label
 		);
-		if (sessionEntity && sessionEntity.shouldMask !== currentEntity.shouldMask) {
-			console.log(
-				`PiiDetectionExtension: Syncing shouldMask state for ${currentEntity.label}: ${sessionEntity.shouldMask} → ${currentEntity.shouldMask}`
-			);
-
-			// Update session manager to match plugin state
-			if (conversationId) {
-				piiSessionManager.setEntityMaskingState(
-					conversationId,
-					currentEntity.label,
-					currentEntity.shouldMask ?? true
-				);
-			} else {
-				piiSessionManager.setTemporaryEntityMaskingState(
-					currentEntity.label,
-					currentEntity.shouldMask ?? true
-				);
-			}
+		if (sessionEntity) {
+			// Use session manager's shouldMask state
+			return {
+				...currentEntity,
+				shouldMask: sessionEntity.shouldMask ?? true
+			};
 		}
 		return currentEntity;
 	});
@@ -599,33 +587,34 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 								break;
 
                             case 'SYNC_WITH_SESSION_MANAGER': {
-                                // Sync plugin state with session manager, and populate from session if empty
-                                if (newState.positionMapping) {
-                                    const sessionEntities = piiSessionManager.getEntitiesForDisplay(
-                                        options.conversationId
-                                    );
+                                // Always sync from session manager to get latest state
+                                const currentMapping = newState.positionMapping || buildPositionMapping(tr.doc);
+                                const sessionEntities = piiSessionManager.getEntitiesForDisplay(
+                                    options.conversationId
+                                );
 
-                                    if (!newState.entities.length && sessionEntities.length) {
-                                        // Populate entities from session and remap to current doc positions
-                                        const remapped = remapEntitiesForCurrentDocument(
-                                            sessionEntities,
-                                            newState.positionMapping,
-                                            tr.doc
-                                        );
-                                        newState.entities = validateAndFilterEntities(
-                                            remapped,
-                                            tr.doc,
-                                            newState.positionMapping
-                                        );
-                                    } else {
-                                        newState.entities = syncWithSessionManager(
-                                            options.conversationId,
-                                            piiSessionManager,
-                                            newState.entities,
-                                            newState.positionMapping,
-                                            tr.doc
-                                        );
-                                    }
+                                // Always use session entities as source of truth when syncing
+                                if (sessionEntities.length > 0) {
+                                    // Remap session entities to current doc positions
+                                    const remapped = remapEntitiesForCurrentDocument(
+                                        sessionEntities,
+                                        currentMapping,
+                                        tr.doc
+                                    );
+                                    newState.entities = validateAndFilterEntities(
+                                        remapped,
+                                        tr.doc,
+                                        currentMapping
+                                    );
+                                } else if (newState.entities.length > 0) {
+                                    // If session is empty but we have entities, sync them to session
+                                    newState.entities = syncWithSessionManager(
+                                        options.conversationId,
+                                        piiSessionManager,
+                                        newState.entities,
+                                        currentMapping,
+                                        tr.doc
+                                    );
                                 }
                                 break;
                             }
@@ -673,7 +662,6 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 
 							const newMapping = buildPositionMapping(tr.doc);
                                 newState.positionMapping = newMapping;
-							console.log('PiiDetectionExtension: docChanged plainText length', newMapping.plainText.length);
 
                                 // Populate entities from session immediately without triggering detection
                                 const sessionEntities = piiSessionManager.getEntitiesForDisplay(
@@ -698,70 +686,92 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 
                     if (tr.docChanged) {
 						const newMapping = buildPositionMapping(tr.doc);
+						const textActuallyChanged = newMapping.plainText !== prevState.positionMapping?.plainText;
+						
+						// Update position mapping
 						newState.positionMapping = newMapping;
-
-						// Remap existing entities to current document positions immediately
-                        if (newState.entities.length > 0) {
-							// First, try to remap entities to current positions
-							const remappedEntities = remapEntitiesForCurrentDocument(
-								newState.entities,
-								newMapping,
-								tr.doc
-							);
-
-							// Then sync with session manager for external changes
-							newState.entities = syncWithSessionManager(
-								options.conversationId,
-								piiSessionManager,
-								remappedEntities,
-								newMapping,
-								tr.doc
-							);
-                        } else {
-                            // If we have no entities yet, populate from session if available
-                            const sessionEntities = piiSessionManager.getEntitiesForDisplay(
-                                options.conversationId
-                            );
-                            if (sessionEntities.length) {
-                                const remapped = remapEntitiesForCurrentDocument(
-                                    sessionEntities,
-                                    newMapping,
-                                    tr.doc
-                                );
-                                newState.entities = validateAndFilterEntities(
-                                    remapped,
-                                    tr.doc,
-                                    newMapping
-                                );
-                            }
+						
+						if (textActuallyChanged) {
+							console.log('PiiDetectionExtension: Text actually changed, length:', newMapping.plainText.length);
 						}
 
-						// CRITICAL FIX: If we need to sync after toggle, do it now BEFORE detection
-						// This ensures shouldMask state is consistent before next detection
-						if (newState.needsSync) {
-							newState.entities = syncWithSessionManager(
-								options.conversationId,
-								piiSessionManager,
-								newState.entities,
-								newMapping,
-								tr.doc
-							);
-							newState.needsSync = false;
-						}
+						// Remap entities based on whether text changed
+						if (textActuallyChanged) {
+							// Text changed: remap existing entities to current document positions
+							if (newState.entities.length > 0) {
+								// First, try to remap entities to current positions
+								const remappedEntities = remapEntitiesForCurrentDocument(
+									newState.entities,
+									newState.positionMapping,
+									tr.doc
+								);
 
-                    // Trigger detection if text changed significantly
-                        if (
-                          !newState.isDetecting &&
-                          newMapping.plainText !== newState.lastText &&
-                          (!options.detectOnlyAfterUserEdit || newState.userEdited)
-                        ) {
-							newState.lastText = newMapping.plainText;
-
-							if (newMapping.plainText.trim()) {
-								debouncedDetection(newMapping.plainText);
+								// Then sync with session manager for external changes
+								newState.entities = syncWithSessionManager(
+									options.conversationId,
+									piiSessionManager,
+									remappedEntities,
+									newState.positionMapping,
+									tr.doc
+								);
 							} else {
-								// If text is empty, clear entities
-								newState.entities = [];
+								// If we have no entities yet, populate from session if available
+								const sessionEntities = piiSessionManager.getEntitiesForDisplay(
+									options.conversationId
+								);
+								if (sessionEntities.length) {
+									const remapped = remapEntitiesForCurrentDocument(
+										sessionEntities,
+										newState.positionMapping,
+										tr.doc
+									);
+									newState.entities = validateAndFilterEntities(
+										remapped,
+										tr.doc,
+										newState.positionMapping
+									);
+								}
+							}
+						} else {
+							// Text hasn't changed but doc changed (likely due to decoration updates)
+							// Still sync with session manager to get latest shouldMask states
+							if (newState.entities.length > 0) {
+								newState.entities = syncWithSessionManager(
+									options.conversationId,
+									piiSessionManager,
+									newState.entities,
+									newState.positionMapping,
+									tr.doc
+								);
+							}
+
+							// CRITICAL FIX: If we need to sync after toggle, do it now BEFORE detection
+							// This ensures shouldMask state is consistent before next detection
+							if (newState.needsSync) {
+								newState.entities = syncWithSessionManager(
+									options.conversationId,
+									piiSessionManager,
+									newState.entities,
+									newState.positionMapping,
+									tr.doc
+								);
+								newState.needsSync = false;
+							}
+
+							// Trigger detection if text changed significantly
+							if (
+								!newState.isDetecting &&
+								newMapping.plainText !== newState.lastText &&
+								(!options.detectOnlyAfterUserEdit || newState.userEdited)
+							) {
+								newState.lastText = newMapping.plainText;
+
+								if (newMapping.plainText.trim()) {
+									debouncedDetection(newMapping.plainText);
+								} else {
+									// If text is empty, clear entities
+									newState.entities = [];
+								}
 							}
 						}
 					}

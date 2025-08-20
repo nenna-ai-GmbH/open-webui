@@ -1328,10 +1328,23 @@
 					},
 					keydown: (view, event) => {
 						if (preventDocEdits) {
-							// Allow navigation keys; block editing keys
+							// Allow navigation and selection keys; block editing keys
 							const k = event.key.toLowerCase();
 							const isEditKey = ['enter', 'backspace', 'delete'].includes(k);
-							if (isEditKey || (!event.ctrlKey && !event.metaKey && k.length === 1)) {
+							const isSelectionKey = ['arrowleft', 'arrowright', 'arrowup', 'arrowdown', 'home', 'end', 'pageup', 'pagedown'].includes(k);
+							
+							// Allow selection-related key combinations
+							if (event.shiftKey && isSelectionKey) {
+								return false; // Allow shift+arrow for selection
+							}
+							
+							// Allow Ctrl/Cmd+A for select all
+							if ((event.ctrlKey || event.metaKey) && k === 'a') {
+								return false; // Allow select all
+							}
+							
+							// Block editing keys
+							if (isEditKey || (!event.ctrlKey && !event.metaKey && !event.shiftKey && k.length === 1)) {
 								event.preventDefault();
 								return true;
 							}

@@ -167,6 +167,7 @@ export let conversationId: string | undefined = undefined; // chat conversation 
 
   // Keep per-page editor refs to sync PII entities from session
   let editors: any[] = [];
+  let hasInitialSynced = false;
 
   function syncEditorsNow() {
     editors.forEach((ed) => {
@@ -185,12 +186,17 @@ export let conversationId: string | undefined = undefined; // chat conversation 
     });
   }
 
-  // After showing modal, extended entities seeded (conv or temp), and editors mounted → sync twice
-  $: if (show && Array.isArray(editors) && editors.length > 0 && extendedEntities.length > 0) {
+  // Reset sync flag when modal closes
+  $: if (!show) {
+    hasInitialSynced = false;
+  }
+
+  // After showing modal, extended entities seeded (conv or temp), and editors mounted → sync once
+  $: if (show && Array.isArray(editors) && editors.length > 0 && extendedEntities.length > 0 && !hasInitialSynced) {
+    hasInitialSynced = true;
     setTimeout(() => {
       syncEditorsNow();
-      setTimeout(() => syncEditorsNow(), 150);
-    }, 50);
+    }, 100);
   }
 </script>
 
@@ -373,7 +379,7 @@ export let conversationId: string | undefined = undefined; // chat conversation 
                                         <div class="p-3">
                                             <RichTextInput
                                                 bind:editor={editors[idx]}
-                                                className="input-prose-sm"
+                                                className="input-prose-sm pii-selectable"
                                                 value={pageText}
                                                 preserveBreaks={false}
                                                 raw={false}
@@ -385,6 +391,16 @@ export let conversationId: string | undefined = undefined; // chat conversation 
                                                 conversationId={conversationId}
                                                 piiMaskingEnabled={true}
                                                 enablePiiModifiers={true}
+                                                onPiiToggled={(entities) => {
+                                                    // When PII is toggled on one page, sync all other pages
+                                                    editors.forEach((ed, edIdx) => {
+                                                        if (edIdx !== idx && ed && ed.commands?.syncWithSessionManager) {
+                                                            setTimeout(() => {
+                                                                ed.commands.syncWithSessionManager();
+                                                            }, 10);
+                                                        }
+                                                    });
+                                                }}
                                                 piiModifierLabels={[
                                                     'PERSON',
                                                     'EMAIL',
@@ -430,5 +446,23 @@ export let conversationId: string | undefined = undefined; // chat conversation 
 	.break-words {
 		word-break: break-word;
 		overflow-wrap: anywhere;
+	}
+	
+	/* Ensure text selection is enabled and visible in read-only PII editors */
+	:global(.pii-selectable .tiptap) {
+		user-select: text !important;
+		-webkit-user-select: text !important;
+		-moz-user-select: text !important;
+		-ms-user-select: text !important;
+	}
+	
+	:global(.pii-selectable .tiptap::selection),
+	:global(.pii-selectable .tiptap *::selection) {
+		background-color: rgba(100, 108, 255, 0.3) !important;
+	}
+	
+	:global(.pii-selectable .tiptap::-moz-selection),
+	:global(.pii-selectable .tiptap *::-moz-selection) {
+		background-color: rgba(100, 108, 255, 0.3) !important;
 	}
 </style>

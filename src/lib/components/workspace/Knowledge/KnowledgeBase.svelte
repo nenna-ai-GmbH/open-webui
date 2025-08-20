@@ -851,7 +851,7 @@
 								{#key selectedFile.id}
 									<RichTextInput
 									bind:editor={kbEditor}
-										className="input-prose-sm"
+										className="input-prose-sm pii-selectable"
 										bind:value={selectedFileContent}
 										placeholder={$i18n.t('Add content here')}
 									preserveBreaks={false}
@@ -932,7 +932,7 @@
 								{#key selectedFile.id}
 										<RichTextInput
 										bind:editor={kbEditor}
-										className="input-prose-sm"
+										className="input-prose-sm pii-selectable"
 										bind:value={selectedFileContent}
 										placeholder={$i18n.t('Add content here')}
 										preserveBreaks={false}
@@ -1043,3 +1043,23 @@
 		<Spinner className="size-5" />
 	{/if}
 </div>
+
+<style>
+	/* Ensure text selection is enabled and visible in PII editors */
+	:global(.pii-selectable .tiptap) {
+		user-select: text !important;
+		-webkit-user-select: text !important;
+		-moz-user-select: text !important;
+		-ms-user-select: text !important;
+	}
+	
+	:global(.pii-selectable .tiptap::selection),
+	:global(.pii-selectable .tiptap *::selection) {
+		background-color: rgba(100, 108, 255, 0.3) !important;
+	}
+	
+	:global(.pii-selectable .tiptap::-moz-selection),
+	:global(.pii-selectable .tiptap *::-moz-selection) {
+		background-color: rgba(100, 108, 255, 0.3) !important;
+	}
+</style>
