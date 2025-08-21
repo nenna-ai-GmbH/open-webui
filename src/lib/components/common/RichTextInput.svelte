@@ -1810,7 +1810,7 @@
 			class="absolute top-2 right-2 flex items-center gap-1 bg-gray-50 dark:bg-gray-850 px-2 py-1 rounded-md shadow-sm border border-gray-200 dark:border-gray-700"
 		>
 			<Spinner className="size-3" />
-			<span class="text-xs text-gray-600 dark:text-gray-400">Scanning for PII...</span>
+			<span class="text-xs text-gray-600 dark:text-gray-400">{$i18n.t('Scanning for PII...')}</span>
 		</div>
 	{/if}
 </div>
