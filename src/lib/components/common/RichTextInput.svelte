@@ -1798,10 +1798,11 @@
 	<div bind:this={bubbleMenuElement} id="bubble-menu" class="p-0">
 		<FormattingButtons {editor} />
 	</div>
+
 {/if}
 
-<div class="relative w-full min-w-full h-full min-h-fit {className}">
-	<div bind:this={element} class="w-full h-full min-h-fit" />
+<div bind:this={element} class="relative w-full min-w-full h-full min-h-fit {className}">
+	<div class="w-full h-full min-h-fit" />
 
 	<!-- PII Detection Loading Indicator -->
 	{#if enablePiiDetection && isPiiDetectionInProgress}
