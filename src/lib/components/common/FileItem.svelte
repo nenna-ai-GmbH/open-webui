@@ -31,8 +31,8 @@
 	import { deleteFileById } from '$lib/apis/files';
 
 	let showModal = false;
-export let disableModal = false;
-export let conversationId: string | undefined = undefined;
+	export let disableModal = false;
+	export let conversationId: string | undefined = undefined;
 
 	const decodeString = (str: string) => {
 		try {
@@ -48,14 +48,14 @@ export let conversationId: string | undefined = undefined;
 		processingStage === 'extracting'
 			? 'Extracting text'
 			: processingStage === 'pii_detection'
-			? 'Masking PII'
-			: item?.status === 'uploading'
-			? 'Uploading'
-			: null;
+				? 'Masking PII'
+				: item?.status === 'uploading'
+					? 'Uploading'
+					: null;
 </script>
 
 {#if item && !disableModal}
-    <FileItemModal bind:show={showModal} bind:item {edit} {conversationId} />
+	<FileItemModal bind:show={showModal} bind:item {edit} {conversationId} />
 {/if}
 
 <button
@@ -72,8 +72,8 @@ export let conversationId: string | undefined = undefined;
 				'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
 			(item?.name && item?.name.toLowerCase().endsWith('.docx'));
 
-        // Open modal unless disabled (used in KnowledgeBase)
-        if (!disableModal && (item?.file?.data?.content || modal || isPdf || isDocx)) {
+		// Open modal unless disabled (used in KnowledgeBase)
+		if (!disableModal && (item?.file?.data?.content || modal || isPdf || isDocx)) {
 			showModal = !showModal;
 		} else {
 			if (url) {
@@ -91,10 +91,12 @@ export let conversationId: string | undefined = undefined;
 	{#if item?.status === 'processing' || item?.status === 'uploading'}
 		<!-- Stage-aware top progress bar -->
 		{#key item?.file?.meta?.processing?.updated_at || item?.progress}
-			<div class="absolute left-0 right-0 top-0 h-1.5 bg-gray-200 dark:bg-gray-800 overflow-hidden rounded-t-2xl">
+			<div
+				class="absolute left-0 right-0 top-0 h-1.5 bg-gray-200 dark:bg-gray-800 overflow-hidden rounded-t-2xl"
+			>
 				<div
 					class="h-full bg-sky-500 transition-all duration-300"
-					style={`width: ${Math.min(100, Math.max(0, (item?.file?.meta?.processing?.progress ?? item?.progress ?? 0)))}%`}
+					style={`width: ${Math.min(100, Math.max(0, item?.file?.meta?.processing?.progress ?? item?.progress ?? 0))}%`}
 				/>
 			</div>
 		{/key}

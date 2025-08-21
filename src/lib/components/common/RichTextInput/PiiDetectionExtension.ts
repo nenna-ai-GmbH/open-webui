@@ -21,27 +21,27 @@ interface PositionMapping {
 }
 // Decode common HTML entities to plain characters for matching
 function decodeHtmlEntities(text: string): string {
-  if (!text) return text;
-  // Fast path for numeric entities and a few named ones we often see
-  const named: Record<string, string> = {
-    '&amp;': '&',
-    '&lt;': '<',
-    '&gt;': '>',
-    '&quot;': '"',
-    '&#39;': "'"
-  };
-  let result = text.replace(/&(amp|lt|gt|quot|#39);/g, (m) => named[m] || m);
-  // Generic numeric (decimal or hex)
-  result = result.replace(/&#(x?[0-9a-fA-F]+);/g, (_m, code) => {
-    try {
-      const num = code[0] === 'x' || code[0] === 'X' ? parseInt(code.slice(1), 16) : parseInt(code, 10);
-      if (!isNaN(num)) return String.fromCharCode(num);
-    } catch {}
-    return _m;
-  });
-  return result;
+	if (!text) return text;
+	// Fast path for numeric entities and a few named ones we often see
+	const named: Record<string, string> = {
+		'&amp;': '&',
+		'&lt;': '<',
+		'&gt;': '>',
+		'&quot;': '"',
+		'&#39;': "'"
+	};
+	let result = text.replace(/&(amp|lt|gt|quot|#39);/g, (m) => named[m] || m);
+	// Generic numeric (decimal or hex)
+	result = result.replace(/&#(x?[0-9a-fA-F]+);/g, (_m, code) => {
+		try {
+			const num =
+				code[0] === 'x' || code[0] === 'X' ? parseInt(code.slice(1), 16) : parseInt(code, 10);
+			if (!isNaN(num)) return String.fromCharCode(num);
+		} catch {}
+		return _m;
+	});
+	return result;
 }
-
 
 interface PiiDetectionState {
 	entities: ExtendedPiiEntity[];
@@ -49,7 +49,7 @@ interface PiiDetectionState {
 	isDetecting: boolean;
 	lastText: string;
 	needsSync: boolean;
-  userEdited?: boolean;
+	userEdited?: boolean;
 }
 
 export interface PiiDetectionOptions {
@@ -61,7 +61,7 @@ export interface PiiDetectionOptions {
 	onPiiToggled?: (entities: ExtendedPiiEntity[]) => void;
 	onPiiDetectionStateChanged?: (isDetecting: boolean) => void;
 	debounceMs?: number;
-  detectOnlyAfterUserEdit?: boolean; // If true, do not auto-detect on initial load; wait for user edits
+	detectOnlyAfterUserEdit?: boolean; // If true, do not auto-detect on initial load; wait for user edits
 }
 
 // Removed unused interfaces - let TypeScript infer TipTap command types
@@ -114,7 +114,7 @@ function mapPiiEntitiesToProseMirror(
 	existingEntities: ExtendedPiiEntity[] = [],
 	defaultShouldMask: boolean = true
 ): ExtendedPiiEntity[] {
-  return entities.map((entity) => {
+	return entities.map((entity) => {
 		// Find existing entity with same label to preserve shouldMask state
 		const existingEntity = existingEntities.find((existing) => existing.label === entity.label);
 		const shouldMask = existingEntity?.shouldMask ?? defaultShouldMask; // Use defaultShouldMask if not found
@@ -188,18 +188,18 @@ function remapEntitiesForCurrentDocument(
 		return [];
 	}
 
-  const remappedEntities = entities.map((entity) => {
-    // Decode HTML entities in raw_text so matching aligns with rendered text
-    const entityText = decodeHtmlEntities(entity.raw_text);
-    const searchText = entityText.toLowerCase();
-    const plainText = decodeHtmlEntities(mapping.plainText).toLowerCase();
+	const remappedEntities = entities.map((entity) => {
+		// Decode HTML entities in raw_text so matching aligns with rendered text
+		const entityText = decodeHtmlEntities(entity.raw_text);
+		const searchText = entityText.toLowerCase();
+		const plainText = decodeHtmlEntities(mapping.plainText).toLowerCase();
 
 		// Find all occurrences of this entity in the current text
 		const newOccurrences = [];
 		let searchIndex = 0;
 
 		// Use word boundary matching for better accuracy
-    const entityWords = entityText.split(/\s+/);
+		const entityWords = entityText.split(/\s+/);
 		const isMultiWord = entityWords.length > 1;
 
 		while (searchIndex < plainText.length) {
@@ -221,8 +221,8 @@ function remapEntitiesForCurrentDocument(
 				}
 			}
 
-      const plainTextStart = foundIndex;
-      const plainTextEnd = foundIndex + entityText.length;
+			const plainTextStart = foundIndex;
+			const plainTextEnd = foundIndex + entityText.length;
 
 			// Convert to ProseMirror positions
 			const proseMirrorStart = mapping.plainTextToProseMirror.get(plainTextStart);
@@ -403,8 +403,8 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 			onPiiDetected: undefined,
 			onPiiToggled: undefined,
 			onPiiDetectionStateChanged: undefined,
-      debounceMs: 500,
-      detectOnlyAfterUserEdit: false
+			debounceMs: 500,
+			detectOnlyAfterUserEdit: false
 		};
 	},
 
@@ -561,11 +561,11 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 
 					const meta = tr.getMeta(piiDetectionPluginKey);
 					if (meta) {
-							console.log('PiiDetectionExtension: meta action', meta.type);
-							 switch (meta.type) {
-                            case 'SET_USER_EDITED':
-                                newState.userEdited = true;
-                                break;
+						console.log('PiiDetectionExtension: meta action', meta.type);
+						switch (meta.type) {
+							case 'SET_USER_EDITED':
+								newState.userEdited = true;
+								break;
 							case 'SET_DETECTING':
 								newState.isDetecting = meta.isDetecting;
 								// Call the callback to notify parent component
@@ -575,49 +575,45 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 								break;
 
 							case 'UPDATE_ENTITIES':
-							// Recompute occurrences against current document to avoid shifted offsets
-							// (e.g., when original indices were based on markdown source rather than rendered doc)
-							if (meta.entities && meta.entities.length) {
-								const mapping = newState.positionMapping || buildPositionMapping(tr.doc);
-								const remapped = remapEntitiesForCurrentDocument(meta.entities, mapping, tr.doc);
-								newState.entities = validateAndFilterEntities(remapped, tr.doc, mapping);
-							} else {
-								newState.entities = [];
-							}
+								// Recompute occurrences against current document to avoid shifted offsets
+								// (e.g., when original indices were based on markdown source rather than rendered doc)
+								if (meta.entities && meta.entities.length) {
+									const mapping = newState.positionMapping || buildPositionMapping(tr.doc);
+									const remapped = remapEntitiesForCurrentDocument(meta.entities, mapping, tr.doc);
+									newState.entities = validateAndFilterEntities(remapped, tr.doc, mapping);
+								} else {
+									newState.entities = [];
+								}
 								break;
 
-                            case 'SYNC_WITH_SESSION_MANAGER': {
-                                // Always sync from session manager to get latest state
-                                const currentMapping = newState.positionMapping || buildPositionMapping(tr.doc);
-                                const sessionEntities = piiSessionManager.getEntitiesForDisplay(
-                                    options.conversationId
-                                );
+							case 'SYNC_WITH_SESSION_MANAGER': {
+								// Always sync from session manager to get latest state
+								const currentMapping = newState.positionMapping || buildPositionMapping(tr.doc);
+								const sessionEntities = piiSessionManager.getEntitiesForDisplay(
+									options.conversationId
+								);
 
-                                // Always use session entities as source of truth when syncing
-                                if (sessionEntities.length > 0) {
-                                    // Remap session entities to current doc positions
-                                    const remapped = remapEntitiesForCurrentDocument(
-                                        sessionEntities,
-                                        currentMapping,
-                                        tr.doc
-                                    );
-                                    newState.entities = validateAndFilterEntities(
-                                        remapped,
-                                        tr.doc,
-                                        currentMapping
-                                    );
-                                } else if (newState.entities.length > 0) {
-                                    // If session is empty but we have entities, sync them to session
-                                    newState.entities = syncWithSessionManager(
-                                        options.conversationId,
-                                        piiSessionManager,
-                                        newState.entities,
-                                        currentMapping,
-                                        tr.doc
-                                    );
-                                }
-                                break;
-                            }
+								// Always use session entities as source of truth when syncing
+								if (sessionEntities.length > 0) {
+									// Remap session entities to current doc positions
+									const remapped = remapEntitiesForCurrentDocument(
+										sessionEntities,
+										currentMapping,
+										tr.doc
+									);
+									newState.entities = validateAndFilterEntities(remapped, tr.doc, currentMapping);
+								} else if (newState.entities.length > 0) {
+									// If session is empty but we have entities, sync them to session
+									newState.entities = syncWithSessionManager(
+										options.conversationId,
+										piiSessionManager,
+										newState.entities,
+										currentMapping,
+										tr.doc
+									);
+								}
+								break;
+							}
 
 							case 'TOGGLE_ENTITY_MASKING': {
 								const { entityIndex, occurrenceIndex } = meta;
@@ -657,42 +653,42 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 								break;
 							}
 
-                            case 'RELOAD_CONVERSATION_STATE': {
-                                options.conversationId = meta.conversationId;
+							case 'RELOAD_CONVERSATION_STATE': {
+								options.conversationId = meta.conversationId;
 
-							const newMapping = buildPositionMapping(tr.doc);
-                                newState.positionMapping = newMapping;
+								const newMapping = buildPositionMapping(tr.doc);
+								newState.positionMapping = newMapping;
 
-                                // Populate entities from session immediately without triggering detection
-                                const sessionEntities = piiSessionManager.getEntitiesForDisplay(
-                                    options.conversationId
-                                );
-                                if (sessionEntities.length) {
-                                    const remapped = remapEntitiesForCurrentDocument(
-                                        sessionEntities,
-                                        newMapping,
-                                        tr.doc
-                                    );
-                                    newState.entities = validateAndFilterEntities(
-                                        remapped,
-                                        tr.doc,
-                                        newMapping
-                                    );
-                                }
-                                break;
-                            }
+								// Populate entities from session immediately without triggering detection
+								const sessionEntities = piiSessionManager.getEntitiesForDisplay(
+									options.conversationId
+								);
+								if (sessionEntities.length) {
+									const remapped = remapEntitiesForCurrentDocument(
+										sessionEntities,
+										newMapping,
+										tr.doc
+									);
+									newState.entities = validateAndFilterEntities(remapped, tr.doc, newMapping);
+								}
+								break;
+							}
 						}
 					}
 
-                    if (tr.docChanged) {
+					if (tr.docChanged) {
 						const newMapping = buildPositionMapping(tr.doc);
-						const textActuallyChanged = newMapping.plainText !== prevState.positionMapping?.plainText;
-						
+						const textActuallyChanged =
+							newMapping.plainText !== prevState.positionMapping?.plainText;
+
 						// Update position mapping
 						newState.positionMapping = newMapping;
-						
+
 						if (textActuallyChanged) {
-							console.log('PiiDetectionExtension: Text actually changed, length:', newMapping.plainText.length);
+							console.log(
+								'PiiDetectionExtension: Text actually changed, length:',
+								newMapping.plainText.length
+							);
 						}
 
 						// Remap entities based on whether text changed
@@ -776,7 +772,7 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 						}
 					}
 
-                    return newState;
+					return newState;
 				}
 			},
 
@@ -788,22 +784,22 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 					const piiSessionManager = PiiSessionManager.getInstance();
 					const modifiers = piiSessionManager.getModifiersForDisplay(options.conversationId);
 
-                    // If no entities yet, pull from session to allow immediate rendering
-                    if (!pluginState?.entities.length) {
-                        const sessionEntities = piiSessionManager.getEntitiesForDisplay(options.conversationId);
-                        if (sessionEntities.length) {
-                            const mapping = buildPositionMapping(state.doc);
-                            const remapped = remapEntitiesForCurrentDocument(sessionEntities, mapping, state.doc);
-                            const validated = validateAndFilterEntities(remapped, state.doc, mapping);
+					// If no entities yet, pull from session to allow immediate rendering
+					if (!pluginState?.entities.length) {
+						const sessionEntities = piiSessionManager.getEntitiesForDisplay(options.conversationId);
+						if (sessionEntities.length) {
+							const mapping = buildPositionMapping(state.doc);
+							const remapped = remapEntitiesForCurrentDocument(sessionEntities, mapping, state.doc);
+							const validated = validateAndFilterEntities(remapped, state.doc, mapping);
 
-                            // Create decorations for these remapped entities + modifiers
-                            const decorations = createPiiDecorations(validated, modifiers, state.doc);
-                            return DecorationSet.create(state.doc, decorations);
-                        }
-                    }
-                    if (!pluginState?.entities.length && !modifiers.length) {
-                        return DecorationSet.empty;
-                    }
+							// Create decorations for these remapped entities + modifiers
+							const decorations = createPiiDecorations(validated, modifiers, state.doc);
+							return DecorationSet.create(state.doc, decorations);
+						}
+					}
+					if (!pluginState?.entities.length && !modifiers.length) {
+						return DecorationSet.empty;
+					}
 
 					const decorations = createPiiDecorations(
 						pluginState?.entities || [],
@@ -904,16 +900,16 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 			};
 
 		return {
-      // Mark that the user edited the document (used to gate auto-detection on load)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      markUserEdited:
-        () =>
-        ({ state, dispatch }: any) => {
-          if (!dispatch) return false;
-          const tr = state.tr.setMeta(piiDetectionPluginKey, { type: 'SET_USER_EDITED' });
-          dispatch(tr);
-          return true;
-        },
+			// Mark that the user edited the document (used to gate auto-detection on load)
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			markUserEdited:
+				() =>
+				({ state, dispatch }: any) => {
+					if (!dispatch) return false;
+					const tr = state.tr.setMeta(piiDetectionPluginKey, { type: 'SET_USER_EDITED' });
+					dispatch(tr);
+					return true;
+				},
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			triggerDetection:
 				() =>

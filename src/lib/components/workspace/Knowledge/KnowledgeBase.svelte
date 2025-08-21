@@ -229,34 +229,34 @@
 				const poll = async () => {
 					try {
 						const json = await getFileById(localStorage.token, uploadedFile.id);
-							// Update the temp item with fresh server state
-							knowledge.files = knowledge.files.map((item) => {
-								if (item.id === uploadedFile.id) {
-									try {
-										item.file = json;
-									} catch (e) {}
-									const processing = json?.meta?.processing;
-									if (processing) {
-										item.progress =
-											typeof processing.progress === 'number'
-												? processing.progress
-												: item.progress ?? 0;
-										if (
-											processing.status === 'done' ||
-											(typeof processing.progress === 'number' && processing.progress >= 100)
-										) {
-											item.status = 'uploaded';
-										}
-										if (processing.status === 'error') {
-											item.status = 'error';
-											item.error = processing.error || 'Processing failed';
-										}
+						// Update the temp item with fresh server state
+						knowledge.files = knowledge.files.map((item) => {
+							if (item.id === uploadedFile.id) {
+								try {
+									item.file = json;
+								} catch (e) {}
+								const processing = json?.meta?.processing;
+								if (processing) {
+									item.progress =
+										typeof processing.progress === 'number'
+											? processing.progress
+											: (item.progress ?? 0);
+									if (
+										processing.status === 'done' ||
+										(typeof processing.progress === 'number' && processing.progress >= 100)
+									) {
+										item.status = 'uploaded';
+									}
+									if (processing.status === 'error') {
+										item.status = 'error';
+										item.error = processing.error || 'Processing failed';
 									}
 								}
-								return item;
-							});
-							// Trigger reactive update
-							knowledge = knowledge;
+							}
+							return item;
+						});
+						// Trigger reactive update
+						knowledge = knowledge;
 					} catch (e) {
 						// ignore transient errors
 					}
@@ -942,33 +942,34 @@
 							>
 								{#key selectedFile.id}
 									<RichTextInput
-									bind:editor={kbEditor}
+										bind:editor={kbEditor}
 										className="input-prose-sm pii-selectable"
 										bind:value={selectedFileContent}
 										placeholder={$i18n.t('Add content here')}
-									preserveBreaks={false}
-									enablePiiDetection={$config?.features?.enable_pii_detection ?? false}
-									piiApiKey={$config?.pii?.api_key ?? ''}
-									enablePiiModifiers={true}
-									piiMaskingEnabled={true}
-									piiModifierLabels={[
-										'PERSON',
-										'EMAIL',
-										'PHONE_NUMBER',
-										'ADDRESS',
-										'SSN',
-										'CREDIT_CARD',
-										'DATE_TIME',
-										'IP_ADDRESS',
-										'URL',
-										'IBAN',
-										'MEDICAL_LICENSE',
-										'US_PASSPORT',
-										'US_DRIVER_LICENSE'
-									]}
-									conversationId={`${id || 'kb'}:${selectedFile?.id || ''}`}
-									onPiiToggled={() => selectedFile?.id && savePiiStateDebounced(selectedFile.id)}
-									onPiiModifiersChanged={() => selectedFile?.id && savePiiStateDebounced(selectedFile.id)}
+										preserveBreaks={false}
+										enablePiiDetection={$config?.features?.enable_pii_detection ?? false}
+										piiApiKey={$config?.pii?.api_key ?? ''}
+										enablePiiModifiers={true}
+										piiMaskingEnabled={true}
+										piiModifierLabels={[
+											'PERSON',
+											'EMAIL',
+											'PHONE_NUMBER',
+											'ADDRESS',
+											'SSN',
+											'CREDIT_CARD',
+											'DATE_TIME',
+											'IP_ADDRESS',
+											'URL',
+											'IBAN',
+											'MEDICAL_LICENSE',
+											'US_PASSPORT',
+											'US_DRIVER_LICENSE'
+										]}
+										conversationId={`${id || 'kb'}:${selectedFile?.id || ''}`}
+										onPiiToggled={() => selectedFile?.id && savePiiStateDebounced(selectedFile.id)}
+										onPiiModifiersChanged={() =>
+											selectedFile?.id && savePiiStateDebounced(selectedFile.id)}
 									/>
 								{/key}
 							</div>
@@ -1022,34 +1023,35 @@
 								class=" flex-1 w-full h-full max-h-full py-2.5 px-3.5 rounded-lg text-sm bg-transparent overflow-y-auto scrollbar-hidden"
 							>
 								{#key selectedFile.id}
-										<RichTextInput
+									<RichTextInput
 										bind:editor={kbEditor}
 										className="input-prose-sm pii-selectable"
 										bind:value={selectedFileContent}
 										placeholder={$i18n.t('Add content here')}
 										preserveBreaks={false}
-											enablePiiDetection={$config?.features?.enable_pii_detection ?? false}
-											piiApiKey={$config?.pii?.api_key ?? ''}
-											enablePiiModifiers={true}
-											piiMaskingEnabled={true}
-											piiModifierLabels={[
-												'PERSON',
-												'EMAIL',
-												'PHONE_NUMBER',
-												'ADDRESS',
-												'SSN',
-												'CREDIT_CARD',
-												'DATE_TIME',
-												'IP_ADDRESS',
-												'URL',
-												'IBAN',
-												'MEDICAL_LICENSE',
-												'US_PASSPORT',
-												'US_DRIVER_LICENSE'
-											]}
-											conversationId={`${id || 'kb'}:${selectedFile?.id || ''}`}
-												onPiiToggled={() => selectedFile?.id && savePiiStateDebounced(selectedFile.id)}
-												onPiiModifiersChanged={() => selectedFile?.id && savePiiStateDebounced(selectedFile.id)}
+										enablePiiDetection={$config?.features?.enable_pii_detection ?? false}
+										piiApiKey={$config?.pii?.api_key ?? ''}
+										enablePiiModifiers={true}
+										piiMaskingEnabled={true}
+										piiModifierLabels={[
+											'PERSON',
+											'EMAIL',
+											'PHONE_NUMBER',
+											'ADDRESS',
+											'SSN',
+											'CREDIT_CARD',
+											'DATE_TIME',
+											'IP_ADDRESS',
+											'URL',
+											'IBAN',
+											'MEDICAL_LICENSE',
+											'US_PASSPORT',
+											'US_DRIVER_LICENSE'
+										]}
+										conversationId={`${id || 'kb'}:${selectedFile?.id || ''}`}
+										onPiiToggled={() => selectedFile?.id && savePiiStateDebounced(selectedFile.id)}
+										onPiiModifiersChanged={() =>
+											selectedFile?.id && savePiiStateDebounced(selectedFile.id)}
 									/>
 								{/key}
 							</div>
@@ -1144,12 +1146,12 @@
 		-moz-user-select: text !important;
 		-ms-user-select: text !important;
 	}
-	
+
 	:global(.pii-selectable .tiptap::selection),
 	:global(.pii-selectable .tiptap *::selection) {
 		background-color: rgba(100, 108, 255, 0.3) !important;
 	}
-	
+
 	:global(.pii-selectable .tiptap::-moz-selection),
 	:global(.pii-selectable .tiptap *::-moz-selection) {
 		background-color: rgba(100, 108, 255, 0.3) !important;

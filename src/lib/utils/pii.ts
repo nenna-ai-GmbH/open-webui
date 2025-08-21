@@ -273,7 +273,8 @@ export class PiiSessionManager {
 		const existing = this.temporaryState.entities || [];
 		const merged: ExtendedPiiEntity[] = [...existing];
 
-		const occurrenceKey = (o: { start_idx: number; end_idx: number }) => `${o.start_idx}-${o.end_idx}`;
+		const occurrenceKey = (o: { start_idx: number; end_idx: number }) =>
+			`${o.start_idx}-${o.end_idx}`;
 
 		for (const incoming of entities) {
 			const idx = merged.findIndex((e) => e.label === incoming.label);
@@ -281,7 +282,9 @@ export class PiiSessionManager {
 				const current = merged[idx];
 				// Preserve shouldMask, update other fields
 				const currentOccKeys = new Set((current.occurrences || []).map(occurrenceKey));
-				const newOcc = (incoming.occurrences || []).filter((o) => !currentOccKeys.has(occurrenceKey(o)));
+				const newOcc = (incoming.occurrences || []).filter(
+					(o) => !currentOccKeys.has(occurrenceKey(o))
+				);
 				merged[idx] = {
 					...current,
 					// keep existing shouldMask, prefer non-empty raw_text
@@ -547,14 +550,17 @@ export class PiiSessionManager {
 
 		// Merge strategy: by label, preserve shouldMask, append unique occurrences
 		const merged: ExtendedPiiEntity[] = [...existingEntities];
-		const occurrenceKey = (o: { start_idx: number; end_idx: number }) => `${o.start_idx}-${o.end_idx}`;
+		const occurrenceKey = (o: { start_idx: number; end_idx: number }) =>
+			`${o.start_idx}-${o.end_idx}`;
 
 		for (const incoming of entities) {
 			const idx = merged.findIndex((e) => e.label === incoming.label);
 			if (idx >= 0) {
 				const current = merged[idx];
 				const currentOccKeys = new Set((current.occurrences || []).map(occurrenceKey));
-				const newOcc = (incoming.occurrences || []).filter((o) => !currentOccKeys.has(occurrenceKey(o)));
+				const newOcc = (incoming.occurrences || []).filter(
+					(o) => !currentOccKeys.has(occurrenceKey(o))
+				);
 				merged[idx] = {
 					...current,
 					// keep existing shouldMask, prefer non-empty raw_text

@@ -738,7 +738,8 @@
 				// Decide processing mode based on file type
 				// - Audio/Video: let backend process immediately (e.g., transcription)
 				// - Documents (pdf/docx/txt/etc.): upload first, then trigger retrieval processing
-				const shouldProcessOnUpload = file.type.startsWith('audio/') || file.type.startsWith('video/');
+				const shouldProcessOnUpload =
+					file.type.startsWith('audio/') || file.type.startsWith('video/');
 
 				// During the file upload, file content is automatically extracted.
 				const uploadedFile = await uploadFile(localStorage.token, file, metadata, {
@@ -1329,7 +1330,7 @@
 													</div>
 												</div>
 											{:else}
-                                                <FileItem
+												<FileItem
 													item={file}
 													name={file.name}
 													type={file.type}
@@ -1338,7 +1339,7 @@
 													dismissible={true}
 													edit={true}
 													modal={['file', 'collection'].includes(file?.type)}
-                                                    conversationId={chatId}
+													conversationId={chatId}
 													on:dismiss={async () => {
 														// Remove from UI state
 														files.splice(fileIdx, 1);

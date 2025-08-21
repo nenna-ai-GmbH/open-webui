@@ -1448,13 +1448,19 @@
 		console.log('submitPrompt', userPrompt, $chatId);
 
 		// Admin-only slash command to toggle PII debug overlay
-		if (($user?.role === 'admin') && typeof userPrompt === 'string' && userPrompt.trim().startsWith('/pii-debug')) {
+		if (
+			$user?.role === 'admin' &&
+			typeof userPrompt === 'string' &&
+			userPrompt.trim().startsWith('/pii-debug')
+		) {
 			const parts = userPrompt.trim().split(/\s+/);
 			const arg = parts[1]?.toLowerCase();
 			if (arg === 'on') showPiiDebug = true;
 			else if (arg === 'off') showPiiDebug = false;
 			else showPiiDebug = !showPiiDebug; // toggle by default
-			try { sessionStorage.setItem('piiDebug', showPiiDebug ? 'true' : 'false'); } catch (e) {}
+			try {
+				sessionStorage.setItem('piiDebug', showPiiDebug ? 'true' : 'false');
+			} catch (e) {}
 			toast.info(`PII Debug ${showPiiDebug ? 'enabled' : 'disabled'}`);
 			messageInput?.setText('');
 			return; // Do not proceed with normal submission
@@ -2505,7 +2511,7 @@
 			</div>
 		</div>
 	{/if}
- </div>
+</div>
 
 {#if $user?.role === 'admin' && showPiiDebug}
 	<!-- PII Known Entities Debug Overlay -->
@@ -2521,7 +2527,11 @@
 					<li>
 						<span class="opacity-70">{ent.label}</span>:
 						{ent.raw_text}
-						<span class="ml-2 px-1 rounded text-[10px] {ent.shouldMask ? 'bg-green-600/70' : 'bg-red-600/70'}">
+						<span
+							class="ml-2 px-1 rounded text-[10px] {ent.shouldMask
+								? 'bg-green-600/70'
+								: 'bg-red-600/70'}"
+						>
 							{ent.shouldMask ? 'masked' : 'unmasked'}
 						</span>
 					</li>

@@ -1179,8 +1179,8 @@
 								getShouldMask: () => piiMaskingEnabled,
 								onPiiDetected: onPiiDetected,
 								onPiiToggled: onPiiToggled,
-										onPiiDetectionStateChanged: handlePiiDetectionStateChanged,
-										detectOnlyAfterUserEdit: messageInput ? false : true
+								onPiiDetectionStateChanged: handlePiiDetectionStateChanged,
+								detectOnlyAfterUserEdit: messageInput ? false : true
 							})
 						]
 					: []),
@@ -1298,7 +1298,7 @@
 			},
 			editorProps: {
 				attributes: { id },
-					handleDOMEvents: {
+				handleDOMEvents: {
 					beforeinput: (view, event) => {
 						if (preventDocEdits) {
 							// Block any content mutation
@@ -1346,20 +1346,32 @@
 							// Allow navigation and selection keys; block editing keys
 							const k = event.key.toLowerCase();
 							const isEditKey = ['enter', 'backspace', 'delete'].includes(k);
-							const isSelectionKey = ['arrowleft', 'arrowright', 'arrowup', 'arrowdown', 'home', 'end', 'pageup', 'pagedown'].includes(k);
-							
+							const isSelectionKey = [
+								'arrowleft',
+								'arrowright',
+								'arrowup',
+								'arrowdown',
+								'home',
+								'end',
+								'pageup',
+								'pagedown'
+							].includes(k);
+
 							// Allow selection-related key combinations
 							if (event.shiftKey && isSelectionKey) {
 								return false; // Allow shift+arrow for selection
 							}
-							
+
 							// Allow Ctrl/Cmd+A for select all
 							if ((event.ctrlKey || event.metaKey) && k === 'a') {
 								return false; // Allow select all
 							}
-							
+
 							// Block editing keys
-							if (isEditKey || (!event.ctrlKey && !event.metaKey && !event.shiftKey && k.length === 1)) {
+							if (
+								isEditKey ||
+								(!event.ctrlKey && !event.metaKey && !event.shiftKey && k.length === 1)
+							) {
 								event.preventDefault();
 								return true;
 							}
@@ -1560,17 +1572,17 @@
 								return true;
 							}
 						}
-							// For all other cases, let ProseMirror perform its default paste behavior.
-							view.dispatch(view.state.tr.scrollIntoView());
-							return false;
-						},
-						drop: (view, event) => {
-							if (preventDocEdits) {
-								event.preventDefault();
-								return true;
-							}
-							return false;
+						// For all other cases, let ProseMirror perform its default paste behavior.
+						view.dispatch(view.state.tr.scrollIntoView());
+						return false;
+					},
+					drop: (view, event) => {
+						if (preventDocEdits) {
+							event.preventDefault();
+							return true;
 						}
+						return false;
+					}
 				}
 			},
 			onBeforeCreate: ({ editor }) => {
@@ -1813,7 +1825,6 @@
 	<div bind:this={bubbleMenuElement} id="bubble-menu" class="p-0">
 		<FormattingButtons {editor} />
 	</div>
-
 {/if}
 
 <div class="relative w-full min-w-full h-full min-h-fit {className}">
