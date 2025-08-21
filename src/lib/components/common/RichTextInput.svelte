@@ -1018,6 +1018,21 @@
 		}
 	};
 
+	// Export method to sync editor highlights with PII session manager immediately
+	export const syncWithSession = () => {
+		try {
+			if (!enablePiiDetection || !editor) return;
+			if (editor.commands?.syncWithSessionManager) {
+				editor.commands.syncWithSessionManager();
+			}
+			if (editor.commands?.forceEntityRemapping) {
+				editor.commands.forceEntityRemapping();
+			}
+		} catch (e) {
+			// no-op
+		}
+	};
+
 	const selectTemplate = () => {
 		if (value !== '') {
 			// After updating the state, try to find and select the next template

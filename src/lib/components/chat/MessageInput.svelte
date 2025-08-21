@@ -49,6 +49,7 @@
 	import { generateAutoCompletion } from '$lib/apis';
 	import { deleteFileById } from '$lib/apis/files';
 	import { processFile as triggerProcessFile } from '$lib/apis/retrieval';
+	import { getFileById } from '$lib/apis/files';
 
 	import { WEBUI_BASE_URL, WEBUI_API_BASE_URL, PASTED_TEXT_CHARACTER_LIMIT } from '$lib/constants';
 
@@ -409,42 +410,72 @@
 	// Sync PII detections found on files to the current conversation's PII session
 	function syncPiiDetectionsFromFileData(fileData: any) {
 		try {
-			const detections = fileData?.data?.pii;
-			if (!detections || typeof detections !== 'object') return;
+			const piiState = fileData?.data?.piiState;
+			const stateEntitiesArr = Array.isArray(piiState?.entities) ? piiState.entities : [];
 
-			// Convert detection map to entity array
-			const values = Object.values(detections) as any[];
-			if (!Array.isArray(values) || values.length === 0) return;
+			let extended: ExtendedPiiEntity[] = [];
 
-			// Shape to PiiEntity-compatible objects (extra fields allowed)
-			const entities = values
-				.map((e: any) => ({
-					id: e.id,
-					label: e.label,
-					type: e.type || e.entity_type || 'PII',
-					raw_text: e.raw_text || e.text || e.name || '',
-					occurrences: (e.occurrences || []).map((o: any) => ({
-						start_idx: o.start_idx,
-						end_idx: o.end_idx
+			if (stateEntitiesArr.length > 0) {
+				// Prefer stored entities with persisted shouldMask
+				extended = stateEntitiesArr
+					.map((e: any) => ({
+						id: e.id,
+						label: e.label,
+						type: e.type || e.entity_type || 'PII',
+						raw_text: e.raw_text || e.text || e.name || '',
+						occurrences: (e.occurrences || []).map((o: any) => ({
+							start_idx: o.start_idx,
+							end_idx: o.end_idx
+						})),
+						shouldMask: e.shouldMask ?? true
 					}))
-				}))
-				.filter((e) => e.raw_text && String(e.raw_text).trim() !== '');
+					.filter((e) => e.raw_text && String(e.raw_text).trim() !== '');
+			} else {
+				// Fallback: build from legacy pii map and apply current toggle as default
+				const detections = fileData?.data?.pii;
+				if (!detections || typeof detections !== 'object') return;
+				const values = Object.values(detections) as any[];
+				if (!Array.isArray(values) || values.length === 0) return;
 
-			if (entities.length === 0) return;
+				extended = values
+					.map((e: any) => ({
+						id: e.id,
+						label: e.label,
+						type: e.type || e.entity_type || 'PII',
+						raw_text: e.raw_text || e.text || e.name || '',
+						occurrences: (e.occurrences || []).map((o: any) => ({
+							start_idx: o.start_idx,
+							end_idx: o.end_idx
+						})),
+						shouldMask: piiMaskingEnabled
+					}))
+					.filter((e) => e.raw_text && String(e.raw_text).trim() !== '');
+			}
+
+			if (extended.length === 0) return;
 
 			if (chatId && chatId.trim() !== '') {
-				piiSessionManager.setConversationEntitiesFromLatestDetection(chatId, entities as any);
+				// Merge entities into the conversation and apply mask states
+				piiSessionManager.setConversationEntitiesFromLatestDetection(chatId, extended as any);
+				try {
+					extended.forEach((ent) =>
+						piiSessionManager.setEntityMaskingState(chatId, ent.label, ent.shouldMask ?? true)
+					);
+				} catch (_) {}
 			} else {
-				// New/temporary chat: seed temporary state so editors and Chat can display
+				// Temporary chat: seed temporary state so editors and Chat can display
 				if (!piiSessionManager.isTemporaryStateActive()) {
 					piiSessionManager.activateTemporaryState();
 				}
-				const extended: ExtendedPiiEntity[] = (entities as any).map((e: any) => ({
-					...e,
-					shouldMask: true
-				}));
 				piiSessionManager.setTemporaryStateEntities(extended);
 			}
+
+			// Ask the editor to sync its decorations if available
+			try {
+				if (chatInputElement?.syncWithSession) {
+					chatInputElement.syncWithSession();
+				}
+			} catch (_) {}
 		} catch (_) {}
 	}
 
@@ -1143,6 +1174,15 @@
 										status: 'processed'
 									}
 								];
+								// Fetch full file details to seed PII entities into the current conversation
+								(async () => {
+									try {
+										const json = await getFileById(localStorage.token, data.id);
+										if (json) {
+											syncPiiDetectionsFromFileData(json);
+										}
+									} catch (e) {}
+								})();
 							} else {
 								dispatch('upload', e);
 							}
