@@ -128,7 +128,12 @@ export const getFileById = async (token: string, id: string) => {
 	return res;
 };
 
-export const updateFileDataContentById = async (token: string, id: string, content: string) => {
+export const updateFileDataContentById = async (
+  token: string,
+  id: string,
+  content: string,
+  options?: { pii?: Record<string, any> | any[]; piiState?: Record<string, any> }
+) => {
 	let error = null;
 
 	const res = await fetch(`${WEBUI_API_BASE_URL}/files/${id}/data/content/update`, {
@@ -139,7 +144,9 @@ export const updateFileDataContentById = async (token: string, id: string, conte
 			authorization: `Bearer ${token}`
 		},
 		body: JSON.stringify({
-			content: content
+			content,
+			pii: options?.pii,
+			pii_state: options?.piiState
 		})
 	})
 		.then(async (res) => {

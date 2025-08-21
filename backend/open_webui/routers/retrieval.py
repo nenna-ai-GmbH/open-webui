@@ -1334,6 +1334,10 @@ def save_docs_to_vector_db(
             # Never let PII normalization break ingestion
             doc.metadata["pii"] = {}
 
+        # Guard: skip normalization if already marked as normalized
+        if doc.metadata.get("pii_positions_normalized"):
+            continue
+
         start_index = doc.metadata.get("start_index", 0)
         end_index = len(doc.page_content) + start_index
         pii_to_remove = []
@@ -1342,13 +1346,26 @@ def save_docs_to_vector_db(
             for occurrence in (
                 doc.metadata["pii"].get(pii_entity, {}).get("occurrences", [])
             ):
+                s = occurrence.get("start_idx")
+                e = occurrence.get("end_idx")
+                # Case 1: already chunk-local (0..len(content)) -> keep as-is
                 if (
-                    occurrence["start_idx"] >= start_index
-                    and occurrence["end_idx"] <= end_index
+                    isinstance(s, int)
+                    and isinstance(e, int)
+                    and 0 <= s < e <= len(doc.page_content)
                 ):
-                    occurrence["start_idx"] = occurrence["start_idx"] - start_index
-                    occurrence["end_idx"] = occurrence["end_idx"] - start_index
-                    updated_occurrences.append(occurrence)
+                    updated_occurrences.append({"start_idx": s, "end_idx": e})
+                # Case 2: global within start/end -> shift to chunk-local
+                elif (
+                    isinstance(s, int)
+                    and isinstance(e, int)
+                    and s >= start_index
+                    and e <= end_index
+                ):
+                    updated_occurrences.append(
+                        {"start_idx": s - start_index, "end_idx": e - start_index}
+                    )
+                # Else: out of range -> drop this occurrence
             if updated_occurrences:
                 if pii_entity in doc.metadata["pii"]:
                     doc.metadata["pii"][pii_entity]["occurrences"] = updated_occurrences
@@ -1357,6 +1374,9 @@ def save_docs_to_vector_db(
 
         for pii_entity in pii_to_remove:
             del doc.metadata["pii"][pii_entity]
+
+        # Mark as normalized to avoid future double-normalization
+        doc.metadata["pii_positions_normalized"] = True
 
     log.debug(f"docs: {docs}")
     texts = [doc.page_content for doc in docs]
@@ -1447,6 +1467,9 @@ class ProcessFileForm(BaseModel):
     file_id: str
     content: Optional[str] = None
     collection_name: Optional[str] = None
+    # Optional PII and UI state provided by client to avoid re-detection
+    pii: Optional[dict | list] = None
+    pii_state: Optional[dict] = None
 
 
 @router.post("/process/file")
@@ -1506,6 +1529,26 @@ def process_file(
                 pass
             # Content provided directly; extraction stage completed
             _set_processing(file.id, "processing", "extracting", 20)
+
+            # If client provided PII, attach it to doc metadata and persist to file data
+            try:
+                if form_data.pii is not None:
+                    try:
+                        if docs and len(docs) > 0:
+                            # Attach as-is; downstream normalization handles chunk-local mapping
+                            docs[0].metadata["pii"] = form_data.pii
+                        Files.update_file_data_by_id(file.id, {"pii": form_data.pii})
+                    except Exception:
+                        pass
+                if form_data.pii_state is not None:
+                    try:
+                        Files.update_file_data_by_id(
+                            file.id, {"piiState": form_data.pii_state}
+                        )
+                    except Exception:
+                        pass
+            except Exception as e:
+                log.debug(f"process_file: skipping client-provided PII attach: {e}")
         elif form_data.collection_name:
             # Check if the file has already been processed and save the content
             # Usage: /knowledge/{id}/file/add, /knowledge/{id}/file/update
@@ -1535,6 +1578,14 @@ def process_file(
                         },
                     )
                 ]
+                # If PII is already stored with the file (from a prior content update),
+                # attach it so downstream chunking can normalize positions into each split.
+                try:
+                    pii_from_file = (file.data or {}).get("pii")
+                    if pii_from_file and isinstance(docs, list) and docs:
+                        docs[0].metadata["pii"] = pii_from_file
+                except Exception:
+                    pass
 
             # Pre-mark extracting so clients see progress immediately
             _set_processing(file.id, "processing", "extracting", 10)
@@ -1741,7 +1792,7 @@ def process_file(
                         file.id, "processing", "pii_detection", pii_progress
                     )
                 except Exception:
-                    log.exception(e)
+                    log.exception("Failed to update PII progress")
 
                 # Move the running offset forward for the next page
                 current_page_offset = page_start_offset + len(doc.page_content)

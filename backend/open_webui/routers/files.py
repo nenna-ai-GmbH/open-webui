@@ -397,6 +397,10 @@ async def get_file_data_content_by_id(id: str, user=Depends(get_verified_user)):
 
 class ContentForm(BaseModel):
     content: str
+    # Optional client-provided PII detections to persist and use during re-indexing
+    pii: Optional[dict | list] = None
+    # Optional PII UI state (masking, etc.) to persist alongside chat/file data
+    pii_state: Optional[dict] = None
 
 
 @router.post("/{id}/data/content/update")
@@ -417,9 +421,33 @@ async def update_file_data_content_by_id(
         or has_access_to_file(id, "write", user)
     ):
         try:
+            # If the client provided PII UI state, persist it first
+            if form_data.pii_state is not None:
+                try:
+                    Files.update_file_data_by_id(id, {"piiState": form_data.pii_state})
+                except Exception:
+                    pass
+
+            # If the client provided PII detections, persist to file data and meta
+            # so downstream chunking can attach them without re-detection
+            if form_data.pii is not None:
+                try:
+                    Files.update_file_data_by_id(id, {"pii": form_data.pii})
+                except Exception:
+                    pass
+                try:
+                    Files.update_file_metadata_by_id(id, {"pii": form_data.pii})
+                except Exception:
+                    pass
+
             process_file(
                 request,
-                ProcessFileForm(file_id=id, content=form_data.content),
+                ProcessFileForm(
+                    file_id=id,
+                    content=form_data.content,
+                    pii=form_data.pii,
+                    pii_state=form_data.pii_state,
+                ),
                 user=user,
             )
             file = Files.get_file_by_id(id=id)

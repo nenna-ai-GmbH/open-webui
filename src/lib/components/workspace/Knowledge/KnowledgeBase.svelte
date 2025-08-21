@@ -503,8 +503,43 @@
 		// Clear the cache for this file since we're updating it
 		fileContentCache.delete(fileId);
 
-		const res = updateFileDataContentById(localStorage.token, fileId, content).catch((e) => {
+		// Collect PII state and entities to send with content update
+		let piiState = null;
+		let piiPayload: Record<string, any> | null = null;
+		try {
+			const convoId = `${id || 'kb'}:${fileId}`;
+			const state = PiiSessionManager.getInstance().getConversationState(convoId);
+			if (state) {
+				piiState = state as any;
+				const entities = state.entities || [];
+				const map: Record<string, any> = {};
+				entities.forEach((ent) => {
+					const key = ent.raw_text || ent.label;
+					if (!key) return;
+					map[key] = {
+						id: ent.id,
+						label: ent.label,
+						type: ent.type || 'PII',
+						text: ent.raw_text || ent.label,
+						raw_text: ent.raw_text || ent.label,
+						occurrences: (ent.occurrences || []).map((o) => ({
+							start_idx: o.start_idx,
+							end_idx: o.end_idx
+						}))
+					};
+				});
+				piiPayload = map;
+			}
+		} catch (e) {
+			// ignore PII packaging errors
+		}
+
+		const res = await updateFileDataContentById(localStorage.token, fileId, content, {
+			pii: piiPayload || undefined,
+			piiState: piiState || undefined
+		}).catch((e) => {
 			toast.error(`${e}`);
+			return null;
 		});
 
 		const updatedKnowledge = await updateFileFromKnowledgeById(
