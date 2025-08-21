@@ -1801,8 +1801,8 @@
 
 {/if}
 
-<div bind:this={element} class="relative w-full min-w-full h-full min-h-fit {className}">
-	<div class="w-full h-full min-h-fit" />
+<div class="relative w-full min-w-full h-full min-h-fit {className}">
+	<div bind:this={element} class="w-full h-full min-h-fit" />
 
 	<!-- PII Detection Loading Indicator -->
 	{#if enablePiiDetection && isPiiDetectionInProgress}
