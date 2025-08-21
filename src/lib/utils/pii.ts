@@ -269,9 +269,32 @@ export class PiiSessionManager {
 			return;
 		}
 
-		// Store the extended entities directly without recalculating shouldMask states
-		// This preserves shouldMask states that were already calculated from plugin state
-		this.temporaryState.entities = entities;
+		// Merge new entities into temporary state without losing existing ones
+		const existing = this.temporaryState.entities || [];
+		const merged: ExtendedPiiEntity[] = [...existing];
+
+		const occurrenceKey = (o: { start_idx: number; end_idx: number }) => `${o.start_idx}-${o.end_idx}`;
+
+		for (const incoming of entities) {
+			const idx = merged.findIndex((e) => e.label === incoming.label);
+			if (idx >= 0) {
+				const current = merged[idx];
+				// Preserve shouldMask, update other fields
+				const currentOccKeys = new Set((current.occurrences || []).map(occurrenceKey));
+				const newOcc = (incoming.occurrences || []).filter((o) => !currentOccKeys.has(occurrenceKey(o)));
+				merged[idx] = {
+					...current,
+					// keep existing shouldMask, prefer non-empty raw_text
+					raw_text: current.raw_text || incoming.raw_text,
+					type: incoming.type || current.type,
+					occurrences: [...(current.occurrences || []), ...newOcc]
+				};
+			} else {
+				merged.push({ ...incoming, shouldMask: incoming.shouldMask ?? true });
+			}
+		}
+
+		this.temporaryState.entities = merged;
 	}
 
 	getTemporaryStateEntities(): ExtendedPiiEntity[] {
@@ -522,19 +545,30 @@ export class PiiSessionManager {
 		const existingState = this.conversationStates.get(conversationId);
 		const existingEntities = existingState?.entities || [];
 
-		// Convert new entities to extended format with default shouldMask: true
-		const newExtendedEntities = entities.map((entity) => {
-			// Preserve shouldMask state if entity already exists
-			const existingEntity = existingEntities.find((e) => e.label === entity.label);
-			return {
-				...entity,
-				shouldMask: existingEntity?.shouldMask ?? true
-			};
-		});
+		// Merge strategy: by label, preserve shouldMask, append unique occurrences
+		const merged: ExtendedPiiEntity[] = [...existingEntities];
+		const occurrenceKey = (o: { start_idx: number; end_idx: number }) => `${o.start_idx}-${o.end_idx}`;
 
-		// Update conversation state - simple replacement, no complex merging
+		for (const incoming of entities) {
+			const idx = merged.findIndex((e) => e.label === incoming.label);
+			if (idx >= 0) {
+				const current = merged[idx];
+				const currentOccKeys = new Set((current.occurrences || []).map(occurrenceKey));
+				const newOcc = (incoming.occurrences || []).filter((o) => !currentOccKeys.has(occurrenceKey(o)));
+				merged[idx] = {
+					...current,
+					// keep existing shouldMask, prefer non-empty raw_text
+					raw_text: current.raw_text || (incoming as any).raw_text,
+					type: (incoming as any).type || current.type,
+					occurrences: [...(current.occurrences || []), ...newOcc]
+				};
+			} else {
+				merged.push({ ...(incoming as any), shouldMask: true });
+			}
+		}
+
 		const newState: ConversationPiiState = {
-			entities: newExtendedEntities,
+			entities: merged,
 			modifiers: existingState?.modifiers || [],
 			sessionId: sessionId || existingState?.sessionId,
 			apiKey: this.apiKey || existingState?.apiKey,

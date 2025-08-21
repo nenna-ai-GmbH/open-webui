@@ -406,6 +406,48 @@
 	let maskedPrompt = '';
 	let piiMaskingEnabled = true; // Toggle state for PII masking
 
+	// Sync PII detections found on files to the current conversation's PII session
+	function syncPiiDetectionsFromFileData(fileData: any) {
+		try {
+			const detections = fileData?.data?.pii;
+			if (!detections || typeof detections !== 'object') return;
+
+			// Convert detection map to entity array
+			const values = Object.values(detections) as any[];
+			if (!Array.isArray(values) || values.length === 0) return;
+
+			// Shape to PiiEntity-compatible objects (extra fields allowed)
+			const entities = values
+				.map((e: any) => ({
+					id: e.id,
+					label: e.label,
+					type: e.type || e.entity_type || 'PII',
+					raw_text: e.raw_text || e.text || e.name || '',
+					occurrences: (e.occurrences || []).map((o: any) => ({
+						start_idx: o.start_idx,
+						end_idx: o.end_idx
+					}))
+				}))
+				.filter((e) => e.raw_text && String(e.raw_text).trim() !== '');
+
+			if (entities.length === 0) return;
+
+			if (chatId && chatId.trim() !== '') {
+				piiSessionManager.setConversationEntitiesFromLatestDetection(chatId, entities as any);
+			} else {
+				// New/temporary chat: seed temporary state so editors and Chat can display
+				if (!piiSessionManager.isTemporaryStateActive()) {
+					piiSessionManager.activateTemporaryState();
+				}
+				const extended: ExtendedPiiEntity[] = (entities as any).map((e: any) => ({
+					...e,
+					shouldMask: true
+				}));
+				piiSessionManager.setTemporaryStateEntities(extended);
+			}
+		} catch (_) {}
+	}
+
 	// Get PII settings from config
 	$: enablePiiDetection = $config?.features?.enable_pii_detection ?? false;
 	$: piiApiKey = $config?.pii?.api_key ?? '';
@@ -721,6 +763,8 @@
 								try {
 									fileItem.file = json;
 								} catch (e) {}
+								// NEW: sync any PII detections from this file into the session manager
+								syncPiiDetectionsFromFileData(json);
 								const processing = json?.meta?.processing;
 								if (processing) {
 									console.log('Processing progress:', processing);
@@ -842,7 +886,7 @@
 				}
 
 				const compressImageHandler = async (imageUrl, settings = {}, config = {}) => {
-					// Quick shortcut so we don’t do unnecessary work.
+					// Quick shortcut so we don't do unnecessary work.
 					const settingsCompression = settings?.imageCompression ?? false;
 					const configWidth = config?.file?.image_compression?.width ?? null;
 					const configHeight = config?.file?.image_compression?.height ?? null;

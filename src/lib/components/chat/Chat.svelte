@@ -91,6 +91,7 @@
 	import Tooltip from '../common/Tooltip.svelte';
 	import Sidebar from '../icons/Sidebar.svelte';
 	import { PiiSessionManager } from '$lib/utils/pii';
+	import type { ExtendedPiiEntity } from '$lib/utils/pii';
 
 	export let chatIdProp = '';
 
@@ -131,6 +132,9 @@
 
 	let showCommands = false;
 
+	// Admin-only PII debug overlay toggle
+	let showPiiDebug = false;
+
 	let generating = false;
 	let generationController = null;
 
@@ -149,6 +153,23 @@
 	let chatFiles = [];
 	let files = [];
 	let params = {};
+
+	// PII debug view state
+	let piiKnownEntitiesDebug: ExtendedPiiEntity[] = [];
+	let piiDebugInterval: any = null;
+
+	const refreshKnownEntitiesDebug = () => {
+		try {
+			const mgr = PiiSessionManager.getInstance();
+			// Ensure we reflect the currently active conversation (including temporary state before a chat is created)
+			piiKnownEntitiesDebug = mgr.getEntitiesForDisplay($chatId) || [];
+		} catch (e) {
+			// ignore
+		}
+	};
+
+	// Recompute on active chat id changes as well
+	$: refreshKnownEntitiesDebug();
 
 	$: if (chatIdProp) {
 		navigateHandler();
@@ -531,6 +552,18 @@
 		chatInput?.focus();
 
 		chats.subscribe(() => {});
+
+		// Restore PII debug flag from session
+		try {
+			const saved = sessionStorage.getItem('piiDebug');
+			if (saved !== null) {
+				showPiiDebug = saved === 'true';
+			}
+		} catch (e) {}
+
+		// Start PII debug auto-refresh
+		refreshKnownEntitiesDebug();
+		piiDebugInterval = setInterval(refreshKnownEntitiesDebug, 500);
 	});
 
 	onDestroy(() => {
@@ -538,6 +571,7 @@
 		chatIdUnsubscriber?.();
 		window.removeEventListener('message', onMessageHandler);
 		$socket?.off('chat-events', chatEventHandler);
+		if (piiDebugInterval) clearInterval(piiDebugInterval);
 	});
 
 	// File upload functions
@@ -1412,6 +1446,19 @@
 
 	const submitPrompt = async (userPrompt, { _raw = false } = {}) => {
 		console.log('submitPrompt', userPrompt, $chatId);
+
+		// Admin-only slash command to toggle PII debug overlay
+		if (($user?.role === 'admin') && typeof userPrompt === 'string' && userPrompt.trim().startsWith('/pii-debug')) {
+			const parts = userPrompt.trim().split(/\s+/);
+			const arg = parts[1]?.toLowerCase();
+			if (arg === 'on') showPiiDebug = true;
+			else if (arg === 'off') showPiiDebug = false;
+			else showPiiDebug = !showPiiDebug; // toggle by default
+			try { sessionStorage.setItem('piiDebug', showPiiDebug ? 'true' : 'false'); } catch (e) {}
+			toast.info(`PII Debug ${showPiiDebug ? 'enabled' : 'disabled'}`);
+			messageInput?.setText('');
+			return; // Do not proceed with normal submission
+		}
 
 		const messages = createMessagesList(history, history.currentId);
 		const _selectedModels = selectedModels.map((modelId) =>
@@ -2458,4 +2505,28 @@
 			</div>
 		</div>
 	{/if}
-</div>
+ </div>
+
+{#if $user?.role === 'admin' && showPiiDebug}
+	<!-- PII Known Entities Debug Overlay -->
+	<div
+		class="fixed bottom-2 right-2 z-50 rounded bg-black/60 text-white p-2 max-w-[60vw] max-h-40 overflow-auto text-[11px] leading-snug shadow-md"
+	>
+		<div class="font-semibold mb-1">PII Known Entities ({piiKnownEntitiesDebug.length})</div>
+		{#if piiKnownEntitiesDebug.length === 0}
+			<div class="opacity-70">None</div>
+		{:else}
+			<ul class="space-y-0.5">
+				{#each piiKnownEntitiesDebug as ent}
+					<li>
+						<span class="opacity-70">{ent.label}</span>:
+						{ent.raw_text}
+						<span class="ml-2 px-1 rounded text-[10px] {ent.shouldMask ? 'bg-green-600/70' : 'bg-red-600/70'}">
+							{ent.shouldMask ? 'masked' : 'unmasked'}
+						</span>
+					</li>
+				{/each}
+			</ul>
+		{/if}
+	</div>
+{/if}
