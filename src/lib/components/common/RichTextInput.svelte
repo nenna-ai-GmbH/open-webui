@@ -1022,6 +1022,11 @@
 	export const syncWithSession = () => {
 		try {
 			if (!enablePiiDetection || !editor) return;
+
+			// Ensure modifiers are reloaded from session for current conversation
+			if (enablePiiModifiers && conversationId && editor.commands?.reloadConversationModifiers) {
+				editor.commands.reloadConversationModifiers(conversationId);
+			}
 			if (editor.commands?.syncWithSessionManager) {
 				editor.commands.syncWithSessionManager();
 			}

@@ -412,6 +412,7 @@
 		try {
 			const piiState = fileData?.data?.piiState;
 			const stateEntitiesArr = Array.isArray(piiState?.entities) ? piiState.entities : [];
+			const stateModifiersArr = Array.isArray(piiState?.modifiers) ? piiState.modifiers : [];
 
 			let extended: ExtendedPiiEntity[] = [];
 
@@ -452,22 +453,48 @@
 					.filter((e) => e.raw_text && String(e.raw_text).trim() !== '');
 			}
 
-			if (extended.length === 0) return;
+			if (extended.length === 0 && stateModifiersArr.length === 0) return;
 
 			if (chatId && chatId.trim() !== '') {
 				// Merge entities into the conversation and apply mask states
-				piiSessionManager.setConversationEntitiesFromLatestDetection(chatId, extended as any);
-				try {
-					extended.forEach((ent) =>
-						piiSessionManager.setEntityMaskingState(chatId, ent.label, ent.shouldMask ?? true)
-					);
-				} catch (_) {}
+				if (extended.length > 0) {
+					piiSessionManager.setConversationEntitiesFromLatestDetection(chatId, extended as any);
+					try {
+						extended.forEach((ent) =>
+							piiSessionManager.setEntityMaskingState(chatId, ent.label, ent.shouldMask ?? true)
+						);
+					} catch (_) {}
+				}
+
+				// Merge modifiers: file modifiers override existing modifiers for same entity text
+				if (stateModifiersArr.length > 0) {
+					try {
+						const existing = piiSessionManager.getModifiersForDisplay(chatId) || [];
+						const byEntity = new Map<string, any>();
+						existing.forEach((m: any) => byEntity.set((m.entity || '').toString(), m));
+						stateModifiersArr.forEach((m: any) => byEntity.set((m.entity || '').toString(), m));
+						const merged = Array.from(byEntity.values());
+						piiSessionManager.setConversationModifiers(chatId, merged);
+					} catch (_) {}
+				}
 			} else {
 				// Temporary chat: seed temporary state so editors and Chat can display
 				if (!piiSessionManager.isTemporaryStateActive()) {
 					piiSessionManager.activateTemporaryState();
 				}
-				piiSessionManager.setTemporaryStateEntities(extended);
+				if (extended.length > 0) {
+					piiSessionManager.setTemporaryStateEntities(extended);
+				}
+				if (stateModifiersArr.length > 0) {
+					try {
+						const existing = piiSessionManager.getModifiersForDisplay(undefined) || [];
+						const byEntity = new Map<string, any>();
+						existing.forEach((m: any) => byEntity.set((m.entity || '').toString(), m));
+						stateModifiersArr.forEach((m: any) => byEntity.set((m.entity || '').toString(), m));
+						const merged = Array.from(byEntity.values());
+						piiSessionManager.setTemporaryModifiers(merged);
+					} catch (_) {}
+				}
 			}
 
 			// Ask the editor to sync its decorations if available
