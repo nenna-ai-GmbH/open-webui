@@ -53,79 +53,7 @@ function generateModifierId(): string {
 	return `modifier_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }
 
-// Tokenizer pattern for broader context word detection
-const WORD_TOKENIZER_PATTERN = /[\w'-äöüÄÖÜß]+(?=\b|\.)/g;
-
-// Find all tokenized words touched by a text selection with broader context
-function findTokenizedWords(
-	doc: ProseMirrorNode,
-	selectionFrom: number,
-	selectionTo: number
-): Array<{ word: string; from: number; to: number }> {
-	const words: Array<{ word: string; from: number; to: number }> = [];
-
-	// Expand context to include words that might be partially selected
-	const contextStart = Math.max(0, selectionFrom - 100); // 100 chars before
-	const contextEnd = Math.min(doc.content.size, selectionTo + 100); // 100 chars after
-
-	let contextText = '';
-
-	// Build context text with position mapping
-	const positionMap: number[] = []; // Maps context text index to document position
-
-	doc.nodesBetween(contextStart, contextEnd, (node, nodePos) => {
-		if (node.isText && node.text) {
-			const nodeStart = nodePos;
-			const nodeEnd = nodePos + node.text.length;
-			const effectiveStart = Math.max(nodeStart, contextStart);
-			const effectiveEnd = Math.min(nodeEnd, contextEnd);
-
-			if (effectiveStart < effectiveEnd) {
-				const startOffset = effectiveStart - nodeStart;
-				const endOffset = effectiveEnd - nodeStart;
-				const textSlice = node.text.substring(startOffset, endOffset);
-
-				// Map each character position
-				for (let i = 0; i < textSlice.length; i++) {
-					positionMap.push(effectiveStart + i);
-				}
-
-				contextText += textSlice;
-			}
-		}
-	});
-
-	// Find all words using tokenizer
-	let match;
-	WORD_TOKENIZER_PATTERN.lastIndex = 0; // Reset regex
-
-	while ((match = WORD_TOKENIZER_PATTERN.exec(contextText)) !== null) {
-		const wordStart = match.index;
-		const wordEnd = match.index + match[0].length;
-
-		// Map back to document positions
-		const docStart = positionMap[wordStart];
-		const docEnd = positionMap[wordEnd - 1] + 1; // +1 because we want end position
-
-		// Check if this word is "touched" by the selection (overlaps with selection range)
-		if (docEnd > selectionFrom && docStart < selectionTo) {
-			words.push({
-				word: match[0],
-				from: docStart,
-				to: docEnd
-			});
-		}
-	}
-
-	// Remove duplicates and sort by position
-	const uniqueWords = words
-		.filter(
-			(word, index, arr) => arr.findIndex((w) => w.from === word.from && w.to === word.to) === index
-		)
-		.sort((a, b) => a.from - b.from);
-
-	return uniqueWords;
-}
+// (Selection tokenization removed with legacy selection menu.)
 
 // Find existing PII or modifier element under mouse cursor
 function findExistingEntityAtPosition(
@@ -610,6 +538,7 @@ function createHoverMenu(
 }
 
 // Create text selection menu element
+// Deprecated: selection menu is now provided via BubbleMenu in RichTextInput
 function createSelectionMenu(
 	selectionInfo: {
 		selectedText: string;
@@ -1064,253 +993,11 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 		}
 
 		let hoverMenuElement: HTMLElement | null = null;
-		let selectionMenuElement: HTMLElement | null = null;
 		let hoverTimeout: number | null = null;
-		let selectionTimeout: number | null = null;
 		let menuCloseTimeout: ReturnType<typeof setTimeout> | null = null;
 		let isMouseOverMenu = false;
 		let isInputFocused = false;
-		let globalMouseUpListener: ((event: MouseEvent) => void) | null = null;
-
-		// Shared function to handle text selection for both editor and global mouseup
-		const handleTextSelection = (event: MouseEvent, view: any) => {
-			// Clear any existing selection timeout
-			if (selectionTimeout) {
-				clearTimeout(selectionTimeout);
-				selectionTimeout = null;
-			}
-
-			// Handle text selection for selection menu
-			let pmFrom = view.state.selection.from;
-			let pmTo = view.state.selection.to;
-			let selectedText = '';
-
-			// First try to get the browser selection (more reliable for read-only editors)
-			try {
-				const sel = window.getSelection();
-				if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
-					const range = sel.getRangeAt(0);
-					const rect = range.getBoundingClientRect();
-
-					// Check if selection is within the editor DOM
-					const container = range.commonAncestorContainer as Node;
-					const element =
-						container.nodeType === 1
-							? (container as HTMLElement)
-							: (container.parentElement as HTMLElement);
-
-					if (element && view.dom.contains(element)) {
-						// Try to map browser selection to ProseMirror positions
-						const startPos = view.posAtCoords({ left: rect.left, top: rect.top });
-						const endPos = view.posAtCoords({ left: rect.right, top: rect.bottom });
-						if (startPos && endPos && endPos.pos > startPos.pos) {
-							pmFrom = startPos.pos;
-							pmTo = endPos.pos;
-						} else if (pmFrom === pmTo) {
-							// If ProseMirror selection is empty but browser has selection,
-							// use the browser selection text directly
-							selectedText = sel.toString();
-							if (selectedText.trim()) {
-								// Create a synthetic selection info based on browser selection
-								const x = event.clientX || rect.left;
-								const y = event.clientY || rect.top;
-
-								// Show selection menu for browser-selected text
-								if (selectionMenuElement) {
-									selectionMenuElement.remove();
-								}
-
-								const onMaskSelection = (
-									text: string,
-									piiType: string,
-									from: number,
-									to: number
-								) => {
-									const tr = view.state.tr.setMeta(piiModifierExtensionKey, {
-										type: 'ADD_MODIFIER',
-										entity: text,
-										action: 'string-mask',
-										piiType: piiType
-									});
-									view.dispatch(tr);
-								};
-
-								// Create timeout manager for browser selection menu
-								const timeoutManager = {
-									clearAll: () => {
-										if (hoverTimeout) {
-											clearTimeout(hoverTimeout);
-											hoverTimeout = null;
-										}
-										if (menuCloseTimeout) {
-											clearTimeout(menuCloseTimeout);
-											menuCloseTimeout = null;
-										}
-									},
-									setFallback: (callback: () => void, delay: number) => {
-										if (menuCloseTimeout) {
-											clearTimeout(menuCloseTimeout);
-										}
-										menuCloseTimeout = setTimeout(callback, delay);
-									},
-									setInputFocused: (focused: boolean) => {
-										isInputFocused = focused;
-									}
-								};
-
-								// Create selection menu with browser selection
-								const selectionInfo = {
-									selectedText: selectedText,
-									tokenizedWords: [],
-									from: pmFrom,
-									to: pmTo,
-									x: x,
-									y: y
-								};
-
-								selectionMenuElement = createSelectionMenu(
-									selectionInfo,
-									onMaskSelection,
-									timeoutManager,
-									true
-								);
-								// Ensure menu appears above modal
-								document.body.appendChild(selectionMenuElement);
-
-								// Force the menu to be on top by temporarily boosting z-index
-								setTimeout(() => {
-									if (selectionMenuElement) {
-										selectionMenuElement.style.zIndex = '10001';
-									}
-								}, 0);
-								return true;
-							}
-						}
-					}
-				}
-			} catch (_e) {
-				// Fall back to ProseMirror selection
-			}
-
-			// Only show selection menu if there's actual text selected
-			if (pmFrom === pmTo && !selectedText) {
-				// Close selection menu if no selection
-				if (selectionMenuElement) {
-					selectionMenuElement.remove();
-					selectionMenuElement = null;
-				}
-				return false;
-			}
-
-			// Get selected text
-			selectedText = view.state.doc.textBetween(pmFrom, pmTo);
-
-			// Don't show menu for very short selections or selections longer than 100 characters
-			if (selectedText.length < 2 || selectedText.length > 50) {
-				return false;
-			}
-
-			// Find tokenized words touched by the selection
-			const tokenizedWords = findTokenizedWords(view.state.doc, pmFrom, pmTo);
-
-			// Don't show menu if no words found
-			if (tokenizedWords.length === 0) {
-				return false;
-			}
-
-			// Check if SHIFT key is pressed to determine menu type
-			const showAdvancedMenu = event.shiftKey;
-
-			// Close hover menu if it exists
-			if (hoverMenuElement) {
-				hoverMenuElement.remove();
-				hoverMenuElement = null;
-			}
-
-			// Close existing selection menu
-			if (selectionMenuElement) {
-				selectionMenuElement.remove();
-			}
-
-			// Add delay before showing selection menu
-			selectionTimeout = window.setTimeout(() => {
-				// Create timeout manager for selection menu
-				const timeoutManager = {
-					clearAll: () => {
-						if (hoverTimeout) {
-							clearTimeout(hoverTimeout);
-							hoverTimeout = null;
-						}
-						if (menuCloseTimeout) {
-							clearTimeout(menuCloseTimeout);
-							menuCloseTimeout = null;
-						}
-					},
-					setFallback: (callback: () => void, delay: number) => {
-						if (menuCloseTimeout) {
-							clearTimeout(menuCloseTimeout);
-						}
-						menuCloseTimeout = setTimeout(callback, delay);
-					},
-					setInputFocused: (focused: boolean) => {
-						isInputFocused = focused;
-					}
-				};
-
-				const onMaskSelection = (text: string, piiType: string, from: number, to: number) => {
-					const tr = view.state.tr.setMeta(piiModifierExtensionKey, {
-						type: 'ADD_MODIFIER',
-						modifierAction: 'string-mask' as ModifierAction,
-						entity: text,
-						piiType,
-						from,
-						to
-					});
-					view.dispatch(tr);
-
-					if (selectionMenuElement) {
-						selectionMenuElement.remove();
-						selectionMenuElement = null;
-					}
-					timeoutManager.clearAll();
-				};
-
-				// Create selection menu (advanced if SHIFT, simplified otherwise)
-				selectionMenuElement = createSelectionMenu(
-					{
-						selectedText,
-						tokenizedWords,
-						from: pmFrom,
-						to: pmTo,
-						x: event.clientX,
-						y: event.clientY
-					},
-					onMaskSelection,
-					timeoutManager,
-					showAdvancedMenu
-				);
-
-				// Ensure menu appears above modal
-				document.body.appendChild(selectionMenuElement);
-
-				// Force the menu to be on top
-				setTimeout(() => {
-					if (selectionMenuElement) {
-						selectionMenuElement.style.zIndex = '10001';
-					}
-				}, 0);
-
-				// Set a fallback timeout to close menu after 15 seconds
-				timeoutManager.setFallback(() => {
-					if (selectionMenuElement) {
-						selectionMenuElement.remove();
-						selectionMenuElement = null;
-					}
-				}, 15000);
-			}, 400); // 400ms delay
-
-			return true;
-		};
+		// (Selection handling removed; BubbleMenu in RichTextInput provides UI for selection.)
 
 		const plugin = new Plugin<PiiModifierState>({
 			key: piiModifierExtensionKey,
@@ -1497,18 +1184,10 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 						}
 					}
 
-					// Close selection menu if clicking outside of it
-					if (selectionMenuElement) {
-						const isClickInsideSelectionMenu = selectionMenuElement.contains(target);
-
-						if (!isClickInsideSelectionMenu) {
-							selectionMenuElement.remove();
-							selectionMenuElement = null;
-						}
-					}
+					// No selection menu to close
 
 					// Reset input focus state if clicking outside menus
-					if (!hoverMenuElement && !selectionMenuElement) {
+					if (!hoverMenuElement) {
 						isInputFocused = false;
 					}
 
@@ -1525,19 +1204,14 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 
 				handleDOMEvents: {
 					mouseup: (view, event) => {
-						// Handle text selection on mouseup within the editor
-						// This is especially important for read-only editors with preventDocEdits
-						setTimeout(() => {
-							handleTextSelection(event as MouseEvent, view);
-						}, 10);
+						// Selection-based popup is now handled by BubbleMenu UI; no custom popup here
 						return false;
 					},
 					mousemove: (view, event) => {
 						// Check if mouse is over existing menus
 						const isOverHoverMenu =
 							hoverMenuElement && hoverMenuElement.contains(event.target as Node);
-						const isOverSelectionMenu =
-							selectionMenuElement && selectionMenuElement.contains(event.target as Node);
+						const isOverSelectionMenu = false;
 
 						if (isOverHoverMenu || isOverSelectionMenu) {
 							// Update mouse over menu state
@@ -1562,10 +1236,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 							}
 						}
 
-						// Don't show hover menu if selection menu is active
-						if (selectionMenuElement) {
-							return;
-						}
+						// No selection menu state any more
 
 						// Only show hover menu if SHIFT key is pressed
 						if (!event.shiftKey) {
@@ -1770,9 +1441,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 						}, 300);
 					},
 
-					mouseup: (view, event) => {
-						handleTextSelection(event, view);
-					},
+					// Note: selection menu creation is disabled; BubbleMenu handles selection actions now
 
 					mouseleave: () => {
 						// Clear timeout when leaving editor, but keep menus if they exist
@@ -1783,56 +1452,17 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 				}
 			},
 
-			view(editorView) {
-				// Set up global mouseup listener to catch selections that end outside the editor
-				globalMouseUpListener = (event: MouseEvent) => {
-					// Don't require focus. Instead, check if the current selection belongs to this editor DOM
-					try {
-						const sel = window.getSelection();
-						if (sel && sel.rangeCount > 0) {
-							const range = sel.getRangeAt(0);
-							const container = range.commonAncestorContainer as Node;
-							const element =
-								container.nodeType === 1
-									? (container as HTMLElement)
-									: (container.parentElement as HTMLElement);
-							if (element && editorView.dom.contains(element)) {
-								// Small delay to ensure selection state is updated
-								setTimeout(() => {
-									handleTextSelection(event, editorView);
-								}, 10);
-							}
-						}
-					} catch (_e) {
-						// no-op
-					}
-				};
-
-				document.addEventListener('mouseup', globalMouseUpListener, true);
-
+			view(_editorView) {
 				return {
 					destroy: () => {
-						// Clean up global listener
-						if (globalMouseUpListener) {
-							document.removeEventListener('mouseup', globalMouseUpListener, true);
-							globalMouseUpListener = null;
-						}
 
 						if (hoverMenuElement) {
 							hoverMenuElement.remove();
 							hoverMenuElement = null;
 						}
-						if (selectionMenuElement) {
-							selectionMenuElement.remove();
-							selectionMenuElement = null;
-						}
 						if (hoverTimeout) {
 							clearTimeout(hoverTimeout);
 							hoverTimeout = null;
-						}
-						if (selectionTimeout) {
-							clearTimeout(selectionTimeout);
-							selectionTimeout = null;
 						}
 						if (menuCloseTimeout) {
 							clearTimeout(menuCloseTimeout);

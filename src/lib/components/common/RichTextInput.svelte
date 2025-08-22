@@ -144,6 +144,7 @@
 	import { PASTED_TEXT_CHARACTER_LIMIT } from '$lib/constants';
 
 	import FormattingButtons from './RichTextInput/FormattingButtons.svelte';
+	import PiiModifierButtons from './RichTextInput/PiiModifierButtons.svelte';
 	import { duration } from 'dayjs';
 
 	// PII Detection imports
@@ -1228,18 +1229,42 @@
 							})
 						]
 					: []),
-				...(showFormattingToolbar
+				// BubbleMenu: show when formatting toolbar is on OR PII modifiers are enabled
+				...((showFormattingToolbar || (enablePiiDetection && enablePiiModifiers))
 					? [
 							BubbleMenu.configure({
 								element: bubbleMenuElement,
-								tippyOptions: {
-									duration: 100,
-									arrow: false,
+								shouldShow: ({ from, to }) => {
+									const hasSelection = from !== to;
+									if (!hasSelection) return false;
+									// Keep BubbleMenu visible for formatting when enabled
+									if (showFormattingToolbar) return true;
+									// Enable PII-only BubbleMenu based on selection length
+									if (enablePiiDetection && enablePiiModifiers) {
+										const len = to - from;
+										return len >= 2 && len <= 50;
+									}
+									return false;
+								},
+								options: {
+									strategy: 'fixed',
 									placement: 'top',
-									theme: 'transparent',
-									offset: [0, 2]
+									offset: [0, 8],
+									flip: true,
+									shift: true,
+									onShow: () => {
+										// Ensure high z-index when showing
+										if (bubbleMenuElement) {
+											bubbleMenuElement.style.zIndex = '9999';
+										}
+									}
 								}
-							}),
+							})
+					]
+					: []),
+				// FloatingMenu stays tied to formatting toolbar only
+				...(showFormattingToolbar
+					? [
 							FloatingMenu.configure({
 								element: floatingMenuElement,
 								tippyOptions: {
@@ -1250,7 +1275,7 @@
 									offset: [-12, 4]
 								}
 							})
-						]
+					]
 					: []),
 				...(collaboration ? [YjsCollaboration] : [])
 			],
@@ -1826,9 +1851,16 @@
 	});
 </script>
 
-{#if showFormattingToolbar}
-	<div bind:this={bubbleMenuElement} id="bubble-menu" class="p-0">
-		<FormattingButtons {editor} />
+{#if showFormattingToolbar || (enablePiiDetection && enablePiiModifiers)}
+	<div bind:this={bubbleMenuElement} id="bubble-menu" class="p-0 flex items-center gap-1 z-[9999] relative">
+		{#if showFormattingToolbar}
+			<FormattingButtons {editor} />
+		{/if}
+		{#if enablePiiDetection && enablePiiModifiers}
+			<div class="inline-flex">
+				<PiiModifierButtons editor={editor} enabled={enablePiiDetection && enablePiiModifiers} />
+			</div>
+		{/if}
 	</div>
 {/if}
 
