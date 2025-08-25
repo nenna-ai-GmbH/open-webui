@@ -128,7 +128,7 @@ async def chat_completion_tools_handler(
     def get_tools_function_calling_payload(messages, task_model_id, content):
         user_message = get_last_user_message(messages)
         history = "\n".join(
-            f"{message['role'].upper()}: \"\"\"{message['content']}\"\"\""
+            f'{message["role"].upper()}: """{message["content"]}"""'
             for message in messages[::-1][:4]
         )
 
@@ -651,7 +651,8 @@ async def chat_completion_files_handler(
                         request=request,
                         items=files,
                         queries=queries,
-                        embedding_function=lambda query, prefix: request.app.state.EMBEDDING_FUNCTION(
+                        embedding_function=lambda query,
+                        prefix: request.app.state.EMBEDDING_FUNCTION(
                             query, prefix=prefix, user=user
                         ),
                         k=request.app.state.config.TOP_K,
@@ -1164,7 +1165,6 @@ async def process_chat_response(
                         user_message = user_message[:100] + "..."
 
                     if tasks[TASKS.TITLE_GENERATION]:
-
                         res = await generate_title(
                             request,
                             {
@@ -1278,7 +1278,6 @@ async def process_chat_response(
     if not isinstance(response, StreamingResponse):
         if event_emitter:
             if isinstance(response, dict) or isinstance(response, JSONResponse):
-
                 if isinstance(response, JSONResponse) and isinstance(
                     response.body, bytes
                 ):
@@ -1461,10 +1460,8 @@ async def process_chat_response(
                             content += "\n"
 
                         if results:
-
                             tool_calls_display_content = ""
                             for tool_call in tool_calls:
-
                                 tool_call_id = tool_call.get("id", "")
                                 tool_name = tool_call.get("function", {}).get(
                                     "name", ""
@@ -1522,14 +1519,14 @@ async def process_chat_response(
                         if reasoning_duration is not None:
                             if raw:
                                 content = (
-                                    f'{content}{start_tag}{block["content"]}{end_tag}\n'
+                                    f"{content}{start_tag}{block['content']}{end_tag}\n"
                                 )
                             else:
                                 content = f'{content}<details type="reasoning" done="true" duration="{reasoning_duration}">\n<summary>Thought for {reasoning_duration} seconds</summary>\n{reasoning_display_content}\n</details>\n'
                         else:
                             if raw:
                                 content = (
-                                    f'{content}{start_tag}{block["content"]}{end_tag}\n'
+                                    f"{content}{start_tag}{block['content']}{end_tag}\n"
                                 )
                             else:
                                 content = f'{content}<details type="reasoning" done="false">\n<summary>Thinking…</summary>\n{reasoning_display_content}\n</details>\n'
@@ -1631,7 +1628,6 @@ async def process_chat_response(
 
                 if content_blocks[-1]["type"] == "text":
                     for start_tag, end_tag in tags:
-
                         start_tag_pattern = rf"{re.escape(start_tag)}"
                         if start_tag.startswith("<") and start_tag.endswith(">"):
                             # Match start tag e.g., <tag> or <tag attr="value">
@@ -1734,7 +1730,6 @@ async def process_chat_response(
                             # Reset the content_blocks by appending a new text block
                             if content_type != "code_interpreter":
                                 if leftover_content:
-
                                     content_blocks.append(
                                         {
                                             "type": "text",
@@ -1805,7 +1800,9 @@ async def process_chat_response(
             content = (
                 message.get("content", "")
                 if message
-                else last_assistant_message if last_assistant_message else ""
+                else last_assistant_message
+                if last_assistant_message
+                else ""
             )
 
             content_blocks = [
@@ -2181,7 +2178,6 @@ async def process_chat_response(
                 tool_call_retries = 0
 
                 while len(tool_calls) > 0 and tool_call_retries < MAX_TOOL_CALL_RETRIES:
-
                     tool_call_retries += 1
 
                     response_tool_calls = tool_calls.pop(0)
@@ -2361,7 +2357,6 @@ async def process_chat_response(
                         content_blocks[-1]["type"] == "code_interpreter"
                         and retries < MAX_RETRIES
                     ):
-
                         await event_emitter(
                             {
                                 "type": "chat:completion",

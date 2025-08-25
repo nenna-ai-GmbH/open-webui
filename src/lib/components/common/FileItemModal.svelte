@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext, onMount, tick } from 'svelte';
+	import { getContext, onMount, tick, afterUpdate } from 'svelte';
 	import { formatFileSize, getLineCount } from '$lib/utils';
 	import { WEBUI_API_BASE_URL } from '$lib/constants';
 	import { getKnowledgeById } from '$lib/apis/knowledge';
@@ -34,6 +34,27 @@
 	let isAudio = false;
 	let loading = false;
 	let contextMenuEl: HTMLElement | null = null; // legacy, will be removed
+
+	// Scroll locking to prevent viewport jumps while backend updates arrive
+	let scrollContainerEl: HTMLElement | null = null;
+	let cachedScrollTop = 0;
+	let isScrollLocked = false;
+    let hasRestoredScroll = false;
+	function handleScroll() {
+		// Allow user scrolling; do not override while user scrolls
+		if (scrollContainerEl) {
+			cachedScrollTop = scrollContainerEl.scrollTop;
+		}
+	}
+
+	afterUpdate(() => {
+		// Apply one-time restoration after initial content lock, then release
+		if (isScrollLocked && scrollContainerEl && !hasRestoredScroll) {
+			scrollContainerEl.scrollTop = cachedScrollTop;
+			hasRestoredScroll = true;
+			isScrollLocked = false;
+		}
+	});
 
 	// Detect file types we render as extracted text (pdf, docx)
 	$: isPdf =
@@ -134,6 +155,20 @@
 		return entities;
 	})();
 
+	// Track changes in entities to trigger editor re-sync without changing content
+	let lastEntitiesKey = '';
+	function makeEntitiesKey(entities: ExtendedPiiEntity[]): string {
+		if (!Array.isArray(entities)) return '';
+		try {
+			return entities
+				.map((e) => `${e.label}:${e.type}:${e.raw_text}:${(e.occurrences || []).length}`)
+				.sort()
+				.join('|');
+		} catch {
+			return '';
+		}
+	}
+
 	// When modal opens, seed PII session so RichTextInput-like behavior is possible in chat
 	$: if (show) {
 		try {
@@ -153,13 +188,30 @@
 		} catch (e) {}
 	}
 
-	// Determine pages to render; if page_content is missing, fall back to single content string
-	$: pageContents = (() => {
+	// Determine pages to render; freeze after first successful load to avoid content shifts
+	let initialPageContents: string[] = [];
+	let hasLockedPageContents = false;
+
+	function computePageContents(): string[] {
 		const pc = item?.file?.data?.page_content;
 		if (Array.isArray(pc) && pc.length > 0) return pc as string[];
 		const content = item?.file?.data?.content || '';
 		return content ? [content] : [];
-	})();
+	}
+
+	$: {
+		const next = computePageContents();
+		if (!hasLockedPageContents && next.length > 0) {
+			initialPageContents = next;
+			hasLockedPageContents = true;
+			// prepare one-time scroll restore once content is available
+			if (scrollContainerEl) cachedScrollTop = scrollContainerEl.scrollTop;
+			isScrollLocked = true;
+			hasRestoredScroll = false;
+		}
+	}
+
+	$: pageContents = hasLockedPageContents ? initialPageContents : computePageContents();
 
 	// No precomputed HTML highlights; TipTap handles decorations
 
@@ -184,9 +236,24 @@
 		});
 	}
 
+	// When extendedEntities change (PII detections update), re-sync editors to update highlights
+	$: {
+		const key = makeEntitiesKey(extendedEntities);
+		if (key && key !== lastEntitiesKey) {
+			lastEntitiesKey = key;
+			// Do not touch pageContents; only refresh decorations via commands
+			setTimeout(() => {
+				syncEditorsNow();
+			}, 0);
+		}
+	}
+
 	// Reset sync flag when modal closes
 	$: if (!show) {
 		hasInitialSynced = false;
+		hasLockedPageContents = false;
+		initialPageContents = [];
+		isScrollLocked = false;
 	}
 
 	// After showing modal, extended entities seeded (conv or temp), and editors mounted → sync once
@@ -332,7 +399,7 @@
 			</div>
 		</div>
 
-		<div class="max-h-[75vh] overflow-auto">
+		<div class="max-h-[75vh] overflow-auto" bind:this={scrollContainerEl} on:scroll={handleScroll}>
 			{#if !loading}
 				{#if item?.type === 'collection'}
 					<div>
