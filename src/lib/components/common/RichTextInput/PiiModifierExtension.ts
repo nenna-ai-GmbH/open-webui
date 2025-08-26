@@ -20,6 +20,25 @@ export interface PiiModifierOptions {
 	conversationId?: string; // Add conversation ID for proper state management
 	onModifiersChanged?: (modifiers: PiiModifier[]) => void;
 	availableLabels?: string[]; // List of available PII labels for mask type
+	showPiiHoverMenu?: (menuData: PiiHoverMenuData) => void; // Function to show Svelte hover menu
+	hidePiiHoverMenu?: () => void; // Function to hide Svelte hover menu
+}
+
+// Interface for hover menu data passed to PiiHoverMenu.svelte component
+// This replaces the old DOM-based createHoverMenu function with a proper Svelte component
+export interface PiiHoverMenuData {
+	wordInfo: { word: string; from: number; to: number; x: number; y: number };
+	showIgnoreButton: boolean;
+	existingModifiers: PiiModifier[];
+	showTextField: boolean;
+	currentLabel?: string;
+	onIgnore: () => void;
+	onMask: (label: string) => void;
+	onRemoveModifier: (modifierId: string) => void;
+	onInputFocused: (focused: boolean) => void;
+	onClose: () => void;
+	onMouseEnter: () => void;
+	onMouseLeave: () => void;
 }
 
 // Extension state
@@ -53,7 +72,79 @@ function generateModifierId(): string {
 	return `modifier_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }
 
-// (Selection tokenization removed with legacy selection menu.)
+// Tokenizer pattern for broader context word detection
+const WORD_TOKENIZER_PATTERN = /[\w'-äöüÄÖÜß]+(?=\b|\.)/g;
+
+// Find all tokenized words touched by a text selection with broader context
+function findTokenizedWords(
+	doc: ProseMirrorNode,
+	selectionFrom: number,
+	selectionTo: number
+): Array<{ word: string; from: number; to: number }> {
+	const words: Array<{ word: string; from: number; to: number }> = [];
+
+	// Expand context to include words that might be partially selected
+	const contextStart = Math.max(0, selectionFrom - 100); // 100 chars before
+	const contextEnd = Math.min(doc.content.size, selectionTo + 100); // 100 chars after
+
+	let contextText = '';
+
+	// Build context text with position mapping
+	const positionMap: number[] = []; // Maps context text index to document position
+
+	doc.nodesBetween(contextStart, contextEnd, (node, nodePos) => {
+		if (node.isText && node.text) {
+			const nodeStart = nodePos;
+			const nodeEnd = nodePos + node.text.length;
+			const effectiveStart = Math.max(nodeStart, contextStart);
+			const effectiveEnd = Math.min(nodeEnd, contextEnd);
+
+			if (effectiveStart < effectiveEnd) {
+				const startOffset = effectiveStart - nodeStart;
+				const endOffset = effectiveEnd - nodeStart;
+				const textSlice = node.text.substring(startOffset, endOffset);
+
+				// Map each character position
+				for (let i = 0; i < textSlice.length; i++) {
+					positionMap.push(effectiveStart + i);
+				}
+
+				contextText += textSlice;
+			}
+		}
+	});
+
+	// Find all words using tokenizer
+	let match;
+	WORD_TOKENIZER_PATTERN.lastIndex = 0; // Reset regex
+
+	while ((match = WORD_TOKENIZER_PATTERN.exec(contextText)) !== null) {
+		const wordStart = match.index;
+		const wordEnd = match.index + match[0].length;
+
+		// Map back to document positions
+		const docStart = positionMap[wordStart];
+		const docEnd = positionMap[wordEnd - 1] + 1; // +1 because we want end position
+
+		// Check if this word is "touched" by the selection (overlaps with selection range)
+		if (docEnd > selectionFrom && docStart < selectionTo) {
+			words.push({
+				word: match[0],
+				from: docStart,
+				to: docEnd
+			});
+		}
+	}
+
+	// Remove duplicates and sort by position
+	const uniqueWords = words
+		.filter(
+			(word, index, arr) => arr.findIndex((w) => w.from === word.from && w.to === word.to) === index
+		)
+		.sort((a, b) => a.from - b.from);
+
+	return uniqueWords;
+}
 
 // Find existing PII or modifier element under mouse cursor
 function findExistingEntityAtPosition(
@@ -150,7 +241,9 @@ function findBestMatch(input: string, labels: string[]): string | null {
 	return null;
 }
 
-// Create hover menu element for PII entities
+// DEPRECATED: Create hover menu element for PII entities
+// This function has been replaced by PiiHoverMenu.svelte component
+// Keeping for reference but should not be used
 function createHoverMenu(
 	wordInfo: { word: string; from: number; to: number; x: number; y: number },
 	onIgnore: () => void,
@@ -992,7 +1085,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 			return [];
 		}
 
-		let hoverMenuElement: HTMLElement | null = null;
+								let isHoverMenuShowing = false;
 		let hoverTimeout: number | null = null;
 		let menuCloseTimeout: ReturnType<typeof setTimeout> | null = null;
 		let isMouseOverMenu = false;
@@ -1175,19 +1268,15 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 					}
 
 					// Close hover menu if clicking outside of it
-					if (hoverMenuElement) {
-						const isClickInsideHoverMenu = hoverMenuElement.contains(target);
-
-						if (!isClickInsideHoverMenu) {
-							hoverMenuElement.remove();
-							hoverMenuElement = null;
-						}
+					if (isHoverMenuShowing && options.hidePiiHoverMenu) {
+						// Let the Svelte component handle click-outside detection
+						// This will be handled by the parent component
 					}
 
 					// No selection menu to close
 
 					// Reset input focus state if clicking outside menus
-					if (!hoverMenuElement) {
+					if (!isHoverMenuShowing) {
 						isInputFocused = false;
 					}
 
@@ -1208,44 +1297,17 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 						return false;
 					},
 					mousemove: (view, event) => {
-						// Check if mouse is over existing menus
-						const isOverHoverMenu =
-							hoverMenuElement && hoverMenuElement.contains(event.target as Node);
-						const isOverSelectionMenu = false;
-
-						if (isOverHoverMenu || isOverSelectionMenu) {
-							// Update mouse over menu state
-							if (!isMouseOverMenu) {
-								isMouseOverMenu = true;
-							}
-
-							// Clear any pending timeouts to keep menu stable
-							if (hoverTimeout) {
-								clearTimeout(hoverTimeout);
-								hoverTimeout = null;
-							}
-							if (menuCloseTimeout) {
-								clearTimeout(menuCloseTimeout);
-								menuCloseTimeout = null;
-							}
-							return;
-						} else {
-							// Mouse left menu area
-							if (isMouseOverMenu) {
-								isMouseOverMenu = false;
-							}
-						}
+						// Menu hover state is now managed by the Svelte component
+						// We only need to handle editor mouseover detection here
 
 						// No selection menu state any more
 
-						// Only show hover menu if SHIFT key is pressed
-						if (!event.shiftKey) {
-							// If SHIFT is not pressed, hide any existing hover menu
-							if (hoverMenuElement) {
-								hoverMenuElement.remove();
-								hoverMenuElement = null;
+						// Only show hover menu if SHIFT key is pressed; however, do not hide if the user is interacting with the menu
+						if (!event.shiftKey && !(isHoverMenuShowing && (isMouseOverMenu || isInputFocused))) {
+							if (isHoverMenuShowing && options.hidePiiHoverMenu) {
+								options.hidePiiHoverMenu();
+								isHoverMenuShowing = false;
 							}
-							// Clear any pending timeout
 							if (hoverTimeout) {
 								clearTimeout(hoverTimeout);
 								hoverTimeout = null;
@@ -1269,9 +1331,9 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 
 							if (!existingEntity) {
 								// Hide menu if no entity found
-								if (hoverMenuElement) {
-									hoverMenuElement.remove();
-									hoverMenuElement = null;
+							if (isHoverMenuShowing && options.hidePiiHoverMenu) {
+								options.hidePiiHoverMenu();
+								isHoverMenuShowing = false;
 								}
 								return;
 							}
@@ -1326,9 +1388,10 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 
 							// We already found an existing entity (PII or modifier), so show the menu
 
-							// Show hover menu
-							if (hoverMenuElement) {
-								hoverMenuElement.remove();
+							// Show hover menu - first hide existing one
+							if (isHoverMenuShowing && options.hidePiiHoverMenu) {
+								options.hidePiiHoverMenu();
+								isHoverMenuShowing = false;
 							}
 
 							// Create timeout manager
@@ -1364,9 +1427,9 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 								});
 								view.dispatch(tr);
 
-								if (hoverMenuElement) {
-									hoverMenuElement.remove();
-									hoverMenuElement = null;
+								if (isHoverMenuShowing && options.hidePiiHoverMenu) {
+									options.hidePiiHoverMenu();
+									isHoverMenuShowing = false;
 								}
 								timeoutManager.clearAll();
 							};
@@ -1382,9 +1445,9 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 								});
 								view.dispatch(tr);
 
-								if (hoverMenuElement) {
-									hoverMenuElement.remove();
-									hoverMenuElement = null;
+								if (isHoverMenuShowing && options.hidePiiHoverMenu) {
+									options.hidePiiHoverMenu();
+									isHoverMenuShowing = false;
 								}
 								timeoutManager.clearAll();
 							};
@@ -1396,46 +1459,74 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 								});
 								view.dispatch(tr);
 
-								if (hoverMenuElement) {
-									hoverMenuElement.remove();
-									hoverMenuElement = null;
+								if (isHoverMenuShowing && options.hidePiiHoverMenu) {
+									options.hidePiiHoverMenu();
+									isHoverMenuShowing = false;
 								}
 								timeoutManager.clearAll();
 							};
 
-							hoverMenuElement = createHoverMenu(
-								{
-									word: finalTargetText,
-									from: targetInfo.from,
-									to: targetInfo.to,
-									x: event.clientX,
-									y: event.clientY
-								},
-								onIgnore,
-								onMask,
-								isPiiHighlighted, // Show ignore button if detected as PII
-								existingModifiers, // Pass existing modifiers
-								onRemoveModifier, // Pass removal callback
-								timeoutManager, // Pass timeout manager
-								existingModifiers.length === 0 ||
-									existingModifiers.some((m) => m.action === 'string-mask') // Show text field if no modifiers or has mask modifiers
-							);
-
-							// Ensure menu appears above modal
-							document.body.appendChild(hoverMenuElement);
-
-							// Force the menu to be on top
-							setTimeout(() => {
-								if (hoverMenuElement) {
-									hoverMenuElement.style.zIndex = '10001';
-								}
-							}, 0);
+														// Use Svelte component interface
+							if (options.showPiiHoverMenu) {
+								// ALWAYS use mouse coordinates for positioning - they're the most reliable
+								let menuX = event.clientX;
+								let menuY = event.clientY;
+								
+								// debug logs removed
+								const labelFromModifier = (existingModifiers.find((m) => m.action === 'string-mask')?.type) || '';
+								const elAtPoint = document.elementFromPoint(menuX, menuY) as HTMLElement | null;
+								const labelFromDom = (elAtPoint?.getAttribute('data-pii-type') || '').toUpperCase();
+								const computedCurrentLabel = (labelFromModifier || labelFromDom || 'CUSTOM').toUpperCase();
+								const menuData: PiiHoverMenuData = {
+									wordInfo: {
+										word: finalTargetText,
+										from: targetInfo.from,
+										to: targetInfo.to,
+										x: menuX,
+										y: menuY
+									},
+									showIgnoreButton: isPiiHighlighted,
+									existingModifiers,
+									showTextField: existingModifiers.length === 0 ||
+										existingModifiers.some((m) => m.action === 'string-mask'),
+									currentLabel: computedCurrentLabel,
+									onIgnore,
+									onMask,
+									onRemoveModifier,
+									onInputFocused: (focused: boolean) => {
+										isInputFocused = focused;
+										if (focused) {
+											timeoutManager.clearAll();
+										}
+									},
+									onClose: () => {
+										if (isHoverMenuShowing && options.hidePiiHoverMenu) {
+											options.hidePiiHoverMenu();
+											isHoverMenuShowing = false;
+										}
+									},
+									onMouseEnter: () => {
+										timeoutManager.clearAll();
+									},
+									onMouseLeave: () => {
+										timeoutManager.setFallback(() => {
+											if (isHoverMenuShowing && !isInputFocused && options.hidePiiHoverMenu) {
+												options.hidePiiHoverMenu();
+												isHoverMenuShowing = false;
+											}
+										}, 500);
+									}
+								};
+								
+								options.showPiiHoverMenu(menuData);
+								isHoverMenuShowing = true;
+							}
 
 							// Set a fallback timeout to close menu after 10 seconds of inactivity
 							timeoutManager.setFallback(() => {
-								if (hoverMenuElement) {
-									hoverMenuElement.remove();
-									hoverMenuElement = null;
+								if (isHoverMenuShowing && options.hidePiiHoverMenu) {
+									options.hidePiiHoverMenu();
+									isHoverMenuShowing = false;
 								}
 							}, 10000);
 						}, 300);
@@ -1455,10 +1546,9 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 			view(_editorView) {
 				return {
 					destroy: () => {
-
-						if (hoverMenuElement) {
-							hoverMenuElement.remove();
-							hoverMenuElement = null;
+						if (isHoverMenuShowing && options.hidePiiHoverMenu) {
+							options.hidePiiHoverMenu();
+							isHoverMenuShowing = false;
 						}
 						if (hoverTimeout) {
 							clearTimeout(hoverTimeout);
@@ -1539,6 +1629,39 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 						piiType: options.type,
 						from: options.from,
 						to: options.to
+					});
+
+					if (dispatch) {
+						dispatch(tr);
+					}
+
+					return true;
+				},
+
+			// Add modifiers for all tokenized words in selection
+			addTokenizedMask:
+				() =>
+				({ state, dispatch }: any) => {
+					const { from, to } = state.selection;
+					if (from === to) return false; // No selection
+
+					// Get all tokenized words touched by the selection
+					const tokenizedWords = findTokenizedWords(state.doc, from, to);
+					
+					if (tokenizedWords.length === 0) return false;
+
+					// Create a transaction that adds modifiers for all tokenized words
+					let tr = state.tr;
+					
+					tokenizedWords.forEach((word) => {
+						tr = tr.setMeta(piiModifierExtensionKey, {
+							type: 'ADD_MODIFIER',
+							modifierAction: 'string-mask',
+							entity: word.word,
+							piiType: 'CUSTOM',
+							from: word.from,
+							to: word.to
+						});
 					});
 
 					if (dispatch) {

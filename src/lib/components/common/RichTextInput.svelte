@@ -153,8 +153,10 @@
 	import {
 		PiiModifierExtension,
 		addPiiModifierStyles,
-		type PiiModifier
+		type PiiModifier,
+		type PiiHoverMenuData
 	} from './RichTextInput/PiiModifierExtension';
+	import PiiHoverMenu from './RichTextInput/PiiHoverMenu.svelte';
 	import { debounce, createPiiHighlightStyles, PiiSessionManager } from '$lib/utils/pii';
 
 	export let oncompositionstart = (e: CompositionEvent) => {};
@@ -574,6 +576,10 @@
 	let floatingMenuElement = null;
 	let bubbleMenuElement = null;
 	let element: HTMLElement;
+
+	// PII Hover Menu state
+	let showPiiHoverMenu = false;
+	let piiHoverMenuData: PiiHoverMenuData | null = null;
 
 	// PII Detection props
 	export let enablePiiDetection = false;
@@ -1196,7 +1202,9 @@
 								enabled: true,
 								conversationId: conversationId,
 								onModifiersChanged: handleModifiersChanged,
-								availableLabels: piiModifierLabels.length > 0 ? piiModifierLabels : undefined // Use default labels
+								availableLabels: piiModifierLabels.length > 0 ? piiModifierLabels : undefined, // Use default labels
+								showPiiHoverMenu: handleShowPiiHoverMenu,
+								hidePiiHoverMenu: handleHidePiiHoverMenu
 							})
 						]
 					: []),
@@ -1823,6 +1831,17 @@
 		}
 	};
 
+	// PII Hover Menu handlers
+	const handleShowPiiHoverMenu = (menuData: PiiHoverMenuData) => {
+		piiHoverMenuData = menuData;
+		showPiiHoverMenu = true;
+	};
+
+	const handleHidePiiHoverMenu = () => {
+		showPiiHoverMenu = false;
+		piiHoverMenuData = null;
+	};
+
 	// Periodic sync with session manager to handle external entity changes
 	let syncInterval: NodeJS.Timeout | null = null;
 
@@ -1873,7 +1892,26 @@
 			class="absolute top-2 right-2 flex items-center gap-1 bg-gray-50 dark:bg-gray-850 px-2 py-1 rounded-md shadow-sm border border-gray-200 dark:border-gray-700"
 		>
 			<Spinner className="size-3" />
-			<span class="text-xs text-gray-600 dark:text-gray-400">{$i18n.t('Scanning for PII...')}</span>
+			<span class="text-xs text-gray-600 dark:text-gray-400">Scanning for PII...</span>
 		</div>
 	{/if}
 </div>
+
+<!-- PII Hover Menu -->
+{#if showPiiHoverMenu && piiHoverMenuData}
+	<PiiHoverMenu
+		wordInfo={piiHoverMenuData?.wordInfo}
+		showIgnoreButton={piiHoverMenuData?.showIgnoreButton}
+		existingModifiers={piiHoverMenuData?.existingModifiers}
+		showTextField={piiHoverMenuData?.showTextField}
+		visible={showPiiHoverMenu}
+		currentLabel={piiHoverMenuData?.currentLabel}
+		on:ignore={piiHoverMenuData?.onIgnore}
+		on:mask={(e) => piiHoverMenuData?.onMask(e.detail.label)}
+		on:removeModifier={(e) => piiHoverMenuData?.onRemoveModifier(e.detail.modifierId)}
+		on:inputFocused={(e) => piiHoverMenuData?.onInputFocused(e.detail.focused)}
+		on:close={piiHoverMenuData?.onClose}
+		on:mouseEnter={piiHoverMenuData?.onMouseEnter}
+		on:mouseLeave={piiHoverMenuData?.onMouseLeave}
+	/>
+{/if}

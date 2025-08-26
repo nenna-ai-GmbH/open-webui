@@ -1,13 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  // Keep editor loosely typed to avoid strict dependency churn
+  
   export let editor: any = null;
   export let enabled: boolean = true;
 
-  let open = false;
-  let label = 'CUSTOM';
   let showPii = false;
-
   let attachedEditor: any = null;
 
   const isValidSelection = () => {
@@ -18,9 +15,7 @@
   };
 
   const updateVisibility = () => {
-    const next = enabled && isValidSelection();
-    if (!next) open = false; // close panel when selection becomes invalid
-    showPii = !!next;
+    showPii = enabled && isValidSelection();
   };
 
   function handleEditorEvent() {
@@ -67,51 +62,13 @@
       // Disabled or no editor → ensure cleanup and hide
       if (attachedEditor) detach();
       showPii = false;
-      open = false;
     }
   }
 
-  const getCurrentSelection = () => {
-    if (!editor) return null;
-    const { state } = editor;
-    if (!state || !state.selection) return null;
-    const from = state.selection.from;
-    const to = state.selection.to;
-    if (from === to) return null;
-    const text = state.doc.textBetween(from, to).trim();
-    if (!text) return null;
-    return { from, to, text };
-  };
-
-  const addMask = () => {
-    const sel = getCurrentSelection();
-    if (!sel) return;
-    const type = (label || 'CUSTOM').trim().toUpperCase();
-    editor?.commands?.addModifier?.({
-      action: 'string-mask',
-      entity: sel.text,
-      type,
-      from: sel.from,
-      to: sel.to
-    });
-    open = false;
-  };
-
-  const addIgnore = () => {
-    const sel = getCurrentSelection();
-    if (!sel) return;
-    editor?.commands?.addModifier?.({
-      action: 'ignore',
-      entity: sel.text,
-      from: sel.from,
-      to: sel.to
-    });
-    open = false;
-  };
-
-  const toggleOpen = () => {
+  const addTokenizedMask = () => {
     if (!isValidSelection()) return;
-    open = !open;
+    // Use the new addTokenizedMask command that applies findTokenizedWords
+    editor?.commands?.addTokenizedMask?.();
   };
 </script>
 
@@ -120,44 +77,11 @@
     <button
       type="button"
       class="hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg p-1.5 transition-all text-xs font-medium flex items-center gap-1"
-      on:click={toggleOpen}
-      title="PII Modifier: Add or ignore PII"
+      on:click={addTokenizedMask}
+      title="PII Modifier: Mask selected text"
     >
-      🛡️ Masking
+      🛡️ Mask
     </button>
-
-    {#if open}
-      <div class="flex items-center gap-2 px-2 py-1 rounded-md bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
-        <input
-          class="w-28 px-2 py-1 rounded-md bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-xs text-gray-800 dark:text-gray-100"
-          type="text"
-          bind:value={label}
-          on:keydown={(e) => {
-            if (e.key === 'Enter') addMask();
-            e.stopPropagation();
-          }}
-          placeholder="PII Modifier: Label (e.g., PERSON)"
-        />
-
-        <button
-          type="button"
-          class="px-2 py-1 rounded-md bg-amber-400/90 hover:bg-amber-400 text-gray-900 text-xs font-semibold"
-          on:click={addMask}
-          title="PII Modifier: Mask selection"
-        >
-          Mask
-        </button>
-
-        <button
-          type="button"
-          class="px-2 py-1 rounded-md bg-red-100 hover:bg-red-200 text-red-700 dark:bg-red-900/30 dark:text-red-300 text-xs font-medium"
-          on:click={addIgnore}
-          title="PII Modifier: Ignore selection"
-        >
-          Ignore
-        </button>
-      </div>
-    {/if}
   </div>
 {/if}
 
