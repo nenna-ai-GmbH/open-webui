@@ -28,7 +28,8 @@ function decodeHtmlEntities(text: string): string {
 		'&lt;': '<',
 		'&gt;': '>',
 		'&quot;': '"',
-		'&#39;': "'"
+		'&#39;': "'",
+		'&nbsp;': '\u00A0'
 	};
 	let result = text.replace(/&(amp|lt|gt|quot|#39);/g, (m) => named[m] || m);
 	// Generic numeric (decimal or hex)
@@ -73,37 +74,62 @@ function buildPositionMapping(doc: ProseMirrorNode): PositionMapping {
 	let plainTextOffset = 0;
 	let plainText = '';
 
-	doc.nodesBetween(0, doc.content.size, (node, pos) => {
+	function addSyntheticChar(ch: string, pmPos: number) {
+		const plainPos = plainTextOffset;
+		plainTextToProseMirror.set(plainPos, pmPos);
+		proseMirrorToPlainText.set(pmPos, plainPos);
+		plainText += ch;
+		plainTextOffset += ch.length;
+	}
+
+	let previousWasTableCell = false;
+
+	doc.nodesBetween(0, doc.content.size, (node, pos, parent, index) => {
 		if (node.isText && node.text) {
-			// Map each character in the text node
 			for (let i = 0; i < node.text.length; i++) {
 				const proseMirrorPos = pos + i;
 				const plainTextPos = plainTextOffset + i;
-
 				plainTextToProseMirror.set(plainTextPos, proseMirrorPos);
 				proseMirrorToPlainText.set(proseMirrorPos, plainTextPos);
 			}
-
 			plainText += node.text;
 			plainTextOffset += node.text.length;
-		} else if (node.type.name === 'paragraph' && plainTextOffset > 0) {
-			// Add line breaks between paragraphs (but not at the very beginning)
-			plainText += '\n';
-			plainTextOffset += 1;
-		} else if (node.type.name === 'hard_break') {
-			// Add line breaks for hard breaks
-			plainText += '\n';
-			plainTextOffset += 1;
-		}
+			previousWasTableCell = false;
+		} else {
+			const typeName = node.type.name;
 
-		return true; // Continue traversing
+			// Insert block separators BEFORE starting a new block
+			const needsLeadingNewline = () => plainTextOffset > 0 && plainText.charAt(plainTextOffset - 1) !== '\n';
+
+			if (typeName === 'tableRow') {
+				if (needsLeadingNewline()) addSyntheticChar('\n', pos);
+				previousWasTableCell = false;
+			} else if (typeName === 'tableCell' || typeName === 'tableHeader') {
+				if (previousWasTableCell) addSyntheticChar('\t', pos);
+				previousWasTableCell = true;
+			} else if (typeName === 'hardBreak') {
+				addSyntheticChar('\n', pos);
+				previousWasTableCell = false;
+			} else if (
+				typeName === 'paragraph' ||
+				typeName === 'heading' ||
+				typeName === 'blockquote' ||
+				typeName === 'codeBlock' ||
+				typeName === 'listItem' ||
+				typeName === 'bulletList' ||
+				typeName === 'orderedList' ||
+				typeName === 'taskList'
+			) {
+				if (needsLeadingNewline()) addSyntheticChar('\n', pos);
+				previousWasTableCell = false;
+			} else {
+				previousWasTableCell = false;
+			}
+		}
+		return true;
 	});
 
-	return {
-		plainTextToProseMirror,
-		proseMirrorToPlainText,
-		plainText: plainText.trim()
-	};
+	return { plainTextToProseMirror, proseMirrorToPlainText, plainText };
 }
 
 // Convert PII entity positions from plain text to ProseMirror positions
@@ -149,8 +175,8 @@ function validateAndFilterEntities(
 ): ExtendedPiiEntity[] {
 	return entities.filter((entity) => {
 		// Check if entity still exists in the current text
-		const entityText = entity.raw_text.toLowerCase();
-		const currentText = mapping.plainText.toLowerCase();
+		const entityText = decodeHtmlEntities(entity.raw_text).toLowerCase();
+		const currentText = decodeHtmlEntities(mapping.plainText).toLowerCase();
 
 		if (!currentText.includes(entityText)) {
 			console.log(
@@ -178,6 +204,57 @@ function validateAndFilterEntities(
 	});
 }
 
+// Resolve overlapping occurrences across all entities by preferring longer spans and stronger types
+function resolveOverlaps(entities: ExtendedPiiEntity[], doc: ProseMirrorNode): ExtendedPiiEntity[] {
+	interface SpanRef { entityIdx: number; occIdx: number; from: number; to: number; length: number; score: number }
+	const typePriority: Record<string, number> = {
+		PERSON: 5,
+		ADDRESS: 4,
+		DATE: 4,
+		EMAIL: 4,
+		PHONE_NUMBER: 4,
+		ORGANISATION: 3,
+		ORGANIZATION: 3,
+		LOCATION: 3
+	};
+
+	const spans: SpanRef[] = [];
+	entities.forEach((e, ei) => {
+		(e.occurrences || []).forEach((o, oi) => {
+			const length = o.end_idx - o.start_idx;
+			const base = Math.max(length, (e.raw_text || '').length);
+			const pri = typePriority[(e.type || '').toUpperCase()] || 1;
+			// Penalty for very short/fragmentary entities
+			const shortPenalty = (e.raw_text || '').trim().length <= 3 ? -5 : 0;
+			spans.push({ entityIdx: ei, occIdx: oi, from: o.start_idx, to: o.end_idx, length, score: base * 10 + pri + shortPenalty });
+		});
+	});
+
+	spans.sort((a, b) => b.score - a.score);
+	const kept: boolean[][] = entities.map((e) => new Array((e.occurrences || []).length).fill(false));
+	const used: Array<{ from: number; to: number }> = [];
+
+	for (const s of spans) {
+		const overlaps = used.some((u) => s.from < u.to && s.to > u.from);
+		if (!overlaps) {
+			kept[s.entityIdx][s.occIdx] = true;
+			used.push({ from: s.from, to: s.to });
+		}
+	}
+
+	const result: ExtendedPiiEntity[] = [];
+	entities.forEach((e, ei) => {
+		const occ: PiiOccurrence[] = [] as any;
+		(e.occurrences || []).forEach((o, oi) => {
+			if (kept[ei][oi]) occ.push(o as any);
+		});
+		if (occ.length > 0) {
+			result.push({ ...e, occurrences: occ });
+		}
+	});
+	return result;
+}
+
 // Remap existing entities to current document positions
 function remapEntitiesForCurrentDocument(
 	entities: ExtendedPiiEntity[],
@@ -190,65 +267,57 @@ function remapEntitiesForCurrentDocument(
 
 	const remappedEntities = entities.map((entity) => {
 		// Decode HTML entities in raw_text so matching aligns with rendered text
-		const entityText = decodeHtmlEntities(entity.raw_text);
-		const searchText = entityText.toLowerCase();
-		const plainText = decodeHtmlEntities(mapping.plainText).toLowerCase();
+		let entityText = decodeHtmlEntities(entity.raw_text);
 
-		// Find all occurrences of this entity in the current text
-		const newOccurrences = [];
-		let searchIndex = 0;
+		// Normalize edges: strip table pipes, leading/trailing punctuation artifacts
+		// Keep internal punctuation as-is
+		entityText = entityText
+			.normalize('NFKC')
+			.replace(/^[\s\u00A0\t|:;.,\-_/\\]+/, '')
+			.replace(/[\s\u00A0\t|:;.,\-_/\\]+$/, '');
 
-		// Use word boundary matching for better accuracy
-		const entityWords = entityText.split(/\s+/);
-		const isMultiWord = entityWords.length > 1;
+		const searchSource = decodeHtmlEntities(mapping.plainText);
 
-		while (searchIndex < plainText.length) {
-			const foundIndex = plainText.indexOf(searchText, searchIndex);
-			if (foundIndex === -1) break;
+		// Build a whitespace-tolerant regex for the entity text
+		const escaped = entityText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+		const pattern = escaped.replace(/\s+/g, '[\\s\\u00A0\\t]+');
+		const regex = new RegExp(pattern, 'gi');
 
-			// Check word boundaries for single words to avoid partial matches
-			if (!isMultiWord) {
-				const beforeChar = foundIndex > 0 ? plainText[foundIndex - 1] : ' ';
-				const afterChar =
-					foundIndex + searchText.length < plainText.length
-						? plainText[foundIndex + searchText.length]
-						: ' ';
+		const isAlnum = (ch: string) => /[A-Za-z0-9À-ÿ]/.test(ch);
+		const startsAlpha = isAlnum(entityText[0] || '');
+		const endsAlpha = isAlnum(entityText[entityText.length - 1] || '');
 
-				// Skip if not at word boundary (unless it's punctuation)
-				if (/\w/.test(beforeChar) || /\w/.test(afterChar)) {
-					searchIndex = foundIndex + 1;
-					continue;
-				}
+		const newOccurrences = [] as PiiOccurrence[];
+		let match: RegExpExecArray | null;
+		while ((match = regex.exec(searchSource)) !== null) {
+			const foundIndex = match.index;
+			const foundLength = match[0].length;
+			const plainTextStart = foundIndex;
+			const plainTextEnd = foundIndex + foundLength;
+
+			// Enforce word boundaries to avoid mid-token matches
+			const beforeChar = plainTextStart > 0 ? searchSource[plainTextStart - 1] : '';
+			const afterChar = plainTextEnd < searchSource.length ? searchSource[plainTextEnd] : '';
+			if (startsAlpha && beforeChar && isAlnum(beforeChar)) {
+				continue; // starts inside a word
+			}
+			if (endsAlpha && afterChar && isAlnum(afterChar)) {
+				continue; // ends inside a word
 			}
 
-			const plainTextStart = foundIndex;
-			const plainTextEnd = foundIndex + entityText.length;
-
-			// Convert to ProseMirror positions
 			const proseMirrorStart = mapping.plainTextToProseMirror.get(plainTextStart);
 			const proseMirrorEnd = mapping.plainTextToProseMirror.get(plainTextEnd - 1);
 
 			if (proseMirrorStart !== undefined && proseMirrorEnd !== undefined) {
 				const from = proseMirrorStart;
 				const to = proseMirrorEnd + 1;
-
-				// Validate the range
 				if (from >= 0 && to <= doc.content.size && from < to) {
-					newOccurrences.push({
-						start_idx: from,
-						end_idx: to
-					});
+					newOccurrences.push({ start_idx: from, end_idx: to });
 				}
 			}
-
-			searchIndex = foundIndex + 1;
 		}
 
-		// Return entity with new occurrences, or mark for removal if none found
-		return {
-			...entity,
-			occurrences: newOccurrences
-		};
+		return { ...entity, occurrences: newOccurrences };
 	});
 
 	return remappedEntities.filter((entity) => entity.occurrences.length > 0);
@@ -318,72 +387,128 @@ function createPiiDecorations(
 	doc: ProseMirrorNode
 ): Decoration[] {
 	const decorations: Decoration[] = [];
-	const modifiersByEntity = new Map<string, PiiModifier>();
 
-	modifiers.forEach((modifier) => {
-		modifiersByEntity.set(modifier.entity.toLowerCase(), modifier);
-	});
+	// Build a fresh mapping for this render pass
+	const mapping = buildPositionMapping(doc);
+	const source = decodeHtmlEntities(mapping.plainText);
 
-	// Add PII entity decorations (lower priority)
+	// Helper for alnum
+	const isAlnum = (ch: string) => /[A-Za-z0-9À-ÿ]/.test(ch);
+
+	// Add PII entity decorations first (lower priority)
+	type RawSpan = {
+		type: string;
+		label: string;
+		shouldMask: boolean;
+		from: number;
+		to: number;
+		entityIndex: number;
+		occurrenceIndex: number;
+	};
+	const rawSpans: RawSpan[] = [];
+
 	entities.forEach((entity, entityIndex) => {
-		entity.occurrences.forEach((occurrence: PiiOccurrence, occurrenceIndex) => {
-			const { start_idx: from, end_idx: to } = occurrence;
-
+		(entity.occurrences || []).forEach((occ, occurrenceIndex) => {
+			const from = occ.start_idx;
+			const to = occ.end_idx;
 			if (from >= 0 && to <= doc.content.size && from < to) {
-				const hasModifier = modifiersByEntity.has(entity.raw_text.toLowerCase());
-
-				if (!hasModifier) {
-					const shouldMask = entity.shouldMask ?? true;
-					const maskingClass = shouldMask ? 'pii-masked' : 'pii-unmasked';
-
-					decorations.push(
-						Decoration.inline(from, to, {
-							class: `pii-highlight ${maskingClass}`,
-							'data-pii-type': entity.type,
-							'data-pii-label': entity.label,
-							'data-pii-text': entity.raw_text,
-							'data-pii-occurrence': occurrenceIndex.toString(),
-							'data-should-mask': shouldMask.toString(),
-							'data-entity-index': entityIndex.toString()
-						})
-					);
-				}
+				rawSpans.push({
+					type: entity.type,
+					label: entity.label,
+					shouldMask: entity.shouldMask ?? true,
+					from,
+					to,
+					entityIndex,
+					occurrenceIndex
+				});
 			}
 		});
 	});
 
-	// Add modifier decorations (higher priority)
-	modifiers.forEach((modifier) => {
-		doc.nodesBetween(0, doc.content.size, (node, pos) => {
-			if (node.isText && node.text) {
-				const entityText = modifier.entity.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-				const regex = new RegExp(`\\b${entityText}\\b`, 'gi');
-				let match;
+	// Sort for stable rendering; do NOT merge spans to preserve indices for toggling
+	rawSpans.sort((a, b) => (a.from === b.from ? a.to - b.to : a.from - b.from));
+	rawSpans.forEach((span) => {
+		const maskingClass = span.shouldMask ? 'pii-masked' : 'pii-unmasked';
+		decorations.push(
+			Decoration.inline(span.from, span.to, {
+				class: `pii-highlight ${maskingClass}`,
+				'data-pii-type': span.type,
+				'data-pii-label': span.label,
+				'data-pii-text': '',
+				'data-pii-occurrence': String(span.occurrenceIndex),
+				'data-should-mask': span.shouldMask.toString(),
+				'data-entity-index': String(span.entityIndex)
+			})
+		);
+	});
 
-				while ((match = regex.exec(node.text)) !== null) {
-					const matchStart = pos + match.index;
-					const matchEnd = matchStart + match[0].length;
+	// Add modifier decorations using plain-text matching and position mapping
+	(modifiers || []).forEach((modifier) => {
+		// Normalize modifier entity
+		let text = decodeHtmlEntities(modifier.entity || '');
+		text = text
+			.normalize('NFKC')
+			.replace(/^[\s\u00A0\t|:;.,\-_/\\]+/, '')
+			.replace(/[\s\u00A0\t|:;.,\-_/\\]+$/, '');
+		if (!text) return;
 
-					if (matchStart >= 0 && matchEnd <= doc.content.size && matchStart < matchEnd) {
-						const decorationClass =
-							modifier.action === 'string-mask'
-								? 'pii-modifier-highlight pii-modifier-mask'
-								: 'pii-modifier-highlight pii-modifier-ignore';
+		const escaped = text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+		const pattern = escaped.replace(/\s+/g, '[\s\u00A0\t]+');
+		const regex = new RegExp(pattern, 'gi');
 
-						decorations.push(
-							Decoration.inline(matchStart, matchEnd, {
-								class: decorationClass,
-								'data-modifier-entity': modifier.entity,
-								'data-modifier-action': modifier.action,
-								'data-modifier-type': modifier.type || '',
-								'data-modifier-id': modifier.id,
-								style: 'z-index: 10; position: relative;'
-							})
-						);
-					}
-				}
+		const startsAlpha = isAlnum(text[0] || '');
+		const endsAlpha = isAlnum(text[text.length - 1] || '');
+
+		// Helper: tolerant mapping from plain index to PM position
+		const mapStartInRange = (startIdx: number, endIdx: number): number | undefined => {
+			// Find first mappable plain index within [startIdx, endIdx)
+			for (let i = startIdx; i < endIdx; i++) {
+				const pm = mapping.plainTextToProseMirror.get(i);
+				if (pm !== undefined) return pm;
 			}
-		});
+			return undefined;
+		};
+		const mapEndInRange = (startIdx: number, endIdx: number): number | undefined => {
+			// Find last mappable plain index within [startIdx, endIdx)
+			for (let i = endIdx - 1; i >= startIdx; i--) {
+				const pm = mapping.plainTextToProseMirror.get(i);
+				if (pm !== undefined) return pm;
+			}
+			return undefined;
+		};
+
+		let match: RegExpExecArray | null;
+		while ((match = regex.exec(source)) !== null) {
+			const start = match.index;
+			const end = start + match[0].length;
+			const before = start > 0 ? source[start - 1] : '';
+			const after = end < source.length ? source[end] : '';
+			if (startsAlpha && before && isAlnum(before)) continue;
+			if (endsAlpha && after && isAlnum(after)) continue;
+
+			const pmStart = mapStartInRange(start, end);
+			const pmEnd = mapEndInRange(start, end);
+			if (pmStart === undefined || pmEnd === undefined) continue;
+			const from = pmStart;
+			const to = pmEnd + 1;
+			if (!(from >= 0 && to <= doc.content.size && from < to)) continue;
+
+			const decorationClass =
+				modifier.action === 'string-mask'
+					? 'pii-modifier-highlight pii-modifier-mask'
+					: 'pii-modifier-highlight pii-modifier-ignore';
+
+			decorations.push(
+				Decoration.inline(from, to, {
+					class: decorationClass,
+					'data-modifier-entity': modifier.entity,
+					'data-modifier-action': modifier.action,
+					'data-modifier-type': modifier.type || '',
+					'data-modifier-id': modifier.id,
+					style: 'z-index: 10; position: relative;'
+				})
+			);
+		}
 	});
 
 	return decorations;
@@ -581,6 +706,7 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 									const mapping = newState.positionMapping || buildPositionMapping(tr.doc);
 									const remapped = remapEntitiesForCurrentDocument(meta.entities, mapping, tr.doc);
 									newState.entities = validateAndFilterEntities(remapped, tr.doc, mapping);
+									newState.entities = resolveOverlaps(newState.entities, tr.doc);
 								} else {
 									newState.entities = [];
 								}
@@ -602,6 +728,7 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 										tr.doc
 									);
 									newState.entities = validateAndFilterEntities(remapped, tr.doc, currentMapping);
+									newState.entities = resolveOverlaps(newState.entities, tr.doc);
 								} else if (newState.entities.length > 0) {
 									// If session is empty but we have entities, sync them to session
 									newState.entities = syncWithSessionManager(
@@ -611,6 +738,18 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 										currentMapping,
 										tr.doc
 									);
+									// Persist current plugin entities to session for future lookups
+									if (options.conversationId) {
+										piiSessionManager.setConversationWorkingEntitiesWithMaskStates(
+											options.conversationId,
+											newState.entities
+										);
+									} else {
+										if (!piiSessionManager.isTemporaryStateActive()) {
+											piiSessionManager.activateTemporaryState();
+										}
+										piiSessionManager.setTemporaryStateEntities(newState.entities);
+									}
 								}
 								break;
 							}
@@ -624,6 +763,24 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 									newState.entities[entityIndex] = entity;
 
 									const piiSessionManager = PiiSessionManager.getInstance();
+
+									// Ensure the entity exists in session state before toggling
+									const sessionEntitiesBefore = piiSessionManager.getEntitiesForDisplay(
+										options.conversationId
+									);
+									if (!sessionEntitiesBefore.find((e: any) => e.label === entity.label)) {
+										if (options.conversationId) {
+											piiSessionManager.setConversationWorkingEntitiesWithMaskStates(
+												options.conversationId,
+												newState.entities
+											);
+										} else {
+											if (!piiSessionManager.isTemporaryStateActive()) {
+												piiSessionManager.activateTemporaryState();
+											}
+											piiSessionManager.setTemporaryStateEntities(newState.entities);
+										}
+									}
 
 									piiSessionManager.toggleEntityMasking(
 										entity.label,
@@ -670,6 +827,7 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 										tr.doc
 									);
 									newState.entities = validateAndFilterEntities(remapped, tr.doc, newMapping);
+									newState.entities = resolveOverlaps(newState.entities, tr.doc);
 								}
 								break;
 							}
@@ -710,6 +868,7 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 									newState.positionMapping,
 									tr.doc
 								);
+								newState.entities = resolveOverlaps(newState.entities, tr.doc);
 							} else {
 								// If we have no entities yet, populate from session if available
 								const sessionEntities = piiSessionManager.getEntitiesForDisplay(
@@ -726,6 +885,7 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 										tr.doc,
 										newState.positionMapping
 									);
+									newState.entities = resolveOverlaps(newState.entities, tr.doc);
 								}
 							}
 						} else {

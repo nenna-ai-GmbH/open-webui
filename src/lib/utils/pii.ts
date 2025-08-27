@@ -501,7 +501,7 @@ export class PiiSessionManager {
 			const state = this.conversationStates.get(conversationId);
 			if (state) {
 				const entity = state.entities.find((e) => e.label === entityId);
-				if (entity && entity.occurrences[occurrenceIndex]) {
+				if (entity) {
 					entity.shouldMask = !entity.shouldMask;
 					state.lastUpdated = Date.now();
 					this.triggerChatSave(conversationId);
@@ -516,7 +516,7 @@ export class PiiSessionManager {
 			const workingEntities = this.workingEntitiesForConversations.get(conversationId);
 			if (workingEntities) {
 				const workingEntity = workingEntities.find((e) => e.label === entityId);
-				if (workingEntity && workingEntity.occurrences[occurrenceIndex]) {
+				if (workingEntity) {
 					workingEntity.shouldMask = !workingEntity.shouldMask;
 					console.log(
 						`PiiSessionManager: Toggled working entity ${entityId} shouldMask to ${workingEntity.shouldMask}`
@@ -531,7 +531,7 @@ export class PiiSessionManager {
 		} else if (this.temporaryState.isActive) {
 			// New chat: update temporary state
 			const entity = this.temporaryState.entities.find((e) => e.label === entityId);
-			if (entity && entity.occurrences[occurrenceIndex]) {
+			if (entity) {
 				entity.shouldMask = !entity.shouldMask;
 				console.log(
 					`PiiSessionManager: Toggled temporary entity ${entityId} shouldMask to ${entity.shouldMask}`
@@ -619,14 +619,52 @@ export class PiiSessionManager {
 		conversationId: string,
 		extendedEntities: ExtendedPiiEntity[]
 	) {
-		// Working state is purely additive - only store NEW entities not already in persistent state
-		const persistentEntities = this.conversationStates.get(conversationId)?.entities || [];
-		const newEntities = extendedEntities.filter(
-			(entity) => !persistentEntities.find((persistent) => persistent.label === entity.label)
-		);
+		const existingState = this.conversationStates.get(conversationId);
+		const persistentEntities = existingState?.entities || [];
 
-		// Only store genuinely new entities in working state
-		this.workingEntitiesForConversations.set(conversationId, newEntities);
+		// Merge occurrences for labels that already exist in persistent state
+		let persistentChanged = false;
+		const mergedPersistent: ExtendedPiiEntity[] = [...persistentEntities];
+
+		const occurrenceKey = (o: { start_idx: number; end_idx: number }) => `${o.start_idx}-${o.end_idx}`;
+
+		for (const incoming of extendedEntities) {
+			const idx = mergedPersistent.findIndex((e) => e.label === incoming.label);
+			if (idx >= 0) {
+				const current = mergedPersistent[idx];
+				const currentOccKeys = new Set((current.occurrences || []).map(occurrenceKey));
+				const newOcc = (incoming.occurrences || []).filter((o) => !currentOccKeys.has(occurrenceKey(o)));
+				if (newOcc.length > 0 || (incoming.shouldMask !== undefined && current.shouldMask === undefined)) {
+					mergedPersistent[idx] = {
+						...current,
+						// Prefer existing shouldMask; otherwise adopt incoming
+						shouldMask: current.shouldMask ?? incoming.shouldMask,
+						// Prefer non-empty raw_text/type
+						raw_text: current.raw_text || incoming.raw_text,
+						type: current.type || incoming.type,
+						occurrences: [...(current.occurrences || []), ...newOcc]
+					};
+					persistentChanged = true;
+				}
+			}
+		}
+
+		if (persistentChanged && existingState) {
+			const newState: ConversationPiiState = {
+				...existingState,
+				entities: mergedPersistent,
+				lastUpdated: Date.now()
+			};
+			this.conversationStates.set(conversationId, newState);
+			this.errorBackup.set(conversationId, { ...newState });
+			this.triggerChatSave(conversationId);
+		}
+
+		// Only store genuinely new labels in working state
+		const newLabels = extendedEntities.filter(
+			(entity) => !mergedPersistent.find((persistent) => persistent.label === entity.label)
+		);
+		this.workingEntitiesForConversations.set(conversationId, newLabels);
 	}
 
 	setEntityMaskingState(conversationId: string, entityId: string, shouldMask: boolean) {

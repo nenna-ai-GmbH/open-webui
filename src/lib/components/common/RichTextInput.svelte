@@ -259,6 +259,13 @@
 
 	let lastSelectionBookmark = null;
 
+	// Guard to avoid feedback loops from programmatic setContent
+	let isProgrammaticSet = false;
+
+	// Guard to avoid interfering transactions while user is selecting with the mouse
+	let isMouseSelecting = false;
+	let deferredRemapTimeout: ReturnType<typeof setTimeout> | null = null;
+
 	// Yjs setup
 	let ydoc = null;
 	let yXmlFragment = null;
@@ -1289,9 +1296,12 @@
 			],
 			content: collaboration ? undefined : content,
 			autofocus: messageInput ? true : false,
-			onTransaction: () => {
-				// force re-render so `editor.isActive` works as expected
-				editor = editor;
+			onUpdate: () => {
+				// Avoid feedback loops triggered by programmatic updates
+				if (isProgrammaticSet) {
+					isProgrammaticSet = false;
+					return;
+				}
 				if (!editor) return;
 
 				htmlValue = editor.getHTML();
@@ -1363,9 +1373,11 @@
 
 						// Force entity remapping on keyup for immediate highlight updates
 						if (enablePiiDetection && editor && editor.commands.forceEntityRemapping) {
-							setTimeout(() => {
-								editor.commands.forceEntityRemapping();
-							}, 10);
+							if (!isMouseSelecting) {
+								setTimeout(() => {
+									editor.commands.forceEntityRemapping();
+								}, 10);
+							}
 						}
 
 						return false;
@@ -1373,9 +1385,11 @@
 					input: (view, event) => {
 						// Force entity remapping on input for immediate highlight updates
 						if (enablePiiDetection && editor && editor.commands.forceEntityRemapping) {
-							setTimeout(() => {
-								editor.commands.forceEntityRemapping();
-							}, 10);
+							if (!isMouseSelecting) {
+								setTimeout(() => {
+									editor.commands.forceEntityRemapping();
+								}, 10);
+							}
 						}
 						return false;
 					},
@@ -1620,6 +1634,26 @@
 							return true;
 						}
 						return false;
+					},
+					mousedown: (view, event) => {
+						isMouseSelecting = true;
+						// Cancel any deferred remap while selecting
+						if (deferredRemapTimeout) {
+							clearTimeout(deferredRemapTimeout);
+							deferredRemapTimeout = null;
+						}
+						return false;
+					},
+					mouseup: (view, event) => {
+						// End of selection; perform a single remap shortly after
+						isMouseSelecting = false;
+						if (enablePiiDetection && editor && editor.commands.forceEntityRemapping) {
+							deferredRemapTimeout = setTimeout(() => {
+								editor.commands.forceEntityRemapping();
+								deferredRemapTimeout = null;
+							}, 30);
+						}
+						return false;
 					}
 				}
 			},
@@ -1635,10 +1669,50 @@
 			selectTemplate();
 		}
 
+		// Helper to snapshot and restore scroll positions of nearest scrollable ancestors
+		function snapshotScrollAncestors(node) {
+			try {
+				const list = [];
+				const addIfScrollable = (el) => {
+					const style = window.getComputedStyle(el);
+					const canScrollY = (style.overflowY === 'auto' || style.overflowY === 'scroll') && el.scrollHeight > el.clientHeight;
+					const canScrollX = (style.overflowX === 'auto' || style.overflowX === 'scroll') && el.scrollWidth > el.clientWidth;
+					if (canScrollY || canScrollX) {
+						list.push({ el, x: el.scrollLeft, y: el.scrollTop });
+					}
+				};
+				let current = node;
+				let guard = 0;
+				while (current && current instanceof HTMLElement && guard < 30) {
+					addIfScrollable(current);
+					current = current.parentElement;
+					guard++;
+				}
+				list.push({ el: 'window', x: window.scrollX, y: window.scrollY });
+				return list;
+			} catch {
+				return [];
+			}
+		}
+
+		function restoreScroll(list) {
+			try {
+				list.forEach((s) => {
+					if (s.el === 'window') {
+						window.scrollTo(s.x, s.y);
+					} else if (s.el) {
+						s.el.scrollLeft = s.x;
+						s.el.scrollTop = s.y;
+					}
+				});
+			} catch {}
+		}
+
 		// Force initial sync of PII entities from session for non-message editors
 		// so existing backend-detected highlights show immediately without re-scanning
 		if (enablePiiDetection && conversationId && editor && !messageInput) {
 			setTimeout(() => {
+				const snapshot = snapshotScrollAncestors(element);
 				try {
 					if (typeof editor.commands.reloadConversationState === 'function') {
 						editor.commands.reloadConversationState(conversationId);
@@ -1652,9 +1726,12 @@
 				} catch (e) {
 					// no-op
 				}
+				restoreScroll(snapshot);
+				requestAnimationFrame(() => restoreScroll(snapshot));
 			}, 0);
 			// Do a second pass shortly after to catch late-mount decorations
 			setTimeout(() => {
+				const snapshot = snapshotScrollAncestors(element);
 				try {
 					if (typeof editor.commands.syncWithSessionManager === 'function') {
 						editor.commands.syncWithSessionManager();
@@ -1663,6 +1740,8 @@
 						editor.commands.forceEntityRemapping();
 					}
 				} catch (e) {}
+				restoreScroll(snapshot);
+				requestAnimationFrame(() => restoreScroll(snapshot));
 			}, 150);
 		}
 	});
@@ -1704,17 +1783,20 @@
 
 		if (json) {
 			if (JSON.stringify(value) !== JSON.stringify(jsonValue)) {
+				isProgrammaticSet = true;
 				editor.commands.setContent(value);
-				selectTemplate();
+				if (messageInput) selectTemplate();
 			}
 		} else {
 			if (raw) {
 				if (value !== htmlValue) {
+					isProgrammaticSet = true;
 					editor.commands.setContent(value);
-					selectTemplate();
+					if (messageInput) selectTemplate();
 				}
 			} else {
 				if (value !== mdValue) {
+					isProgrammaticSet = true;
 					editor.commands.setContent(
 						preserveBreaks
 							? value
@@ -1723,7 +1805,7 @@
 								})
 					);
 
-					selectTemplate();
+					if (messageInput) selectTemplate();
 				}
 			}
 		}

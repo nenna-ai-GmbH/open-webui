@@ -12,6 +12,8 @@ export interface PiiModifier {
 	entity: string;
 	type?: string; // PII type - required for 'string-mask' action
 	id: string; // Unique identifier for this modifier
+	from?: number; // Optional: ProseMirror start position for exact selection
+	to?: number; // Optional: ProseMirror end position for exact selection
 }
 
 // Options for the extension
@@ -1088,7 +1090,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 								let isHoverMenuShowing = false;
 		let hoverTimeout: number | null = null;
 		let menuCloseTimeout: ReturnType<typeof setTimeout> | null = null;
-		let isMouseOverMenu = false;
+		const isMouseOverMenu = false;
 		let isInputFocused = false;
 		// (Selection handling removed; BubbleMenu in RichTextInput provides UI for selection.)
 
@@ -1142,16 +1144,78 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 								break;
 
 							case 'ADD_MODIFIER':
+								// Align selection to the provided entity within the selected range (fix concatenations across nodes)
+								let selFrom = typeof meta.from === 'number' ? meta.from : 0;
+								let selTo = typeof meta.to === 'number' ? meta.to : 0;
+								if (selFrom > selTo) {
+									[selFrom, selTo] = [selTo, selFrom];
+								}
+								const doc = (tr as any).doc as ProseMirrorNode;
+								const docSize = doc.content.size;
+								selFrom = Math.max(0, Math.min(selFrom, docSize));
+								selTo = Math.max(0, Math.min(selTo, docSize));
+
+								const rawEntity = (meta.entity || '').normalize('NFKC').trim();
+								let finalFrom = selFrom;
+								let finalTo = selTo;
+								let finalEntity = rawEntity;
+
+								try {
+									const selectedText = doc.textBetween(selFrom, selTo, '\n', '\0');
+									const slice = (selectedText || '').normalize('NFKC');
+									if (slice) {
+										// First, try exact rawEntity alignment within the slice
+										if (rawEntity) {
+											const idx = slice.indexOf(rawEntity);
+											if (idx >= 0) {
+												finalFrom = selFrom + idx;
+												finalTo = finalFrom + rawEntity.length;
+												finalEntity = rawEntity;
+											}
+										}
+
+										// If not aligned yet, derive the best token from the slice
+										if (finalFrom === selFrom && finalTo === selTo) {
+											// Tokenize slice and prefer alphabetic tokens
+											const tokens: Array<{ start: number; end: number; text: string; hasAlpha: boolean }>= [];
+											const re = /[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9_-]*|[0-9]+(?:[.,][0-9]+)*/gu;
+											let m: RegExpExecArray | null;
+											re.lastIndex = 0;
+											while ((m = re.exec(slice)) !== null) {
+												const t = m[0];
+												tokens.push({ start: m.index, end: m.index + t.length, text: t, hasAlpha: /[A-Za-zÀ-ÿ]/.test(t) });
+											}
+
+											if (tokens.length > 0) {
+												// Prefer the last alphabetic token; else the last token
+												const alphaTokens = tokens.filter(t => t.hasAlpha);
+												const pick = (alphaTokens.length > 0 ? alphaTokens[alphaTokens.length - 1] : tokens[tokens.length - 1]);
+												finalFrom = selFrom + pick.start;
+												finalTo = selFrom + pick.end;
+												finalEntity = pick.text;
+											} else {
+												// Fallback: trimmed slice
+												const trimmed = slice.replace(/\s+/g, ' ').trim();
+												if (trimmed) {
+													finalEntity = trimmed;
+												}
+											}
+										}
+									}
+								} catch {}
+
 								const newModifier: PiiModifier = {
 									id: generateModifierId(),
 									action: meta.modifierAction,
-									entity: meta.entity,
-									type: meta.piiType
+									entity: finalEntity,
+									type: meta.piiType,
+									from: finalFrom,
+									to: finalTo
 								};
-
+ 
 								// Replace any existing modifier for the same entity text (case-insensitive)
 								const filteredModifiers = newState.modifiers.filter(
-									(modifier) => modifier.entity.toLowerCase() !== meta.entity.toLowerCase()
+									(modifier) => modifier.entity.toLowerCase() !== finalEntity.toLowerCase()
 								);
 
 								const updatedModifiers = [...filteredModifiers, newModifier];
@@ -1339,7 +1403,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 							}
 
 							// We found an existing PII or modifier entity
-							let targetInfo = {
+							const targetInfo = {
 								word: existingEntity.text,
 								from: existingEntity.from,
 								to: existingEntity.to
@@ -1469,8 +1533,8 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 														// Use Svelte component interface
 							if (options.showPiiHoverMenu) {
 								// ALWAYS use mouse coordinates for positioning - they're the most reliable
-								let menuX = event.clientX;
-								let menuY = event.clientY;
+								const menuX = event.clientX;
+								const menuY = event.clientY;
 								
 								// debug logs removed
 								const labelFromModifier = (existingModifiers.find((m) => m.action === 'string-mask')?.type) || '';
@@ -1622,19 +1686,55 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 					to: number;
 				}) =>
 				({ state, dispatch }: any) => {
+					const doc = state.doc as ProseMirrorNode;
+					const selFrom = state.selection.from;
+					const selTo = state.selection.to;
+
+					// Start with provided options
+					let useFrom = typeof options.from === 'number' ? options.from : selFrom;
+					let useTo = typeof options.to === 'number' ? options.to : selTo;
+					if (useFrom > useTo) [useFrom, useTo] = [useTo, useFrom];
+
+					// Derive canonical entity from current selection if necessary
+					let entity = (options.entity || '').normalize('NFKC').trim();
+					const selText = doc.textBetween(selFrom, selTo, '\n', '\0').normalize('NFKC');
+					if (!entity || (selText && selText.indexOf(entity) === -1)) {
+						// Try to pick a token from selection
+						const slice = selText || '';
+						const tokens: Array<{ start: number; end: number; text: string; hasAlpha: boolean }> = [];
+						const re = /[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9_-]*|[0-9]+(?:[.,][0-9]+)*/gu;
+						let m: RegExpExecArray | null;
+						re.lastIndex = 0;
+						while ((m = re.exec(slice)) !== null) {
+							const t = m[0];
+							tokens.push({ start: m.index, end: m.index + t.length, text: t, hasAlpha: /[A-Za-zÀ-ÿ]/.test(t) });
+						}
+						if (tokens.length > 0) {
+							const alphaTokens = tokens.filter(t => t.hasAlpha);
+							const pick = (alphaTokens.length > 0 ? alphaTokens[alphaTokens.length - 1] : tokens[tokens.length - 1]);
+							entity = pick.text;
+							useFrom = selFrom + pick.start;
+							useTo = selFrom + pick.end;
+						} else if (slice.trim()) {
+							entity = slice.replace(/\s+/g, ' ').trim();
+							useFrom = selFrom;
+							useTo = selTo;
+						}
+					}
+
 					const tr = state.tr.setMeta(piiModifierExtensionKey, {
 						type: 'ADD_MODIFIER',
 						modifierAction: options.action,
-						entity: options.entity,
+						entity,
 						piiType: options.type,
-						from: options.from,
-						to: options.to
+						from: useFrom,
+						to: useTo
 					});
-
+ 
 					if (dispatch) {
 						dispatch(tr);
 					}
-
+ 
 					return true;
 				},
 

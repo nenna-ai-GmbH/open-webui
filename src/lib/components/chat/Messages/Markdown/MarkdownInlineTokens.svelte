@@ -43,7 +43,7 @@
 			</a>
 		{:else}
 			<a href={token.href} target="_blank" rel="nofollow" title={token.title}>
-				<PiiAwareInlineText text={token.text ?? ''} id={`${id}-a-text`} {conversationId} {done} />
+				<PiiAwareInlineText text={unescapeHtml(token.text ?? '')} id={`${id}-a-text`} {conversationId} {done} />
 			</a>
 		{/if}
 	{:else if token.type === 'image'}
@@ -95,7 +95,7 @@
 		></iframe>
 	{:else if token.type === 'text'}
 		<PiiAwareInlineText
-			text={token.raw ?? ''}
+			text={unescapeHtml(token.raw ?? '')}
 			id={`${id}-text-${token.type}`}
 			{conversationId}
 			{done}
