@@ -70,10 +70,14 @@
     // Use the new addTokenizedMask command that applies findTokenizedWords
     editor?.commands?.addTokenizedMask?.();
   };
+
+
 </script>
 
 {#if enabled && editor && showPii}
-  <div class="flex gap-0.5 p-0.5 rounded-lg shadow-lg bg-white text-gray-800 dark:text-white dark:bg-gray-800 min-w-fit">
+  <div 
+    class="flex gap-0.5 p-0.5 rounded-lg shadow-lg bg-white text-gray-800 dark:text-white dark:bg-gray-800 min-w-fit"
+  >
     <button
       type="button"
       class="hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg p-1.5 transition-all text-xs font-medium flex items-center gap-1"

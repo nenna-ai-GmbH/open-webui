@@ -582,6 +582,8 @@
 
 	let floatingMenuElement = null;
 	let bubbleMenuElement = null;
+	
+
 	let element: HTMLElement;
 
 	// PII Hover Menu state
@@ -1262,15 +1264,27 @@
 									return false;
 								},
 								options: {
-									strategy: 'fixed',
+									strategy: 'absolute',
 									placement: 'top',
 									offset: [0, 8],
 									flip: true,
 									shift: true,
+									delay: { show: 50, hide: 0 },
 									onShow: () => {
 										// Ensure high z-index when showing
 										if (bubbleMenuElement) {
 											bubbleMenuElement.style.zIndex = '9999';
+											
+											// Check if position is calculated correctly and trigger fallback if needed
+											const hasPosition = bubbleMenuElement.style.position && 
+															   (bubbleMenuElement.style.left !== '' || bubbleMenuElement.style.top !== '');
+											
+											if (!hasPosition) {
+												// Simple fallback - trigger one resize event to help positioning
+												setTimeout(() => {
+													window.dispatchEvent(new Event('resize'));
+												}, 20);
+											}
 										}
 									}
 								}
