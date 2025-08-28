@@ -649,6 +649,11 @@
 								if (typeof kbEditor.commands.forceEntityRemapping === 'function') {
 									kbEditor.commands.forceEntityRemapping();
 								}
+								// Files are already analyzed - just load existing entities and highlights
+								console.log('KnowledgeBase: Content loaded with existing PII analysis', {
+									hasExistingEntities: entities.length > 0,
+									contentLength: response.data.content?.length || 0
+								});
 							}
 						} catch (e) {}
 					}, 50);
@@ -951,6 +956,7 @@
 										piiApiKey={$config?.pii?.api_key ?? ''}
 										enablePiiModifiers={true}
 										piiMaskingEnabled={true}
+										detectOnlyAfterUserEdit={true}
 										piiModifierLabels={[
 											'PERSON',
 											'EMAIL',
@@ -1033,6 +1039,7 @@
 										piiApiKey={$config?.pii?.api_key ?? ''}
 										enablePiiModifiers={true}
 										piiMaskingEnabled={true}
+										detectOnlyAfterUserEdit={true}
 										piiModifierLabels={[
 											'PERSON',
 											'EMAIL',
