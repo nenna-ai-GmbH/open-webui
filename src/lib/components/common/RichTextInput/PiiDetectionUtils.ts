@@ -343,18 +343,61 @@ export function hasSignificantContent(newWords: string[]): boolean {
 /**
  * Typing pause detection utility
  * Manages timer-based detection for catching missed changes after typing pauses
+ * Only triggers after actual user keystrokes, not programmatic content changes
  */
 export class TypingPauseDetector {
 	private timer: NodeJS.Timeout | null = null;
 	private lastApiCallText: string = '';
 	private pauseThresholdMs: number = 1000; // 1 second default
+	private lastUserKeystrokeTime: number = 0; // Track when user last typed
+	private keystrokeTimeoutMs: number = 5000; // 5 seconds - only detect after recent user activity
+	private recentTransactions: number[] = []; // Track transaction timestamps for rapid change detection
+	private rapidChangeThresholdMs: number = 100; // Changes within 100ms are likely programmatic
 	
-	constructor(pauseThresholdMs: number = 1000) {
+	constructor(pauseThresholdMs: number = 1000, keystrokeTimeoutMs: number = 5000) {
 		this.pauseThresholdMs = pauseThresholdMs;
+		this.keystrokeTimeoutMs = keystrokeTimeoutMs;
 	}
 	
 	/**
-	 * Call this on every keystroke/change to reset the pause timer
+	 * Track a transaction to detect rapid changes (typical of programmatic loading)
+	 */
+	onTransaction(): boolean {
+		const now = Date.now();
+		
+		// Clean up old transactions (keep only last 500ms)
+		this.recentTransactions = this.recentTransactions.filter(time => now - time < 500);
+		
+		// Add current transaction
+		this.recentTransactions.push(now);
+		
+		// Check if we have multiple transactions in rapid succession
+		const rapidTransactions = this.recentTransactions.filter(time => now - time < this.rapidChangeThresholdMs);
+		const isRapidChange = rapidTransactions.length > 2; // More than 2 transactions in 100ms
+		
+		if (isRapidChange) {
+			console.log('PiiDetectionExtension: 🚀 Rapid transactions detected (likely programmatic)', {
+				recentTransactionsCount: this.recentTransactions.length,
+				rapidTransactionsCount: rapidTransactions.length,
+				rapidChangeThresholdMs: this.rapidChangeThresholdMs
+			});
+		}
+		
+		return isRapidChange;
+	}
+	
+	/**
+	 * Call this when a user keystroke is detected to mark user activity
+	 */
+	onUserKeystroke(): void {
+		this.lastUserKeystrokeTime = Date.now();
+		// Clear rapid transaction tracking when user types
+		this.recentTransactions = [];
+		console.log('PiiDetectionExtension: 👤 User keystroke detected, activating typing pause detection');
+	}
+	
+	/**
+	 * Call this on document changes - only activates pause timer if recent user activity
 	 */
 	onTextChange(
 		currentText: string, 
@@ -366,10 +409,26 @@ export class TypingPauseDetector {
 			this.timer = null;
 		}
 		
-		// Set new timer for pause detection
-		this.timer = setTimeout(() => {
-			this.handlePauseDetected(currentText, onPauseDetected);
-		}, this.pauseThresholdMs);
+		// Only set timer if there was recent user keystroke activity
+		const timeSinceLastKeystroke = Date.now() - this.lastUserKeystrokeTime;
+		const hasRecentUserActivity = timeSinceLastKeystroke <= this.keystrokeTimeoutMs;
+		
+		if (hasRecentUserActivity) {
+			console.log('PiiDetectionExtension: ⏰ Setting typing pause timer (recent user activity)', {
+				timeSinceLastKeystroke,
+				keystrokeTimeoutMs: this.keystrokeTimeoutMs
+			});
+			// Set new timer for pause detection
+			this.timer = setTimeout(() => {
+				this.handlePauseDetected(currentText, onPauseDetected);
+			}, this.pauseThresholdMs);
+		} else {
+			console.log('PiiDetectionExtension: ⏭️ Skipping typing pause timer (no recent user activity)', {
+				timeSinceLastKeystroke,
+				keystrokeTimeoutMs: this.keystrokeTimeoutMs,
+				hasRecentUserActivity
+			});
+		}
 	}
 	
 	/**
@@ -427,16 +486,39 @@ export class TypingPauseDetector {
 			clearTimeout(this.timer);
 			this.timer = null;
 		}
+		// Clear transaction tracking
+		this.recentTransactions = [];
+		this.lastUserKeystrokeTime = 0;
+		this.lastApiCallText = '';
 	}
 	
 	/**
 	 * Get current state for debugging
 	 */
-	getState(): { hasTimer: boolean; lastApiCallTextLength: number; pauseThresholdMs: number } {
+	getState(): { 
+		hasTimer: boolean; 
+		lastApiCallTextLength: number; 
+		pauseThresholdMs: number;
+		lastUserKeystrokeTime: number;
+		timeSinceLastKeystroke: number;
+		hasRecentUserActivity: boolean;
+		keystrokeTimeoutMs: number;
+		recentTransactionsCount: number;
+		rapidChangeThresholdMs: number;
+	} {
+		const timeSinceLastKeystroke = Date.now() - this.lastUserKeystrokeTime;
+		const hasRecentUserActivity = timeSinceLastKeystroke <= this.keystrokeTimeoutMs;
+		
 		return {
 			hasTimer: this.timer !== null,
 			lastApiCallTextLength: this.lastApiCallText.length,
-			pauseThresholdMs: this.pauseThresholdMs
+			pauseThresholdMs: this.pauseThresholdMs,
+			lastUserKeystrokeTime: this.lastUserKeystrokeTime,
+			timeSinceLastKeystroke,
+			hasRecentUserActivity,
+			keystrokeTimeoutMs: this.keystrokeTimeoutMs,
+			recentTransactionsCount: this.recentTransactions.length,
+			rapidChangeThresholdMs: this.rapidChangeThresholdMs
 		};
 	}
 	

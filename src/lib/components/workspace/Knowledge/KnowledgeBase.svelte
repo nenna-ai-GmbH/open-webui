@@ -956,7 +956,7 @@
 										piiApiKey={$config?.pii?.api_key ?? ''}
 										enablePiiModifiers={true}
 										piiMaskingEnabled={true}
-										detectOnlyAfterUserEdit={true}
+										piiDetectionOnlyAfterUserEdit={true}
 										piiModifierLabels={[
 											'PERSON',
 											'EMAIL',
@@ -1039,7 +1039,7 @@
 										piiApiKey={$config?.pii?.api_key ?? ''}
 										enablePiiModifiers={true}
 										piiMaskingEnabled={true}
-										detectOnlyAfterUserEdit={true}
+										piiDetectionOnlyAfterUserEdit={true}
 										piiModifierLabels={[
 											'PERSON',
 											'EMAIL',

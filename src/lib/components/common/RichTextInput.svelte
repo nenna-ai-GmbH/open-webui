@@ -603,6 +603,7 @@
 	export let enablePiiModifiers = false;
 	export let onPiiModifiersChanged: (modifiers: PiiModifier[]) => void = () => {};
 	export let piiModifierLabels: string[] = [];
+	export let piiDetectionOnlyAfterUserEdit: boolean | undefined = undefined; // Allow manual control of detection timing
 
 	// PII Loading state
 	let isPiiDetectionInProgress = false;
@@ -1201,7 +1202,9 @@
 								onPiiDetected: onPiiDetected,
 								onPiiToggled: onPiiToggled,
 								onPiiDetectionStateChanged: handlePiiDetectionStateChanged,
-								detectOnlyAfterUserEdit: messageInput ? false : true
+								detectOnlyAfterUserEdit: piiDetectionOnlyAfterUserEdit !== undefined 
+									? piiDetectionOnlyAfterUserEdit 
+									: (messageInput ? false : true)
 							})
 						]
 					: []),
@@ -1397,6 +1400,12 @@
 						return false;
 					},
 					input: (view, event) => {
+						// Mark user activity for PII detection (actual content change)
+						if (enablePiiDetection && editor && editor.commands.markUserActivity) {
+							console.log('PiiDetectionExtension: Content input detected, marking user activity');
+							editor.commands.markUserActivity();
+						}
+						
 						// Force entity remapping on input for immediate highlight updates
 						if (enablePiiDetection && editor && editor.commands.forceEntityRemapping) {
 							if (!isMouseSelecting) {
@@ -1566,6 +1575,12 @@
 						return false;
 					},
 					paste: (view, event) => {
+						// Mark user activity for PII detection (paste is user content change)
+						if (enablePiiDetection && editor && editor.commands.markUserActivity) {
+							console.log('PiiDetectionExtension: Paste detected, marking user activity');
+							editor.commands.markUserActivity();
+						}
+						
 						if (preventDocEdits) {
 							event.preventDefault();
 							return true;
