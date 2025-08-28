@@ -429,12 +429,14 @@ function createPiiDecorations(
 	rawSpans.sort((a, b) => (a.from === b.from ? a.to - b.to : a.from - b.from));
 	rawSpans.forEach((span) => {
 		const maskingClass = span.shouldMask ? 'pii-masked' : 'pii-unmasked';
+		// Get the actual text content from the document for this span
+		const spanText = doc.textBetween(span.from, span.to, '\n', '\0');
 		decorations.push(
 			Decoration.inline(span.from, span.to, {
 				class: `pii-highlight ${maskingClass}`,
 				'data-pii-type': span.type,
 				'data-pii-label': span.label,
-				'data-pii-text': '',
+				'data-pii-text': spanText || '',
 				'data-pii-occurrence': String(span.occurrenceIndex),
 				'data-should-mask': span.shouldMask.toString(),
 				'data-entity-index': String(span.entityIndex)
@@ -442,72 +444,111 @@ function createPiiDecorations(
 		);
 	});
 
-	// Add modifier decorations using plain-text matching and position mapping
-	(modifiers || []).forEach((modifier) => {
-		// Normalize modifier entity
-		let text = decodeHtmlEntities(modifier.entity || '');
-		text = text
-			.normalize('NFKC')
-			.replace(/^[\s\u00A0\t|:;.,\-_/\\]+/, '')
-			.replace(/[\s\u00A0\t|:;.,\-_/\\]+$/, '');
-		if (!text) return;
+	// Add modifier decorations using entity-based matching and fallback to text matching
+	(modifiers || []).forEach((modifier, modifierIndex) => {
+		let decorationCreated = false;
+		
+		// Strategy 1: Try to find matching PII entity by text content
+		// This handles cases where the modifier was created from an existing PII highlight
+		entities.forEach((entity, entityIndex) => {
+			entity.occurrences?.forEach((occurrence, occurrenceIndex) => {
+				// Get the actual text content from the document at this entity's position
+				const entityText = doc.textBetween(occurrence.start_idx, occurrence.end_idx, '\n', '\0').trim();
+				
+				// Check if this entity's text matches the modifier's entity text
+				if (entityText.toLowerCase() === modifier.entity.toLowerCase()) {
+					const decorationClass =
+						modifier.action === 'string-mask'
+							? 'pii-modifier-highlight pii-modifier-mask'
+							: 'pii-modifier-highlight pii-modifier-ignore';
 
-		const escaped = text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-		const pattern = escaped.replace(/\s+/g, '[\s\u00A0\t]+');
-		const regex = new RegExp(pattern, 'gi');
+					console.log(`✅ Applied ${modifier.action} modifier to: "${entityText}"`);
 
-		const startsAlpha = isAlnum(text[0] || '');
-		const endsAlpha = isAlnum(text[text.length - 1] || '');
+					decorations.push(
+						Decoration.inline(occurrence.start_idx, occurrence.end_idx, {
+							class: decorationClass,
+							'data-modifier-entity': modifier.entity,
+							'data-modifier-action': modifier.action,
+							'data-modifier-type': modifier.type || '',
+							'data-modifier-id': modifier.id,
+							style: 'z-index: 10; position: relative;'
+						})
+					);
+					decorationCreated = true;
+				}
+			});
+		});
+		
+		// Strategy 2: Fallback to plain text matching if no entity match found
+		if (!decorationCreated) {
+			// Normalize modifier entity
+			let text = decodeHtmlEntities(modifier.entity || '');
+			text = text
+				.normalize('NFKC')
+				.replace(/^[\s\u00A0\t|:;.,\-_/\\]+/, '')
+				.replace(/[\s\u00A0\t|:;.,\-_/\\]+$/, '');
+			if (!text) return;
 
-		// Helper: tolerant mapping from plain index to PM position
-		const mapStartInRange = (startIdx: number, endIdx: number): number | undefined => {
-			// Find first mappable plain index within [startIdx, endIdx)
-			for (let i = startIdx; i < endIdx; i++) {
-				const pm = mapping.plainTextToProseMirror.get(i);
-				if (pm !== undefined) return pm;
+			const escaped = text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+			const pattern = escaped.replace(/\s+/g, '[\s\u00A0\t]+');
+			const regex = new RegExp(pattern, 'gi');
+
+			const startsAlpha = isAlnum(text[0] || '');
+			const endsAlpha = isAlnum(text[text.length - 1] || '');
+
+			// Helper: tolerant mapping from plain index to PM position
+			const mapStartInRange = (startIdx: number, endIdx: number): number | undefined => {
+				// Find first mappable plain index within [startIdx, endIdx)
+				for (let i = startIdx; i < endIdx; i++) {
+					const pm = mapping.plainTextToProseMirror.get(i);
+					if (pm !== undefined) return pm;
+				}
+				return undefined;
+			};
+			const mapEndInRange = (startIdx: number, endIdx: number): number | undefined => {
+				// Find last mappable plain index within [startIdx, endIdx)
+				for (let i = endIdx - 1; i >= startIdx; i--) {
+					const pm = mapping.plainTextToProseMirror.get(i);
+					if (pm !== undefined) return pm;
+				}
+				return undefined;
+			};
+
+			let match: RegExpExecArray | null;
+			while ((match = regex.exec(source)) !== null) {
+				const start = match.index;
+				const end = start + match[0].length;
+				const before = start > 0 ? source[start - 1] : '';
+				const after = end < source.length ? source[end] : '';
+				if (startsAlpha && before && isAlnum(before)) continue;
+				if (endsAlpha && after && isAlnum(after)) continue;
+
+				const pmStart = mapStartInRange(start, end);
+				const pmEnd = mapEndInRange(start, end);
+				if (pmStart === undefined || pmEnd === undefined) continue;
+				const from = pmStart;
+				const to = pmEnd + 1;
+				if (!(from >= 0 && to <= doc.content.size && from < to)) continue;
+
+				const decorationClass =
+					modifier.action === 'string-mask'
+						? 'pii-modifier-highlight pii-modifier-mask'
+						: 'pii-modifier-highlight pii-modifier-ignore';
+
+				console.log(`✅ Applied ${modifier.action} modifier to: "${match[0]}" (text search)`);
+
+				decorations.push(
+					Decoration.inline(from, to, {
+						class: decorationClass,
+						'data-modifier-entity': modifier.entity,
+						'data-modifier-action': modifier.action,
+						'data-modifier-type': modifier.type || '',
+						'data-modifier-id': modifier.id,
+						style: 'z-index: 10; position: relative;'
+					})
+				);
+				decorationCreated = true;
 			}
-			return undefined;
-		};
-		const mapEndInRange = (startIdx: number, endIdx: number): number | undefined => {
-			// Find last mappable plain index within [startIdx, endIdx)
-			for (let i = endIdx - 1; i >= startIdx; i--) {
-				const pm = mapping.plainTextToProseMirror.get(i);
-				if (pm !== undefined) return pm;
-			}
-			return undefined;
-		};
-
-		let match: RegExpExecArray | null;
-		while ((match = regex.exec(source)) !== null) {
-			const start = match.index;
-			const end = start + match[0].length;
-			const before = start > 0 ? source[start - 1] : '';
-			const after = end < source.length ? source[end] : '';
-			if (startsAlpha && before && isAlnum(before)) continue;
-			if (endsAlpha && after && isAlnum(after)) continue;
-
-			const pmStart = mapStartInRange(start, end);
-			const pmEnd = mapEndInRange(start, end);
-			if (pmStart === undefined || pmEnd === undefined) continue;
-			const from = pmStart;
-			const to = pmEnd + 1;
-			if (!(from >= 0 && to <= doc.content.size && from < to)) continue;
-
-			const decorationClass =
-				modifier.action === 'string-mask'
-					? 'pii-modifier-highlight pii-modifier-mask'
-					: 'pii-modifier-highlight pii-modifier-ignore';
-
-			decorations.push(
-				Decoration.inline(from, to, {
-					class: decorationClass,
-					'data-modifier-entity': modifier.entity,
-					'data-modifier-action': modifier.action,
-					'data-modifier-type': modifier.type || '',
-					'data-modifier-id': modifier.id,
-					style: 'z-index: 10; position: relative;'
-				})
-			);
 		}
 	});
 
@@ -943,6 +984,10 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 					// Get modifiers from session manager (not ProseMirror extension state)
 					const piiSessionManager = PiiSessionManager.getInstance();
 					const modifiers = piiSessionManager.getModifiersForDisplay(options.conversationId);
+
+					// Debug logging (can be removed in production)
+					// console.log('PiiDetectionExtension decorations - modifiers:', modifiers.length, modifiers);
+					// console.log('PiiDetectionExtension decorations - entities:', pluginState?.entities?.length || 0);
 
 					// If no entities yet, pull from session to allow immediate rendering
 					if (!pluginState?.entities.length) {
