@@ -836,8 +836,49 @@
 										processing.status === 'done' ||
 										(typeof processing.progress === 'number' && processing.progress >= 100)
 									) {
+										// Only show extraction messages if this is the first time we see completion
+										if (fileItem.status !== 'uploaded') {
+											// Check for extraction information and show appropriate toast messages
+											if (json?.data?.extraction) {
+												const extraction = json.data.extraction;
+												if (extraction.fallback_used) {
+													// Handle classified error structure
+													let errorMessage = 'Unknown error';
+													if (extraction.error && typeof extraction.error === 'object') {
+														const errorInfo = extraction.error;
+														switch (errorInfo.category) {
+															case 'service_unavailable':
+																errorMessage = $i18n.t('Docling extraction service is not available');
+																break;
+															case 'timeout':
+																errorMessage = $i18n.t('Docling extraction took too long and timed out');
+																break;
+															case 'unknown':
+															default:
+																errorMessage = $i18n.t('Docling extraction failed with an unexpected error');
+																break;
+														}
+													} else if (extraction.error) {
+														// Fallback for old string-based errors
+														errorMessage = extraction.error;
+													}
+													
+													toast.warning(
+														$i18n.t('Docling extraction failed, using standard extraction: {{error}}', {
+															error: errorMessage
+														})
+													);
+												} else if (extraction.method?.toLowerCase() === 'docling') {
+													toast.success($i18n.t('File processed successfully using Docling'));
+												} else if (extraction.method) {
+													toast.success($i18n.t('File processed successfully using {{method}}', {
+														method: extraction.method
+													}));
+												}
+											}
+										}
+										
 										fileItem.status = 'uploaded';
-										console.log('Processing completed');
 										files = files;
 										return; // stop polling
 									}

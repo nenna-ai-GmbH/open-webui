@@ -245,6 +245,52 @@
 										processing.status === 'done' ||
 										(typeof processing.progress === 'number' && processing.progress >= 100)
 									) {
+										// Only show extraction messages if this is the first time we see completion
+										if (item.status !== 'uploaded') {
+											// Check for extraction information and show appropriate toast messages
+											if (json?.data?.extraction) {
+												const extraction = json.data.extraction;
+												if (extraction.fallback_used) {
+													// Handle classified error structure
+													let errorMessage = 'Unknown error';
+													if (extraction.error && typeof extraction.error === 'object') {
+														const errorInfo = extraction.error;
+														switch (errorInfo.category) {
+															case 'service_unavailable':
+																errorMessage = $i18n.t('Docling extraction service is not available');
+																break;
+															case 'timeout':
+																errorMessage = $i18n.t('Docling extraction took too long and timed out');
+																break;
+															case 'unknown':
+															default:
+																errorMessage = $i18n.t('Docling extraction failed with an unexpected error');
+																break;
+														}
+													} else if (extraction.error) {
+														// Fallback for old string-based errors
+														errorMessage = extraction.error;
+													}
+													
+													toast.warning(
+														$i18n.t('Docling extraction failed for {{filename}}, using standard extraction: {{error}}', {
+															filename: item.name,
+															error: errorMessage
+														})
+													);
+												} else if (extraction.method?.toLowerCase() === 'docling') {
+													toast.success($i18n.t('{{filename}} processed successfully using Docling', {
+														filename: item.name
+													}));
+												} else if (extraction.method) {
+													toast.success($i18n.t('{{filename}} processed successfully using {{method}}', {
+														filename: item.name,
+														method: extraction.method
+													}));
+												}
+											}
+										}
+										
 										item.status = 'uploaded';
 									}
 									if (processing.status === 'error') {

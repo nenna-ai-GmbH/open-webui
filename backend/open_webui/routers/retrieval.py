@@ -119,6 +119,64 @@ from open_webui.constants import ERROR_MESSAGES
 log = logging.getLogger(__name__)
 log.setLevel(SRC_LOG_LEVELS["RAG"])
 
+
+def classify_extraction_error(error_str: str) -> dict:
+    """
+    Classify extraction errors into user-friendly categories.
+
+    Returns:
+        dict: Contains 'category', 'simplified_message', and 'original_error'
+    """
+    error_lower = error_str.lower()
+
+    # Check for connection/service errors
+    if any(
+        keyword in error_lower
+        for keyword in [
+            "connection refused",
+            "connection error",
+            "newconnectionerror",
+            "max retries exceeded",
+            "failed to establish",
+            "connection timeout",
+            "name or service not known",
+            "no route to host",
+            "network is unreachable",
+        ]
+    ):
+        return {
+            "category": "service_unavailable",
+            "simplified_message": "Docling extraction service is not available",
+            "original_error": error_str,
+        }
+
+    # Check for timeout errors
+    elif any(
+        keyword in error_lower
+        for keyword in [
+            "timeout",
+            "timed out",
+            "request timeout",
+            "read timeout",
+            "connection timeout",
+            "socket timeout",
+        ]
+    ):
+        return {
+            "category": "timeout",
+            "simplified_message": "Docling extraction took too long and timed out",
+            "original_error": error_str,
+        }
+
+    # Unknown/other errors
+    else:
+        return {
+            "category": "unknown",
+            "simplified_message": "Docling extraction failed with an unexpected error",
+            "original_error": error_str,
+        }
+
+
 ##########################################
 #
 # Utility functions
@@ -1530,6 +1588,21 @@ def process_file(
             # Content provided directly; extraction stage completed
             _set_processing(file.id, "processing", "extracting", 20)
 
+            # Store extraction information for direct content
+            try:
+                Files.update_file_data_by_id(
+                    file.id,
+                    {
+                        "extraction": {
+                            "method": "direct_content",
+                            "fallback_used": False,
+                            "error": None,
+                        }
+                    },
+                )
+            except Exception:
+                pass
+
             # If client provided PII, attach it to doc metadata and persist to file data
             try:
                 if form_data.pii is not None:
@@ -1595,43 +1668,92 @@ def process_file(
             # Process the file and save the content
             # Usage: /files/
             file_path = file.path
+            extraction_method = request.app.state.config.CONTENT_EXTRACTION_ENGINE
+            extraction_error = None
+            fallback_used = False
+
             if file_path:
                 _set_processing(file.id, "processing", "extracting", 10)
                 file_path = Storage.get_file(file_path)
-                loader = Loader(
-                    engine=request.app.state.config.CONTENT_EXTRACTION_ENGINE,
-                    DATALAB_MARKER_API_KEY=request.app.state.config.DATALAB_MARKER_API_KEY,
-                    DATALAB_MARKER_API_BASE_URL=request.app.state.config.DATALAB_MARKER_API_BASE_URL,
-                    DATALAB_MARKER_ADDITIONAL_CONFIG=request.app.state.config.DATALAB_MARKER_ADDITIONAL_CONFIG,
-                    DATALAB_MARKER_SKIP_CACHE=request.app.state.config.DATALAB_MARKER_SKIP_CACHE,
-                    DATALAB_MARKER_FORCE_OCR=request.app.state.config.DATALAB_MARKER_FORCE_OCR,
-                    DATALAB_MARKER_PAGINATE=request.app.state.config.DATALAB_MARKER_PAGINATE,
-                    DATALAB_MARKER_STRIP_EXISTING_OCR=request.app.state.config.DATALAB_MARKER_STRIP_EXISTING_OCR,
-                    DATALAB_MARKER_DISABLE_IMAGE_EXTRACTION=request.app.state.config.DATALAB_MARKER_DISABLE_IMAGE_EXTRACTION,
-                    DATALAB_MARKER_FORMAT_LINES=request.app.state.config.DATALAB_MARKER_FORMAT_LINES,
-                    DATALAB_MARKER_USE_LLM=request.app.state.config.DATALAB_MARKER_USE_LLM,
-                    DATALAB_MARKER_OUTPUT_FORMAT=request.app.state.config.DATALAB_MARKER_OUTPUT_FORMAT,
-                    EXTERNAL_DOCUMENT_LOADER_URL=request.app.state.config.EXTERNAL_DOCUMENT_LOADER_URL,
-                    EXTERNAL_DOCUMENT_LOADER_API_KEY=request.app.state.config.EXTERNAL_DOCUMENT_LOADER_API_KEY,
-                    TIKA_SERVER_URL=request.app.state.config.TIKA_SERVER_URL,
-                    DOCLING_SERVER_URL=request.app.state.config.DOCLING_SERVER_URL,
-                    DOCLING_PARAMS={
-                        "ocr_engine": request.app.state.config.DOCLING_OCR_ENGINE,
-                        "ocr_lang": request.app.state.config.DOCLING_OCR_LANG,
-                        "md_page_break_placeholder": request.app.state.config.DOCLING_MD_PAGE_BREAK_PLACEHOLDER,
-                        "do_picture_description": request.app.state.config.DOCLING_DO_PICTURE_DESCRIPTION,
-                        "picture_description_mode": request.app.state.config.DOCLING_PICTURE_DESCRIPTION_MODE,
-                        "picture_description_local": request.app.state.config.DOCLING_PICTURE_DESCRIPTION_LOCAL,
-                        "picture_description_api": request.app.state.config.DOCLING_PICTURE_DESCRIPTION_API,
-                    },
-                    PDF_EXTRACT_IMAGES=request.app.state.config.PDF_EXTRACT_IMAGES,
-                    DOCUMENT_INTELLIGENCE_ENDPOINT=request.app.state.config.DOCUMENT_INTELLIGENCE_ENDPOINT,
-                    DOCUMENT_INTELLIGENCE_KEY=request.app.state.config.DOCUMENT_INTELLIGENCE_KEY,
-                    MISTRAL_OCR_API_KEY=request.app.state.config.MISTRAL_OCR_API_KEY,
-                )
-                docs = loader.load(
-                    file.filename, file.meta.get("content_type"), file_path
-                )
+
+                # Try primary extraction method (e.g., docling)
+                try:
+                    loader = Loader(
+                        engine=request.app.state.config.CONTENT_EXTRACTION_ENGINE,
+                        DATALAB_MARKER_API_KEY=request.app.state.config.DATALAB_MARKER_API_KEY,
+                        DATALAB_MARKER_API_BASE_URL=request.app.state.config.DATALAB_MARKER_API_BASE_URL,
+                        DATALAB_MARKER_ADDITIONAL_CONFIG=request.app.state.config.DATALAB_MARKER_ADDITIONAL_CONFIG,
+                        DATALAB_MARKER_SKIP_CACHE=request.app.state.config.DATALAB_MARKER_SKIP_CACHE,
+                        DATALAB_MARKER_FORCE_OCR=request.app.state.config.DATALAB_MARKER_FORCE_OCR,
+                        DATALAB_MARKER_PAGINATE=request.app.state.config.DATALAB_MARKER_PAGINATE,
+                        DATALAB_MARKER_STRIP_EXISTING_OCR=request.app.state.config.DATALAB_MARKER_STRIP_EXISTING_OCR,
+                        DATALAB_MARKER_DISABLE_IMAGE_EXTRACTION=request.app.state.config.DATALAB_MARKER_DISABLE_IMAGE_EXTRACTION,
+                        DATALAB_MARKER_FORMAT_LINES=request.app.state.config.DATALAB_MARKER_FORMAT_LINES,
+                        DATALAB_MARKER_USE_LLM=request.app.state.config.DATALAB_MARKER_USE_LLM,
+                        DATALAB_MARKER_OUTPUT_FORMAT=request.app.state.config.DATALAB_MARKER_OUTPUT_FORMAT,
+                        EXTERNAL_DOCUMENT_LOADER_URL=request.app.state.config.EXTERNAL_DOCUMENT_LOADER_URL,
+                        EXTERNAL_DOCUMENT_LOADER_API_KEY=request.app.state.config.EXTERNAL_DOCUMENT_LOADER_API_KEY,
+                        TIKA_SERVER_URL=request.app.state.config.TIKA_SERVER_URL,
+                        DOCLING_SERVER_URL=request.app.state.config.DOCLING_SERVER_URL,
+                        DOCLING_PARAMS={
+                            "ocr_engine": request.app.state.config.DOCLING_OCR_ENGINE,
+                            "ocr_lang": request.app.state.config.DOCLING_OCR_LANG,
+                            "md_page_break_placeholder": request.app.state.config.DOCLING_MD_PAGE_BREAK_PLACEHOLDER,
+                            "do_picture_description": request.app.state.config.DOCLING_DO_PICTURE_DESCRIPTION,
+                            "picture_description_mode": request.app.state.config.DOCLING_PICTURE_DESCRIPTION_MODE,
+                            "picture_description_local": request.app.state.config.DOCLING_PICTURE_DESCRIPTION_LOCAL,
+                            "picture_description_api": request.app.state.config.DOCLING_PICTURE_DESCRIPTION_API,
+                        },
+                        PDF_EXTRACT_IMAGES=request.app.state.config.PDF_EXTRACT_IMAGES,
+                        DOCUMENT_INTELLIGENCE_ENDPOINT=request.app.state.config.DOCUMENT_INTELLIGENCE_ENDPOINT,
+                        DOCUMENT_INTELLIGENCE_KEY=request.app.state.config.DOCUMENT_INTELLIGENCE_KEY,
+                        MISTRAL_OCR_API_KEY=request.app.state.config.MISTRAL_OCR_API_KEY,
+                    )
+                    docs = loader.load(
+                        file.filename, file.meta.get("content_type"), file_path
+                    )
+                    log.info(
+                        f"Successfully extracted content using {extraction_method} for file: {file.filename}"
+                    )
+
+                except Exception as e:
+                    log.error(
+                        f"Error using {extraction_method} for file {file.filename}: {str(e)}"
+                    )
+                    # Classify the error for user-friendly messaging
+                    error_classification = classify_extraction_error(str(e))
+                    extraction_error = error_classification
+
+                    # Fallback to standard extraction if primary method fails and it's not already standard
+                    if (
+                        request.app.state.config.CONTENT_EXTRACTION_ENGINE.lower()
+                        != "langchain"
+                    ):
+                        try:
+                            log.info(
+                                f"Falling back to standard extraction for file: {file.filename}"
+                            )
+                            fallback_loader = Loader(
+                                engine="langchain",  # Use langchain as fallback
+                                PDF_EXTRACT_IMAGES=request.app.state.config.PDF_EXTRACT_IMAGES,
+                            )
+                            docs = fallback_loader.load(
+                                file.filename, file.meta.get("content_type"), file_path
+                            )
+                            extraction_method = "langchain"
+                            fallback_used = True
+                            log.info(
+                                f"Successfully extracted content using fallback method for file: {file.filename}"
+                            )
+                        except Exception as fallback_error:
+                            log.error(
+                                f"Fallback extraction also failed for file {file.filename}: {str(fallback_error)}"
+                            )
+                            # If both methods fail, raise the original error
+                            raise e
+                    else:
+                        # If already using standard method, re-raise the error
+                        raise e
 
                 # If upstream loader (e.g., Docling) returned single md with explicit page breaks,
                 # split it into per-page docs so we can stream and index pages correctly.
@@ -1691,6 +1813,21 @@ def process_file(
             known_entities = []
             current_page_offset = 0
             detections = {}
+
+            # Store extraction information in file data
+            try:
+                Files.update_file_data_by_id(
+                    file.id,
+                    {
+                        "extraction": {
+                            "method": extraction_method,
+                            "fallback_used": fallback_used,
+                            "error": extraction_error,
+                        }
+                    },
+                )
+            except Exception:
+                pass  # Don't let extraction info storage break the main flow
 
             total_pages = len(docs) if docs else 1
             try:
@@ -1839,18 +1976,55 @@ def process_file(
                         "collection_name": collection_name,
                         "filename": file.filename,
                         "content": text_content,
+                        "extraction": {
+                            "method": extraction_method,
+                            "fallback_used": fallback_used,
+                            "error": extraction_error,
+                        },
                     }
             except Exception as e:
                 # Mark error state so clients stop polling
                 _set_processing(file.id, "error", "error", 100, error=str(e))
                 raise e
         else:
+            # Store extraction information in file data for bypass path too
+            try:
+                Files.update_file_data_by_id(
+                    file.id,
+                    {
+                        "extraction": {
+                            "method": extraction_method
+                            if "extraction_method" in locals()
+                            else request.app.state.config.CONTENT_EXTRACTION_ENGINE,
+                            "fallback_used": fallback_used
+                            if "fallback_used" in locals()
+                            else False,
+                            "error": extraction_error
+                            if "extraction_error" in locals()
+                            else None,
+                        }
+                    },
+                )
+            except Exception:
+                pass  # Don't let extraction info storage break the main flow
+
             _set_processing(file.id, "done", "done", 100)
             return {
                 "status": True,
                 "collection_name": None,
                 "filename": file.filename,
                 "content": text_content,
+                "extraction": {
+                    "method": extraction_method
+                    if "extraction_method" in locals()
+                    else request.app.state.config.CONTENT_EXTRACTION_ENGINE,
+                    "fallback_used": fallback_used
+                    if "fallback_used" in locals()
+                    else False,
+                    "error": extraction_error
+                    if "extraction_error" in locals()
+                    else None,
+                },
             }
 
     except Exception as e:
@@ -2392,7 +2566,8 @@ def query_doc_handler(
                 collection_name=form_data.collection_name,
                 collection_result=collection_results[form_data.collection_name],
                 query=form_data.query,
-                embedding_function=lambda query, prefix: request.app.state.EMBEDDING_FUNCTION(
+                embedding_function=lambda query,
+                prefix: request.app.state.EMBEDDING_FUNCTION(
                     query, prefix=prefix, user=user
                 ),
                 k=form_data.k if form_data.k else request.app.state.config.TOP_K,
@@ -2457,7 +2632,8 @@ def query_collection_handler(
             return query_collection_with_hybrid_search(
                 collection_names=form_data.collection_names,
                 queries=[form_data.query],
-                embedding_function=lambda query, prefix: request.app.state.EMBEDDING_FUNCTION(
+                embedding_function=lambda query,
+                prefix: request.app.state.EMBEDDING_FUNCTION(
                     query, prefix=prefix, user=user
                 ),
                 k=form_data.k if form_data.k else request.app.state.config.TOP_K,
@@ -2487,7 +2663,8 @@ def query_collection_handler(
             return query_collection(
                 collection_names=form_data.collection_names,
                 queries=[form_data.query],
-                embedding_function=lambda query, prefix: request.app.state.EMBEDDING_FUNCTION(
+                embedding_function=lambda query,
+                prefix: request.app.state.EMBEDDING_FUNCTION(
                     query, prefix=prefix, user=user
                 ),
                 k=form_data.k if form_data.k else request.app.state.config.TOP_K,
