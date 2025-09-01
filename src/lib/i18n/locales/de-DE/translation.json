@@ -663,6 +663,8 @@
 	"File not found.": "Datei nicht gefunden.",
 	"File processed successfully using {{method}}": "Datei erfolgreich verarbeitet mit {{method}}",
 	"File processed successfully using Docling": "Datei erfolgreich mit Docling verarbeitet",
+	"File already exists in knowledge base - content is duplicate": "Datei existiert bereits in der Wissensdatenbank - Inhalt ist doppelt vorhanden",
+	"{{filename}} already exists in knowledge base - content is duplicate": "{{filename}} existiert bereits in der Wissensdatenbank - Inhalt ist doppelt vorhanden",
 	"File removed successfully.": "Datei erfolgreich entfernt.",
 	"File size should not exceed {{maxSize}} MB.": "Datei darf nicht größer als {{maxSize}} MB sein.",
 	"File Upload": "Dateiupload",

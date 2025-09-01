@@ -836,10 +836,14 @@
 										processing.status === 'done' ||
 										(typeof processing.progress === 'number' && processing.progress >= 100)
 									) {
-										// Only show extraction messages if this is the first time we see completion
+										// Only show messages if this is the first time we see completion
 										if (fileItem.status !== 'uploaded') {
-											// Check for extraction information and show appropriate toast messages
-											if (json?.data?.extraction) {
+											// Check for duplicate content first
+											if (json?.duplicate) {
+												toast.info($i18n.t('File already exists in knowledge base - content is duplicate'));
+											} else {
+												// Check for extraction information and show appropriate toast messages
+												if (json?.data?.extraction) {
 												const extraction = json.data.extraction;
 												if (extraction.fallback_used) {
 													// Handle classified error structure
@@ -875,6 +879,7 @@
 														method: extraction.method
 													}));
 												}
+											}
 											}
 										}
 										

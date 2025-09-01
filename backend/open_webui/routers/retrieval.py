@@ -1547,6 +1547,11 @@ def process_file(
         # Initialize processing metadata so clients can poll
         _set_processing(file.id, status="processing", stage="starting", progress=5)
 
+        # Initialize extraction variables to avoid UnboundLocalError
+        extraction_method = request.app.state.config.CONTENT_EXTRACTION_ENGINE
+        fallback_used = False
+        extraction_error = None
+
         if form_data.content:
             # Update the content in the file
             # Usage: /files/{file_id}/data/content/update, /files/ (audio file upload pipeline)
@@ -1982,6 +1987,30 @@ def process_file(
                             "error": extraction_error,
                         },
                     }
+            except ValueError as e:
+                # Handle duplicate content as a special case - not really an error
+                if "Duplicate content detected" in str(e):
+                    log.info(
+                        f"Duplicate content detected for file {file.filename}, treating as successful"
+                    )
+                    _set_processing(file.id, "done", "done", 100)
+
+                    return {
+                        "status": True,
+                        "collection_name": collection_name,
+                        "filename": file.filename,
+                        "content": text_content,
+                        "extraction": {
+                            "method": extraction_method,
+                            "fallback_used": fallback_used,
+                            "error": extraction_error,
+                        },
+                        "duplicate": True,  # Indicate this was duplicate content
+                    }
+                else:
+                    # Other ValueError exceptions should still be treated as errors
+                    _set_processing(file.id, "error", "error", 100, error=str(e))
+                    raise e
             except Exception as e:
                 # Mark error state so clients stop polling
                 _set_processing(file.id, "error", "error", 100, error=str(e))
@@ -1993,15 +2022,9 @@ def process_file(
                     file.id,
                     {
                         "extraction": {
-                            "method": extraction_method
-                            if "extraction_method" in locals()
-                            else request.app.state.config.CONTENT_EXTRACTION_ENGINE,
-                            "fallback_used": fallback_used
-                            if "fallback_used" in locals()
-                            else False,
-                            "error": extraction_error
-                            if "extraction_error" in locals()
-                            else None,
+                            "method": extraction_method,
+                            "fallback_used": fallback_used,
+                            "error": extraction_error,
                         }
                     },
                 )
@@ -2015,15 +2038,9 @@ def process_file(
                 "filename": file.filename,
                 "content": text_content,
                 "extraction": {
-                    "method": extraction_method
-                    if "extraction_method" in locals()
-                    else request.app.state.config.CONTENT_EXTRACTION_ENGINE,
-                    "fallback_used": fallback_used
-                    if "fallback_used" in locals()
-                    else False,
-                    "error": extraction_error
-                    if "extraction_error" in locals()
-                    else None,
+                    "method": extraction_method,
+                    "fallback_used": fallback_used,
+                    "error": extraction_error,
                 },
             }
 
