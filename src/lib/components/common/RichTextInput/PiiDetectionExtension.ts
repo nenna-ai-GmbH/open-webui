@@ -51,6 +51,7 @@ interface PiiDetectionState {
 	lastText: string;
 	needsSync: boolean;
 	userEdited?: boolean;
+	dynamicallyEnabled?: boolean; // Track if PII detection is dynamically enabled/disabled
 }
 
 export interface PiiDetectionOptions {
@@ -718,7 +719,8 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 						positionMapping: null,
 						isDetecting: false,
 						lastText: '',
-						needsSync: false
+						needsSync: false,
+						dynamicallyEnabled: options.enabled // Initialize with the static enabled option
 					};
 				},
 
@@ -731,6 +733,24 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 						switch (meta.type) {
 							case 'SET_USER_EDITED':
 								newState.userEdited = true;
+								break;
+							
+							case 'ENABLE_PII_DETECTION':
+								newState.dynamicallyEnabled = true;
+								// Trigger detection if we have content
+								if (newState.positionMapping?.plainText.trim()) {
+									debouncedDetection(newState.positionMapping.plainText);
+								}
+								break;
+								
+							case 'DISABLE_PII_DETECTION':
+								newState.dynamicallyEnabled = false;
+								newState.entities = []; // Clear all entities
+								newState.isDetecting = false; // Stop any ongoing detection
+								break;
+								
+							case 'CLEAR_PII_HIGHLIGHTS':
+								newState.entities = []; // Clear all entities but keep detection enabled
 								break;
 							case 'SET_DETECTING':
 								newState.isDetecting = meta.isDetecting;
@@ -955,8 +975,9 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 								newState.needsSync = false;
 							}
 
-							// Trigger detection if text changed significantly
+							// Trigger detection if text changed significantly AND detection is enabled
 							if (
+								newState.dynamicallyEnabled &&
 								!newState.isDetecting &&
 								newMapping.plainText !== newState.lastText &&
 								(!options.detectOnlyAfterUserEdit || newState.userEdited)
@@ -969,6 +990,9 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 									// If text is empty, clear entities
 									newState.entities = [];
 								}
+							} else if (!newState.dynamicallyEnabled) {
+								// If detection is disabled, clear entities
+								newState.entities = [];
 							}
 						}
 					}
@@ -980,6 +1004,11 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 			props: {
 				decorations(state) {
 					const pluginState = piiDetectionPluginKey.getState(state);
+
+					// Only show decorations if PII detection is dynamically enabled
+					if (!pluginState?.dynamicallyEnabled) {
+						return DecorationSet.empty;
+					}
 
 					// Get modifiers from session manager (not ProseMirror extension state)
 					const piiSessionManager = PiiSessionManager.getInstance();
@@ -1207,7 +1236,52 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 			unmaskAllEntities: () => updateAllEntityMaskingStates(false),
 
 			// Mask all PII entities
-			maskAllEntities: () => updateAllEntityMaskingStates(true)
+			maskAllEntities: () => updateAllEntityMaskingStates(true),
+
+			// Enable PII detection dynamically
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			enablePiiDetection:
+				() =>
+				({ state, dispatch }: any) => {
+					if (dispatch) {
+						const tr = state.tr.setMeta(piiDetectionPluginKey, {
+							type: 'ENABLE_PII_DETECTION'
+						});
+						dispatch(tr);
+						return true;
+					}
+					return false;
+				},
+
+			// Disable PII detection dynamically
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			disablePiiDetection:
+				() =>
+				({ state, dispatch }: any) => {
+					if (dispatch) {
+						const tr = state.tr.setMeta(piiDetectionPluginKey, {
+							type: 'DISABLE_PII_DETECTION'
+						});
+						dispatch(tr);
+						return true;
+					}
+					return false;
+				},
+
+			// Clear all PII highlights but keep detection enabled
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			clearAllPiiHighlights:
+				() =>
+				({ state, dispatch }: any) => {
+					if (dispatch) {
+						const tr = state.tr.setMeta(piiDetectionPluginKey, {
+							type: 'CLEAR_PII_HIGHLIGHTS'
+						});
+						dispatch(tr);
+						return true;
+					}
+					return false;
+				}
 		};
 	}
 });

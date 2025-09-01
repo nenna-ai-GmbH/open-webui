@@ -409,6 +409,12 @@
 
 	// Sync PII detections found on files to the current conversation's PII session
 	function syncPiiDetectionsFromFileData(fileData: any) {
+		// Only process PII data if detection is enabled
+		if (!enablePiiDetection) {
+			console.log('MessageInput: Skipping PII sync - detection disabled');
+			return;
+		}
+		
 		try {
 			const piiState = fileData?.data?.piiState;
 			const stateEntitiesArr = Array.isArray(piiState?.entities) ? piiState.entities : [];
@@ -506,8 +512,9 @@
 		} catch (_) {}
 	}
 
-	// Get PII settings from config
-	$: enablePiiDetection = $config?.features?.enable_pii_detection ?? false;
+	// Get PII settings from config - only enable when both config allows it AND button is active
+	$: piiConfigEnabled = $config?.features?.enable_pii_detection ?? false;
+	$: enablePiiDetection = piiConfigEnabled && piiMaskingEnabled;
 	$: piiApiKey = $config?.pii?.api_key ?? '';
 
 	let visionCapableModels = [];
@@ -597,8 +604,8 @@
 
 	// Function to toggle PII masking (deterministic based on button state)
 	const togglePiiMasking = () => {
-		if (!enablePiiDetection) {
-			console.log('MessageInput: PII detection not enabled');
+		if (!piiConfigEnabled) {
+			console.log('MessageInput: PII detection not enabled in config');
 			return;
 		}
 
@@ -609,16 +616,39 @@
 
 		// Deterministic behavior based on button state
 		if (piiMaskingEnabled) {
-			// Button ON: Mask all entities
+			// Button ON: Enable PII detection and trigger detection
+			if (chatInputElement?.enablePiiDetectionDynamically) {
+				chatInputElement.enablePiiDetectionDynamically();
+			}
 			if (chatInputElement?.maskAllPiiEntities) {
 				chatInputElement.maskAllPiiEntities();
-			} else {
 			}
 		} else {
-			// Button OFF: Unmask all entities and clear modifiers
-			if (chatInputElement?.unmaskAllPiiEntities) {
-				chatInputElement.unmaskAllPiiEntities();
-			} else {
+			// Button OFF: Disable PII detection, clear highlights and entities
+			if (chatInputElement?.disablePiiDetectionDynamically) {
+				chatInputElement.disablePiiDetectionDynamically();
+			}
+			if (chatInputElement?.clearAllPiiHighlights) {
+				chatInputElement.clearAllPiiHighlights();
+			}
+			
+			// Clear current entities and masked prompt
+			currentPiiEntities = [];
+			maskedPrompt = '';
+			
+			// Clear PII data from session manager for current conversation
+			try {
+				if (chatId && chatId.trim() !== '') {
+					// For existing conversations, clear working entities but keep persisted ones
+					piiSessionManager.clearConversationWorkingEntities(chatId);
+				} else {
+					// For new chats, clear temporary state entirely (includes both entities and modifiers)
+					if (piiSessionManager.isTemporaryStateActive()) {
+						piiSessionManager.clearTemporaryState();
+					}
+				}
+			} catch (e) {
+				console.log('MessageInput: Error clearing PII session data:', e);
 			}
 		}
 	};
@@ -770,7 +800,8 @@
 
 				// During the file upload, file content is automatically extracted.
 				const uploadedFile = await uploadFile(localStorage.token, file, metadata, {
-					process: shouldProcessOnUpload
+					process: shouldProcessOnUpload,
+					enablePiiDetection: enablePiiDetection // Pass PII detection state to backend
 				});
 
 				if (uploadedFile) {
@@ -796,9 +827,10 @@
 					// Kick off retrieval processing only for non-audio/video documents
 					if (!shouldProcessOnUpload) {
 						try {
+							console.log('MessageInput: Triggering file processing with PII detection:', enablePiiDetection);
 							// Do not await to keep UI responsive
 							// eslint-disable-next-line @typescript-eslint/no-floating-promises
-							triggerProcessFile(localStorage.token, uploadedFile.id).catch(() => {});
+							triggerProcessFile(localStorage.token, uploadedFile.id, null, enablePiiDetection).catch(() => {});
 						} catch (e) {}
 					}
 
@@ -823,7 +855,10 @@
 									fileItem.file = json;
 								} catch (e) {}
 								// NEW: sync any PII detections from this file into the session manager
-								syncPiiDetectionsFromFileData(json);
+								// Only if PII detection is enabled
+								if (enablePiiDetection) {
+									syncPiiDetectionsFromFileData(json);
+								}
 								const processing = json?.meta?.processing;
 								if (processing) {
 									console.log('Processing progress:', processing);
@@ -1249,14 +1284,17 @@
 									}
 								];
 								// Fetch full file details to seed PII entities into the current conversation
-								(async () => {
-									try {
-										const json = await getFileById(localStorage.token, data.id);
-										if (json) {
-											syncPiiDetectionsFromFileData(json);
-										}
-									} catch (e) {}
-								})();
+								// Only do this if PII detection is enabled
+								if (enablePiiDetection) {
+									(async () => {
+										try {
+											const json = await getFileById(localStorage.token, data.id);
+											if (json) {
+												syncPiiDetectionsFromFileData(json);
+											}
+										} catch (e) {}
+									})();
+								}
 							} else {
 								dispatch('upload', e);
 							}
@@ -2017,7 +2055,7 @@
 											</div>
 										</InputMenu>
 
-										{#if enablePiiDetection}
+										{#if piiConfigEnabled}
 											<Tooltip content={$i18n.t('Toggle PII masking')}>
 												<button
 													class="px-2 @xl:px-2.5 py-2 flex gap-1.5 items-center text-sm rounded-full transition-colors duration-300 focus:outline-hidden max-w-full overflow-hidden hover:bg-gray-50 dark:hover:bg-gray-800 {piiMaskingEnabled

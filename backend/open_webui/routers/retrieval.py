@@ -1528,6 +1528,7 @@ class ProcessFileForm(BaseModel):
     # Optional PII and UI state provided by client to avoid re-detection
     pii: Optional[dict | list] = None
     pii_state: Optional[dict] = None
+    enable_pii_detection: Optional[bool] = True
 
 
 @router.post("/process/file")
@@ -1854,7 +1855,11 @@ def process_file(
                 if (
                     request.app.state.config.ENABLE_PII_DETECTION
                     and request.app.state.config.PII_API_KEY
+                    and form_data.enable_pii_detection
                 ):
+                    log.info(
+                        f"PII detection enabled for file {file.id}: config={request.app.state.config.ENABLE_PII_DETECTION}, api_key_set={bool(request.app.state.config.PII_API_KEY)}, form_flag={form_data.enable_pii_detection}"
+                    )
                     try:
                         client = AuthenticatedClient(
                             base_url=request.app.state.config.PII_API_BASE_URL,
@@ -1917,6 +1922,10 @@ def process_file(
 
                     # attach PII to document metadata for downstream use
                     doc.metadata["pii"] = page_detections
+                else:
+                    log.info(
+                        f"PII detection skipped for file {file.id}: config={request.app.state.config.ENABLE_PII_DETECTION}, api_key_set={bool(request.app.state.config.PII_API_KEY)}, form_flag={form_data.enable_pii_detection}"
+                    )
                 # Persist latest PII results incrementally, without blocking content updates
                 try:
                     Files.update_file_data_by_id(
