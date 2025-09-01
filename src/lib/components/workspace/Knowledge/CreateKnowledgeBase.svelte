@@ -5,15 +5,21 @@
 
 	import { createNewKnowledge, getKnowledgeBases } from '$lib/apis/knowledge';
 	import { toast } from 'svelte-sonner';
-	import { knowledge, user } from '$lib/stores';
+	import { knowledge, user, config } from '$lib/stores';
 	import AccessControl from '../common/AccessControl.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
+	import Mask from '$lib/components/icons/Mask.svelte';
+	import Tooltip from '$lib/components/common/Tooltip.svelte';
 
 	let loading = false;
 
 	let name = '';
 	let description = '';
 	let accessControl = {};
+	let enablePiiDetection = false;
+
+	// Check if PII detection is available in config
+	$: piiConfigEnabled = $config?.features?.enable_pii_detection ?? false;
 
 	const submitHandler = async () => {
 		loading = true;
@@ -30,7 +36,8 @@
 			localStorage.token,
 			name,
 			description,
-			accessControl
+			accessControl,
+			enablePiiDetection
 		).catch((e) => {
 			toast.error(`${e}`);
 		});
@@ -120,6 +127,36 @@
 				/>
 			</div>
 		</div>
+
+		{#if piiConfigEnabled}
+			<div class="mt-2">
+				<div class="px-3 py-2 bg-gray-50 dark:bg-gray-950 rounded-lg">
+					<div class="flex items-center justify-between">
+						<div class="text-sm font-medium text-gray-700 dark:text-gray-300">
+							{$i18n.t('PII Detection')}
+						</div>
+						<Tooltip content={$i18n.t('Enable PII detection and masking for files in this knowledge base')}>
+							<button
+								class="flex gap-1.5 items-center text-sm rounded-full transition-colors duration-300 focus:outline-hidden px-2 py-1 {enablePiiDetection
+									? 'text-sky-500 dark:text-sky-300 bg-sky-50 dark:bg-sky-200/5'
+									: 'bg-transparent text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'}"
+								type="button"
+								on:click={() => (enablePiiDetection = !enablePiiDetection)}
+								aria-label={$i18n.t('Toggle PII detection')}
+							>
+								<Mask className="size-4" />
+								<span class="whitespace-nowrap">
+									{enablePiiDetection ? $i18n.t('PII Detection Enabled') : $i18n.t('PII Detection Disabled')}
+								</span>
+							</button>
+						</Tooltip>
+					</div>
+					<div class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+						{$i18n.t('When enabled, files uploaded to this knowledge base will be automatically analyzed for personally identifiable information (PII) and highlighted in the editor.')}
+					</div>
+				</div>
+			</div>
+		{/if}
 
 		<div class="flex justify-end mt-2">
 			<div>
