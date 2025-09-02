@@ -117,15 +117,24 @@
 
 	$: onChange({
 		prompt,
-		files: files
-			.filter((file) => file.type !== 'image')
-			.map((file) => {
-				return {
-					...file,
-					user: undefined,
-					access_control: undefined
-				};
-			}),
+		files: (() => {
+			const nonImageFiles = files
+				.filter((file) => file.type !== 'image')
+				.map((file) => {
+					return {
+						...file,
+						user: undefined,
+						access_control: undefined
+					};
+				});
+			
+			// Mask filenames if PII detection is enabled
+			if (enablePiiDetection) {
+				return piiSessionManager.maskFilenames(nonImageFiles, chatId || undefined);
+			}
+			
+			return nonImageFiles;
+		})(),
 		selectedToolIds,
 		selectedFilterIds,
 		imageGenerationEnabled,
@@ -824,6 +833,21 @@
 						uploadedFile?.meta?.collection_name || uploadedFile?.collection_name;
 					fileItem.url = `${WEBUI_API_BASE_URL}/files/${uploadedFile.id}`;
 
+					// Add filename mapping if PII detection is enabled
+					if (enablePiiDetection && uploadedFile.id && fileItem.name) {
+						console.log('MessageInput: Adding filename mapping for PII masking:', {
+							fileId: uploadedFile.id,
+							originalName: fileItem.name
+						});
+						// Store the original filename in the mapping and meta
+						piiSessionManager.addFilenameMapping(chatId || undefined, uploadedFile.id, fileItem.name);
+						// Keep original in meta for fallback
+						if (!fileItem.meta) fileItem.meta = {};
+						fileItem.meta.name = fileItem.meta.name || fileItem.name;
+						// Replace fileItem.name with the masked ID for display
+						fileItem.name = uploadedFile.id;
+					}
+
 					// Kick off retrieval processing only for non-audio/video documents
 					if (!shouldProcessOnUpload) {
 						try {
@@ -1304,6 +1328,15 @@
 										status: 'processed'
 									}
 								];
+								// Add filename mapping if PII detection is enabled
+								if (enablePiiDetection && data.id && data.name) {
+									console.log('MessageInput: Adding filename mapping for command-selected file:', {
+										fileId: data.id,
+										originalName: data.name
+									});
+									piiSessionManager.addFilenameMapping(chatId || undefined, data.id, data.name);
+								}
+
 								// Fetch full file details to seed PII entities into the current conversation
 								// Only do this if PII detection is enabled
 								if (enablePiiDetection) {
@@ -1443,6 +1476,14 @@
 															type="button"
 															aria-label={$i18n.t('Remove file')}
 															on:click={() => {
+																// Remove filename mapping if PII detection is enabled and file has an ID
+																if (enablePiiDetection && file.id) {
+																	console.log('MessageInput: Removing filename mapping for dismissed image file:', {
+																		fileId: file.id
+																	});
+																	piiSessionManager.removeFilenameMapping(chatId || undefined, file.id);
+																}
+																
 																files.splice(fileIdx, 1);
 																files = files;
 															}}
@@ -1472,7 +1513,16 @@
 													edit={true}
 													modal={['file', 'collection'].includes(file?.type)}
 													conversationId={chatId}
+													enablePiiDetection={enablePiiDetection}
 													on:dismiss={async () => {
+														// Remove filename mapping if PII detection is enabled
+														if (enablePiiDetection && file.id) {
+															console.log('MessageInput: Removing filename mapping for dismissed file:', {
+																fileId: file.id
+															});
+															piiSessionManager.removeFilenameMapping(chatId || undefined, file.id);
+														}
+														
 														// Remove from UI state
 														files.splice(fileIdx, 1);
 														files = files;

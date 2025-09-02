@@ -7,6 +7,7 @@
 	import Spinner from './Spinner.svelte';
 	import Tooltip from './Tooltip.svelte';
 	import XMark from '$lib/components/icons/XMark.svelte';
+	import Mask from '$lib/components/icons/Mask.svelte';
 	import { settings } from '$lib/stores';
 
 	const i18n = getContext('i18n');
@@ -27,8 +28,10 @@
 	export let name: string;
 	export let type: string;
 	export let size: number;
+	export let enablePiiDetection: boolean = false;
 
 	import { deleteFileById } from '$lib/apis/files';
+	import { PiiSessionManager } from '$lib/utils/pii';
 
 	let showModal = false;
 	export let disableModal = false;
@@ -52,6 +55,47 @@
 				: item?.status === 'uploading'
 					? 'Uploading'
 					: null;
+
+	// Get the display name and masking status
+	$: ({ displayName, isFilenameMasked } = (() => {
+		if (!enablePiiDetection || !name) {
+			return { displayName: name, isFilenameMasked: false };
+		}
+		
+		// Check if name looks like a UUID or file ID (indicating it's masked)
+		const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+		const shortIdPattern = /^[a-zA-Z0-9_-]{8,32}$/;
+		
+		const looksLikeMaskedId = uuidPattern.test(name) || (shortIdPattern.test(name) && !name.includes('.'));
+		
+		if (looksLikeMaskedId) {
+			const piiSessionManager = PiiSessionManager.getInstance();
+			let mapping = null;
+			
+			// Try conversation-specific mappings first
+			if (conversationId) {
+				const mappings = piiSessionManager.getFilenameMappingsForDisplay(conversationId);
+				mapping = mappings.find(m => m.fileId === name || m.maskedFilename === name);
+			}
+			
+			// For new chats without conversation ID, check temporary state
+			if (!mapping) {
+				const tempMappings = piiSessionManager.getTemporaryFilenameMappings();
+				mapping = tempMappings.find(m => m.fileId === name || m.maskedFilename === name);
+			}
+			
+			// Also check if the item itself has the original name stored
+			if (!mapping && item?.meta?.name && item.meta.name !== name) {
+				return { displayName: item.meta.name, isFilenameMasked: true };
+			}
+			
+			if (mapping && mapping.originalFilename) {
+				return { displayName: mapping.originalFilename, isFilenameMasked: true };
+			}
+		}
+		
+		return { displayName: name, isFilenameMasked: looksLikeMaskedId };
+	})());
 </script>
 
 {#if item && !disableModal}
@@ -78,9 +122,9 @@
 		} else {
 			if (url) {
 				if (type === 'file') {
-					window.open(`${url}/content`, '_blank').focus();
+					window.open(`${url}/content`, '_blank')?.focus();
 				} else {
-					window.open(`${url}`, '_blank').focus();
+					window.open(`${url}`, '_blank')?.focus();
 				}
 			}
 		}
@@ -126,11 +170,20 @@
 		</div>
 	{/if}
 
-	{#if !small}
-		<div class="flex flex-col justify-center -space-y-0.5 px-2.5 w-full">
-			<div class=" dark:text-gray-100 text-sm font-medium line-clamp-1 mb-1">
-				{decodeString(name)}
-			</div>
+			{#if !small}
+			<div class="flex flex-col justify-center -space-y-0.5 px-2.5 w-full">
+				<div class="flex items-center gap-1.5 mb-1">
+					<div class="dark:text-gray-100 text-sm font-medium line-clamp-1 flex-1">
+						{decodeString(displayName)}
+					</div>
+					{#if isFilenameMasked}
+						<Tooltip content="Filename masked for privacy" placement="top">
+							<div class="flex items-center justify-center size-4 bg-sky-50 dark:bg-sky-200/10 text-sky-600 dark:text-sky-400 rounded-full">
+								<Mask className="size-2.5" />
+							</div>
+						</Tooltip>
+					{/if}
+				</div>
 
 			<div
 				class=" flex justify-between text-xs line-clamp-1 {($settings?.highContrastMode ?? false)
@@ -157,7 +210,7 @@
 			</div>
 		</div>
 	{:else}
-		<Tooltip content={decodeString(name)} className="flex flex-col w-full" placement="top-start">
+		<Tooltip content={decodeString(displayName)} className="flex flex-col w-full" placement="top-start">
 			<div class="flex flex-col justify-center -space-y-0.5 px-2.5 w-full">
 				<div class=" dark:text-gray-100 text-sm flex justify-between items-center">
 					{#if loading}
@@ -165,7 +218,14 @@
 							<Spinner className="size-4" />
 						</div>
 					{/if}
-					<div class="font-medium line-clamp-1 flex-1">{decodeString(name)}</div>
+					<div class="font-medium line-clamp-1 flex-1">{decodeString(displayName)}</div>
+					{#if isFilenameMasked}
+						<Tooltip content="Filename masked for privacy" placement="top">
+							<div class="flex items-center justify-center size-3.5 bg-sky-50 dark:bg-sky-200/10 text-sky-600 dark:text-sky-400 rounded-full mr-1">
+								<Mask className="size-2" />
+							</div>
+						</Tooltip>
+					{/if}
 					<div class="text-gray-500 text-xs capitalize shrink-0">{formatFileSize(size)}</div>
 				</div>
 			</div>

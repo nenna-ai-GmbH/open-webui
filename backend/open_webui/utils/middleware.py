@@ -736,6 +736,45 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     # -> Chat Files
 
     form_data = apply_params_to_form_data(form_data, model)
+
+    # Log the complete payload that will be sent to the model
+    log.info("📤 MODEL REQUEST PAYLOAD SUMMARY:")
+    log.info(f"📤 Model: {form_data.get('model', 'unknown')}")
+    log.info(f"📤 Messages count: {len(form_data.get('messages', []))}")
+
+    # Check for filenames in messages content
+    for i, message in enumerate(form_data.get("messages", [])):
+        content = str(message.get("content", ""))
+        if any(
+            ext in content.lower()
+            for ext in [".pdf", ".docx", ".txt", ".md", ".doc", ".xls", ".ppt"]
+        ):
+            log.warning(
+                f"⚠️  POTENTIAL FILENAME LEAK in message {i}: Content contains file extensions"
+            )
+            # Show a snippet to help debug
+            words_with_extensions = [
+                word
+                for word in content.split()
+                if any(
+                    ext in word.lower()
+                    for ext in [".pdf", ".docx", ".txt", ".md", ".doc", ".xls", ".ppt"]
+                )
+            ]
+            if words_with_extensions:
+                log.warning(
+                    f"⚠️  Suspicious words: {words_with_extensions[:5]}"
+                )  # Show first 5
+
+    # Log file metadata being sent
+    files_in_metadata = form_data.get("metadata", {}).get("files", [])
+    if files_in_metadata:
+        log.info(f"📤 Files in metadata: {len(files_in_metadata)} files")
+        for i, file_item in enumerate(files_in_metadata):
+            log.info(
+                f"📤 File {i + 1}: name='{file_item.get('name', 'unknown')}', id='{file_item.get('id', 'unknown')}'"
+            )
+
     log.debug(f"form_data: {form_data}")
 
     event_emitter = get_event_emitter(metadata)
@@ -892,6 +931,45 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     if files:
         files = list({json.dumps(f, sort_keys=True): f for f in files}.values())
 
+    # Mask filenames if PII detection is enabled
+    if files and metadata.get("known_entities") is not None:
+        log.info(
+            "🔒 PII FILENAME MASKING: Enabled - masking filenames before sending to model"
+        )
+        masked_files = []
+        for file_item in files:
+            # Create a copy of the file item
+            masked_file = file_item.copy()
+
+            # If the file has an ID and a name, replace the name with the ID
+            if file_item.get("id") and file_item.get("name"):
+                original_name = file_item["name"]
+                file_id = file_item["id"]
+
+                # Replace the display name with the file ID
+                masked_file["name"] = file_id
+
+                log.info(f"🔒 PII FILENAME MASKING: '{original_name}' -> '{file_id}'")
+
+            masked_files.append(masked_file)
+
+        files = masked_files
+
+        # Log all file names that will be sent to the model
+        file_names = [f.get("name", "unknown") for f in files]
+        log.info(
+            f"🔒 PII FILENAME MASKING: Final file names being sent to model: {file_names}"
+        )
+    else:
+        if files:
+            # Log unmasked filenames when PII detection is disabled
+            file_names = [f.get("name", "unknown") for f in files]
+            log.warning(
+                f"⚠️  PII FILENAME MASKING: DISABLED - Unmasked filenames will be sent to model: {file_names}"
+            )
+        else:
+            log.debug("No files in request")
+
     metadata = {
         **metadata,
         "tool_ids": tool_ids,
@@ -976,6 +1054,29 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                         or "N/A"
                     )
 
+                    # Mask source name if PII detection is enabled and it looks like a filename
+                    if source_name and metadata.get("known_entities") is not None:
+                        # Check if source_name looks like a file ID (can be used as-is)
+                        # or if it needs to be masked. For now, if it's not a UUID-like string,
+                        # replace it with the source_id
+                        if (
+                            len(source_name) > 36
+                            or "." in source_name
+                            or " " in source_name
+                        ):
+                            log.info(
+                                f"🔒 PII SOURCE MASKING: Citation source '{source_name}' -> '{source_id}'"
+                            )
+                            source_name = source_id
+                        else:
+                            log.info(
+                                f"🔒 PII SOURCE MASKING: Source name '{source_name}' appears to be already masked (keeping as-is)"
+                            )
+                    elif source_name:
+                        log.warning(
+                            f"⚠️  PII SOURCE MASKING: DISABLED - Unmasked source name will be sent in citation: '{source_name}'"
+                        )
+
                     if source_id not in citation_idx_map:
                         citation_idx_map[source_id] = len(citation_idx_map) + 1
 
@@ -1059,6 +1160,80 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                 },
             }
         )
+
+    # FINAL SECURITY CHECK: Log what's actually being sent to the model
+    log.info("🔒 FINAL SECURITY AUDIT - Data being sent to model:")
+    log.info(f"🔒 Model: {form_data.get('model', 'unknown')}")
+    log.info(f"🔒 Total messages: {len(form_data.get('messages', []))}")
+
+    # Check each message for potential filename leaks
+    for i, message in enumerate(form_data.get("messages", [])):
+        content = str(message.get("content", ""))
+
+        # Check for common file extensions
+        suspicious_patterns = [
+            ".pdf",
+            ".docx",
+            ".txt",
+            ".md",
+            ".doc",
+            ".xls",
+            ".ppt",
+            ".csv",
+            ".xlsx",
+            ".pptx",
+        ]
+        found_patterns = [
+            pattern
+            for pattern in suspicious_patterns
+            if pattern.lower() in content.lower()
+        ]
+
+        if found_patterns:
+            log.error(
+                f"🚨 FILENAME LEAK DETECTED in message {i}! Found: {found_patterns}"
+            )
+            # Extract words containing these patterns
+            words = content.split()
+            suspicious_words = [
+                word
+                for word in words
+                if any(
+                    pattern.lower() in word.lower() for pattern in suspicious_patterns
+                )
+            ]
+            log.error(f"🚨 Suspicious words: {suspicious_words[:10]}")  # Show first 10
+
+        # Check message length to avoid logging huge context
+        if len(content) < 1000:
+            log.debug(f"Message {i} content: {content[:200]}...")
+        else:
+            log.debug(
+                f"Message {i}: Large content ({len(content)} chars), not logging full text"
+            )
+
+    # Final file metadata check
+    final_files = form_data.get("metadata", {}).get("files", [])
+    if final_files:
+        log.info(f"🔒 Final file list being sent to model:")
+        for i, file_item in enumerate(final_files):
+            file_name = file_item.get("name", "unknown")
+            file_id = file_item.get("id", "unknown")
+            log.info(f"🔒   File {i + 1}: '{file_name}' (id: {file_id})")
+
+            # Check if filename looks properly masked
+            if (
+                file_name != file_id
+                and len(file_name) > 20
+                and any(c in file_name for c in [".", " "])
+            ):
+                log.error(
+                    f"🚨 POTENTIAL FILENAME LEAK: File name '{file_name}' doesn't look masked!"
+                )
+    else:
+        log.info("🔒 No files in final payload")
+
+    log.info("🔒 SECURITY AUDIT COMPLETE")
 
     return form_data, metadata, events
 

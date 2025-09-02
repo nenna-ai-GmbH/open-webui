@@ -56,6 +56,9 @@
 	// PII session manager to seed backend-detected entities for highlighting
 	import { PiiSessionManager, type ExtendedPiiEntity } from '$lib/utils/pii';
 
+	// Initialize PII session manager
+	let piiSessionManager = PiiSessionManager.getInstance();
+
 	// Reference to the embedded editor to trigger sync-after-seed
 	let kbEditor = null;
 
@@ -216,20 +219,36 @@
 				return null;
 			});
 
-			if (uploadedFile) {
-				console.log(uploadedFile);
-				// Promote temp item to processing state and keep reference to server file for progress
-				knowledge.files = knowledge.files.map((item) => {
-					if (item.itemId === tempItemId) {
-						item.id = uploadedFile.id;
-						item.file = uploadedFile;
-						item.status = 'processing';
-						item.progress = 5;
-					}
-					// Remove temporary item id
-					delete item.itemId;
-					return item;
-				});
+							if (uploadedFile) {
+					console.log(uploadedFile);
+					// Promote temp item to processing state and keep reference to server file for progress
+					knowledge.files = knowledge.files.map((item) => {
+						if (item.itemId === tempItemId) {
+							item.id = uploadedFile.id;
+							item.file = uploadedFile;
+							item.status = 'processing';
+							item.progress = 5;
+							
+							// Add filename mapping if PII detection is enabled
+							if (enablePiiDetection && uploadedFile.id && item.name) {
+								const convoId = `${id || 'kb'}:${uploadedFile.id}`;
+								console.log('KnowledgeBase: Adding filename mapping for uploaded file:', {
+									fileId: uploadedFile.id,
+									originalName: item.name
+								});
+								// Store the original filename in the mapping and meta
+								piiSessionManager.addFilenameMapping(convoId, uploadedFile.id, item.name);
+								// Keep original in meta for fallback
+								if (!item.meta) item.meta = {};
+								item.meta.name = item.meta.name || item.name;
+								// Replace item.name with the masked ID for display
+								item.name = uploadedFile.id;
+							}
+						}
+						// Remove temporary item id
+						delete item.itemId;
+						return item;
+					});
 
 				// Start processing by adding the file to the knowledge base (async, non-blocking)
 				// eslint-disable-next-line @typescript-eslint/no-floating-promises
@@ -565,6 +584,15 @@
 		try {
 			console.log('Starting file deletion process for:', fileId);
 
+			// Remove filename mapping if PII detection is enabled
+			if (enablePiiDetection) {
+				const convoId = `${id || 'kb'}:${fileId}`;
+				console.log('KnowledgeBase: Removing filename mapping for deleted file:', {
+					fileId: fileId
+				});
+				piiSessionManager.removeFilenameMapping(convoId, fileId);
+			}
+
 			// Remove from knowledge base only
 			const updatedKnowledge = await removeFileFromKnowledgeById(localStorage.token, id, fileId);
 
@@ -618,7 +646,23 @@
 			// ignore PII packaging errors
 		}
 
-		const res = await updateFileDataContentById(localStorage.token, fileId, content, {
+		// Mask filename in content if PII detection is enabled
+		let processedContent = content;
+		if (enablePiiDetection && selectedFile) {
+			// Add filename mapping for this file
+			const convoId = `${id || 'kb'}:${fileId}`;
+			piiSessionManager.addFilenameMapping(convoId, fileId, selectedFile.meta?.name || 'unknown');
+			
+			// Replace any occurrences of the actual filename with the file ID
+			const filename = selectedFile.meta?.name || '';
+			if (filename) {
+				const escapedFilename = filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+				const filenameRegex = new RegExp(`\\b${escapedFilename}\\b`, 'gi');
+				processedContent = processedContent.replace(filenameRegex, fileId);
+			}
+		}
+
+		const res = await updateFileDataContentById(localStorage.token, fileId, processedContent, {
 			pii: piiPayload || undefined,
 			piiState: piiState || undefined
 		}).catch((e) => {
@@ -690,11 +734,22 @@
 			const response = await getFileById(localStorage.token, file.id);
 			if (response) {
 				selectedFileContent = response.data.content;
+				
+				// Add filename mapping if PII detection is enabled
+				if (enablePiiDetection && file.meta?.name) {
+					const convoId = `${id || 'kb'}:${file.id}`;
+					console.log('KnowledgeBase: Adding filename mapping for selected file:', {
+						fileId: file.id,
+						originalName: file.meta.name
+					});
+					piiSessionManager.addFilenameMapping(convoId, file.id, file.meta.name);
+				}
+				
 				// Load saved PII state if present
 				try {
 					const convoId = `${id || 'kb'}:${file.id}`;
 					if (response?.data?.piiState) {
-						PiiSessionManager.getInstance().loadConversationState(convoId, response.data.piiState);
+						piiSessionManager.loadConversationState(convoId, response.data.piiState);
 					}
 				} catch (e) {}
 				// Seed PII entities from backend analysis into the session manager so RichTextInput highlights immediately
@@ -707,6 +762,7 @@
 							label: e.label,
 							type: e.type || e.entity_type || 'PII',
 							raw_text: e.raw_text || e.text || e.name || '',
+							text: e.raw_text || e.text || e.name || '',
 							occurrences: (e.occurrences || []).map((o: any) => ({
 								start_idx: o.start_idx,
 								end_idx: o.end_idx
@@ -715,7 +771,7 @@
 						}));
 
 					const convoId = `${id || 'kb'}:${file.id}`;
-					PiiSessionManager.getInstance().setConversationEntitiesFromLatestDetection(
+					piiSessionManager.setConversationEntitiesFromLatestDetection(
 						convoId,
 						entities
 					);
@@ -1222,6 +1278,8 @@
 									small
 									files={filteredItems}
 									{selectedFileId}
+									enablePiiDetection={piiConfigEnabled && (knowledge?.enable_pii_detection ?? false)}
+									knowledgeBaseId={id || 'kb'}
 									on:click={(e) => {
 										selectedFileId = selectedFileId === e.detail ? null : e.detail;
 									}}

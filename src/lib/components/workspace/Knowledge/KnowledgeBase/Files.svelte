@@ -6,6 +6,8 @@
 
 	export let selectedFileId = null;
 	export let files = [];
+	export let enablePiiDetection = false;
+	export let knowledgeBaseId: string | null = null;
 
 	export let small = false;
 </script>
@@ -26,6 +28,8 @@
 				size={file?.size ?? file?.meta?.size ?? ''}
 				loading={file.status === 'uploading'}
 				dismissible
+				{enablePiiDetection}
+				conversationId={knowledgeBaseId && file.id ? `${knowledgeBaseId}:${file.id}` : undefined}
 				on:click={() => {
 					if (file.status === 'uploading') {
 						return;
