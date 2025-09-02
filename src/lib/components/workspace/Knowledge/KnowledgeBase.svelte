@@ -219,36 +219,36 @@
 				return null;
 			});
 
-							if (uploadedFile) {
-					console.log(uploadedFile);
-					// Promote temp item to processing state and keep reference to server file for progress
-					knowledge.files = knowledge.files.map((item) => {
-						if (item.itemId === tempItemId) {
-							item.id = uploadedFile.id;
-							item.file = uploadedFile;
-							item.status = 'processing';
-							item.progress = 5;
-							
-							// Add filename mapping if PII detection is enabled
-							if (enablePiiDetection && uploadedFile.id && item.name) {
-								const convoId = `${id || 'kb'}:${uploadedFile.id}`;
-								console.log('KnowledgeBase: Adding filename mapping for uploaded file:', {
-									fileId: uploadedFile.id,
-									originalName: item.name
-								});
-								// Store the original filename in the mapping and meta
-								piiSessionManager.addFilenameMapping(convoId, uploadedFile.id, item.name);
-								// Keep original in meta for fallback
-								if (!item.meta) item.meta = {};
-								item.meta.name = item.meta.name || item.name;
-								// Replace item.name with the masked ID for display
-								item.name = uploadedFile.id;
-							}
+			if (uploadedFile) {
+				console.log(uploadedFile);
+				// Promote temp item to processing state and keep reference to server file for progress
+				knowledge.files = knowledge.files.map((item) => {
+					if (item.itemId === tempItemId) {
+						item.id = uploadedFile.id;
+						item.file = uploadedFile;
+						item.status = 'processing';
+						item.progress = 5;
+
+						// Add filename mapping if PII detection is enabled
+						if (enablePiiDetection && uploadedFile.id && item.name) {
+							const convoId = `${id || 'kb'}:${uploadedFile.id}`;
+							console.log('KnowledgeBase: Adding filename mapping for uploaded file:', {
+								fileId: uploadedFile.id,
+								originalName: item.name
+							});
+							// Store the original filename in the mapping and meta
+							piiSessionManager.addFilenameMapping(convoId, uploadedFile.id, item.name);
+							// Keep original in meta for fallback
+							if (!item.meta) item.meta = {};
+							item.meta.name = item.meta.name || item.name;
+							// Replace item.name with the masked ID for display
+							item.name = uploadedFile.id;
 						}
-						// Remove temporary item id
-						delete item.itemId;
-						return item;
-					});
+					}
+					// Remove temporary item id
+					delete item.itemId;
+					return item;
+				});
 
 				// Start processing by adding the file to the knowledge base (async, non-blocking)
 				// eslint-disable-next-line @typescript-eslint/no-floating-promises
@@ -652,7 +652,7 @@
 			// Add filename mapping for this file
 			const convoId = `${id || 'kb'}:${fileId}`;
 			piiSessionManager.addFilenameMapping(convoId, fileId, selectedFile.meta?.name || 'unknown');
-			
+
 			// Replace any occurrences of the actual filename with the file ID
 			const filename = selectedFile.meta?.name || '';
 			if (filename) {
@@ -734,7 +734,7 @@
 			const response = await getFileById(localStorage.token, file.id);
 			if (response) {
 				selectedFileContent = response.data.content;
-				
+
 				// Add filename mapping if PII detection is enabled
 				if (enablePiiDetection && file.meta?.name) {
 					const convoId = `${id || 'kb'}:${file.id}`;
@@ -744,7 +744,7 @@
 					});
 					piiSessionManager.addFilenameMapping(convoId, file.id, file.meta.name);
 				}
-				
+
 				// Load saved PII state if present
 				try {
 					const convoId = `${id || 'kb'}:${file.id}`;
@@ -771,10 +771,7 @@
 						}));
 
 					const convoId = `${id || 'kb'}:${file.id}`;
-					piiSessionManager.setConversationEntitiesFromLatestDetection(
-						convoId,
-						entities
-					);
+					piiSessionManager.setConversationEntitiesFromLatestDetection(convoId, entities);
 
 					// Give the editor a moment to mount with new content, then sync highlights from the session manager
 					await tick();
@@ -1278,7 +1275,8 @@
 									small
 									files={filteredItems}
 									{selectedFileId}
-									enablePiiDetection={piiConfigEnabled && (knowledge?.enable_pii_detection ?? false)}
+									enablePiiDetection={piiConfigEnabled &&
+										(knowledge?.enable_pii_detection ?? false)}
 									knowledgeBaseId={id || 'kb'}
 									on:click={(e) => {
 										selectedFileId = selectedFileId === e.detail ? null : e.detail;

@@ -127,12 +127,12 @@
 						access_control: undefined
 					};
 				});
-			
+
 			// Mask filenames if PII detection is enabled
 			if (enablePiiDetection) {
 				return piiSessionManager.maskFilenames(nonImageFiles, chatId || undefined);
 			}
-			
+
 			return nonImageFiles;
 		})(),
 		selectedToolIds,
@@ -840,7 +840,11 @@
 							originalName: fileItem.name
 						});
 						// Store the original filename in the mapping and meta
-						piiSessionManager.addFilenameMapping(chatId || undefined, uploadedFile.id, fileItem.name);
+						piiSessionManager.addFilenameMapping(
+							chatId || undefined,
+							uploadedFile.id,
+							fileItem.name
+						);
 						// Keep original in meta for fallback
 						if (!fileItem.meta) fileItem.meta = {};
 						fileItem.meta.name = fileItem.meta.name || fileItem.name;
@@ -1478,12 +1482,18 @@
 															on:click={() => {
 																// Remove filename mapping if PII detection is enabled and file has an ID
 																if (enablePiiDetection && file.id) {
-																	console.log('MessageInput: Removing filename mapping for dismissed image file:', {
-																		fileId: file.id
-																	});
-																	piiSessionManager.removeFilenameMapping(chatId || undefined, file.id);
+																	console.log(
+																		'MessageInput: Removing filename mapping for dismissed image file:',
+																		{
+																			fileId: file.id
+																		}
+																	);
+																	piiSessionManager.removeFilenameMapping(
+																		chatId || undefined,
+																		file.id
+																	);
 																}
-																
+
 																files.splice(fileIdx, 1);
 																files = files;
 															}}
@@ -1513,16 +1523,19 @@
 													edit={true}
 													modal={['file', 'collection'].includes(file?.type)}
 													conversationId={chatId}
-													enablePiiDetection={enablePiiDetection}
+													{enablePiiDetection}
 													on:dismiss={async () => {
 														// Remove filename mapping if PII detection is enabled
 														if (enablePiiDetection && file.id) {
-															console.log('MessageInput: Removing filename mapping for dismissed file:', {
-																fileId: file.id
-															});
+															console.log(
+																'MessageInput: Removing filename mapping for dismissed file:',
+																{
+																	fileId: file.id
+																}
+															);
 															piiSessionManager.removeFilenameMapping(chatId || undefined, file.id);
 														}
-														
+
 														// Remove from UI state
 														files.splice(fileIdx, 1);
 														files = files;

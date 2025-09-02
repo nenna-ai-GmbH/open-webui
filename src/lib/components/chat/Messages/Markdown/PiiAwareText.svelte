@@ -25,7 +25,10 @@
 		}
 
 		// Check if text has already been processed (contains PII highlight spans)
-		if (text.includes('<span class="pii-highlight') || text.includes('<span class="filename-highlight')) {
+		if (
+			text.includes('<span class="pii-highlight') ||
+			text.includes('<span class="filename-highlight')
+		) {
 			return text;
 		}
 

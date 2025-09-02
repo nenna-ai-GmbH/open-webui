@@ -36,7 +36,7 @@
 		if (!name) {
 			return { displayName: 'File', isFilenameMasked: false };
 		}
-		
+
 		// Only try to unmask if PII detection is available
 		try {
 			// Safe config access - use ?? false to handle missing properties
@@ -44,39 +44,40 @@
 			if (!piiEnabled) {
 				return { displayName: name, isFilenameMasked: false };
 			}
-			
+
 			// Check if name looks like a UUID or file ID (indicating it's masked)
 			const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 			const shortIdPattern = /^[a-zA-Z0-9_-]{8,32}$/;
-			
-			const looksLikeMaskedId = uuidPattern.test(name) || (shortIdPattern.test(name) && !name.includes('.'));
-			
+
+			const looksLikeMaskedId =
+				uuidPattern.test(name) || (shortIdPattern.test(name) && !name.includes('.'));
+
 			if (looksLikeMaskedId) {
 				const piiSessionManager = PiiSessionManager.getInstance();
 				let mapping = null;
-				
+
 				// Try conversation-specific mappings first
 				if (conversationId) {
 					const mappings = piiSessionManager.getFilenameMappingsForDisplay(conversationId);
-					mapping = mappings.find(m => m.fileId === name || m.maskedFilename === name);
+					mapping = mappings.find((m) => m.fileId === name || m.maskedFilename === name);
 				}
-				
+
 				// For new chats without conversation ID, check temporary state
 				if (!mapping) {
 					const tempMappings = piiSessionManager.getTemporaryFilenameMappings();
-					mapping = tempMappings.find(m => m.fileId === name || m.maskedFilename === name);
+					mapping = tempMappings.find((m) => m.fileId === name || m.maskedFilename === name);
 				}
-				
+
 				// Also check if the item itself has the original name stored
 				if (!mapping && item?.meta?.name && item.meta.name !== name) {
 					return { displayName: item.meta.name, isFilenameMasked: true };
 				}
-				
+
 				if (mapping && mapping.originalFilename) {
 					return { displayName: mapping.originalFilename, isFilenameMasked: true };
 				}
 			}
-			
+
 			return { displayName: name, isFilenameMasked: looksLikeMaskedId };
 		} catch (e) {
 			// If anything fails, just return the name as-is
@@ -351,7 +352,9 @@
 							<span>{displayName}</span>
 							{#if isFilenameMasked}
 								<Tooltip content="Filename masked for privacy" placement="top">
-									<div class="flex items-center justify-center size-5 bg-sky-50 dark:bg-sky-200/10 text-sky-600 dark:text-sky-400 rounded-full flex-shrink-0">
+									<div
+										class="flex items-center justify-center size-5 bg-sky-50 dark:bg-sky-200/10 text-sky-600 dark:text-sky-400 rounded-full flex-shrink-0"
+									>
 										<Mask className="size-3" />
 									</div>
 								</Tooltip>
@@ -530,7 +533,7 @@
 												preventDocEdits={true}
 												showFormattingToolbar={false}
 												enablePiiDetection={true}
-												piiApiKey={($config?.pii?.api_key) || 'preview-only'}
+												piiApiKey={$config?.pii?.api_key || 'preview-only'}
 												{conversationId}
 												piiMaskingEnabled={true}
 												enablePiiModifiers={true}

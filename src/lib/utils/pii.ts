@@ -502,7 +502,7 @@ export class PiiSessionManager {
 	}
 
 	// FILENAME MAPPING MANAGEMENT METHODS
-	
+
 	// Add a filename mapping for PII masking
 	addFilenameMapping(conversationId: string | undefined, fileId: string, originalFilename: string) {
 		const mapping: FilenameMapping = {
@@ -515,9 +515,9 @@ export class PiiSessionManager {
 			// Existing conversation - add to conversation state
 			const state = this.conversationStates.get(conversationId)!;
 			const existingMappings = state.filenameMappings || [];
-			
+
 			// Check if mapping already exists
-			if (!existingMappings.find(m => m.fileId === fileId)) {
+			if (!existingMappings.find((m) => m.fileId === fileId)) {
 				const newState: ConversationPiiState = {
 					...state,
 					filenameMappings: [...existingMappings, mapping],
@@ -531,9 +531,9 @@ export class PiiSessionManager {
 			if (!this.temporaryState.isActive) {
 				this.activateTemporaryState();
 			}
-			
+
 			// Check if mapping already exists
-			if (!this.temporaryState.filenameMappings.find(m => m.fileId === fileId)) {
+			if (!this.temporaryState.filenameMappings.find((m) => m.fileId === fileId)) {
 				this.temporaryState.filenameMappings.push(mapping);
 			}
 		}
@@ -566,8 +566,8 @@ export class PiiSessionManager {
 		const mappings = this.getFilenameMappingsForDisplay(conversationId);
 		if (!mappings.length) return files;
 
-		return files.map(file => {
-			const mapping = mappings.find(m => m.fileId === file.id);
+		return files.map((file) => {
+			const mapping = mappings.find((m) => m.fileId === file.id);
 			if (mapping) {
 				return {
 					...file,
@@ -583,8 +583,8 @@ export class PiiSessionManager {
 	removeFilenameMapping(conversationId: string | undefined, fileId: string) {
 		if (conversationId && this.conversationStates.has(conversationId)) {
 			const state = this.conversationStates.get(conversationId)!;
-			const filteredMappings = (state.filenameMappings || []).filter(m => m.fileId !== fileId);
-			
+			const filteredMappings = (state.filenameMappings || []).filter((m) => m.fileId !== fileId);
+
 			const newState: ConversationPiiState = {
 				...state,
 				filenameMappings: filteredMappings,
@@ -594,7 +594,7 @@ export class PiiSessionManager {
 			this.triggerChatSave(conversationId);
 		} else if (this.temporaryState.isActive) {
 			this.temporaryState.filenameMappings = this.temporaryState.filenameMappings.filter(
-				m => m.fileId !== fileId
+				(m) => m.fileId !== fileId
 			);
 		}
 	}
@@ -1070,22 +1070,22 @@ export function adjustPiiEntityPositionsForDisplay(
 // Function to unmask filenames in response text
 export function unmaskFilenamesInText(text: string, mappings: FilenameMapping[]): string {
 	if (!mappings.length || !text) return text;
-	
+
 	let result = text;
-	
+
 	// Replace file IDs with original filenames
-	mappings.forEach(mapping => {
+	mappings.forEach((mapping) => {
 		// Create a regex to match the file ID when mentioned in text
 		// Look for patterns like the file ID mentioned as a word or in quotes
 		const escapedFileId = mapping.fileId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 		const fileIdRegex = new RegExp(`\\b${escapedFileId}\\b`, 'gi');
-		
+
 		result = result.replace(fileIdRegex, (match) => {
 			// Replace file ID with highlighted filename
 			return `<span class="filename-highlight" title="File: ${mapping.originalFilename}" data-file-id="${mapping.fileId}">${mapping.originalFilename}</span>`;
 		});
 	});
-	
+
 	return result;
 }
 
@@ -1099,7 +1099,10 @@ export function unmaskAndHighlightTextForDisplay(
 	if (!text) return text;
 
 	// Check if text is already processed to prevent double processing
-	if (text.includes('<span class="pii-highlight') && text.includes('<span class="filename-highlight')) {
+	if (
+		text.includes('<span class="pii-highlight') &&
+		text.includes('<span class="filename-highlight')
+	) {
 		return text;
 	}
 
