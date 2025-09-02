@@ -39,10 +39,12 @@
 			"type": "python",
 			"request": "launch",
 			"module": "uvicorn",
+			"python": "${workspaceFolder}/.venv/bin/python",
 			"cwd": "${workspaceFolder}/backend",
 			"env": {
 				"CORS_ALLOW_ORIGIN": "http://localhost:5173",
-				"PORT": "8080"
+				"PORT": "8080",
+				"PYTHONPATH": "${workspaceFolder}/backend"
 			},
 			"args": [
 				"open_webui.main:app",
