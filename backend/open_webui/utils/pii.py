@@ -215,10 +215,12 @@ def text_masking(
 
 def consolidate_pii_data(known_entities: list[dict], pii_data: list[dict]) -> dict:
     """
-    Consolidate PII data by merging overlapping ranges.
+    Consolidate PII data by using id from known entities.
     """
+    # TODO: case insensitive matching
+    # TODO: handle already used ids
     for pii in known_entities:
         for file_pii in pii_data:
-            if pii["name"].lower() == file_pii["text"]:
+            if pii["name"].lower() == file_pii["text"].lower():
                 file_pii["id"] = pii["id"]
     return pii_data
