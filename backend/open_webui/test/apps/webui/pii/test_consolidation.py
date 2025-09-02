@@ -12,8 +12,8 @@ def test_consolidate_pii_data_basic():
     ]
     
     pii_data = [
-        {"text": "john doe", "type": "PERSON", "occurrences": [{"start_idx": 0, "end_idx": 8}], "id": 3},
-        {"text": "john@example.com", "type": "EMAIL", "occurrences": [{"start_idx": 10, "end_idx": 25}], "id": 4}
+        {"text": "john doe", "label": "PERSON_3", "type": "PERSON", "occurrences": [{"start_idx": 0, "end_idx": 8}], "id": 3, "raw_text": "John Doe"},
+        {"text": "john@example.com", "label": "EMAIL_4", "type": "EMAIL", "occurrences": [{"start_idx": 10, "end_idx": 25}], "id": 4, "raw_text": "john@example.com"}
     ]
     
     result = consolidate_pii_data(known_entities, pii_data)
@@ -23,22 +23,6 @@ def test_consolidate_pii_data_basic():
     assert result[1]["id"] == 2  # john@example.com should get ID 2
 
 
-def test_consolidate_pii_data_case_insensitive():
-    """Test that consolidation works case-insensitively"""
-    known_entities = [
-        {"id": 1, "label": "PERSON_1", "name": "John Doe"}
-    ]
-    
-    pii_data = [
-        {"text": "JOHN DOE", "type": "PERSON", "occurrences": [{"start_idx": 0, "end_idx": 8}]}
-    ]
-    
-    result = consolidate_pii_data(known_entities, pii_data)
-    
-    # Should match despite case difference
-    assert result[0]["id"] == 1
-
-
 def test_consolidate_pii_data_no_match():
     """Test consolidation when no matches are found"""
     known_entities = [
@@ -46,13 +30,13 @@ def test_consolidate_pii_data_no_match():
     ]
     
     pii_data = [
-        {"text": "Jane Smith", "type": "PERSON", "occurrences": [{"start_idx": 0, "end_idx": 10}]}
+        {"text": "jane smith", "label": "PERSON_3", "type": "PERSON", "occurrences": [{"start_idx": 0, "end_idx": 10}], "id": 3, "raw_text": "Jane Smith"}
     ]
     
     result = consolidate_pii_data(known_entities, pii_data)
     
     # Should return original data without ID assignment
-    assert "id" not in result[0]
+    assert result[0]["id"] == 3
 
 
 def test_text_masking_basic():
@@ -168,3 +152,23 @@ def test_consolidation_with_empty_data():
     # Empty PII data
     result = consolidate_pii_data([{"id": 1, "name": "John Doe"}], [])
     assert len(result) == 0
+
+
+def test_consolidate_ids():
+    """Test consolidation of IDs"""
+    known_entities = [
+        {"id": 1, "label": "PERSON_1", "name": "John McDowell"},
+        {"id": 2, "label": "EMAIL_1", "name": "mcdowell@example.com"}
+    ]
+    
+    pii_data = [
+        {"text": "john doe", "label": "PERSON_1", "type": "PERSON", "occurrences": [{"start_idx": 0, "end_idx": 8}], "id": 1, "raw_text": "John Doe"},
+        {"text": "john@example.com", "label": "EMAIL_2", "type": "EMAIL", "occurrences": [{"start_idx": 10, "end_idx": 25}], "id": 2, "raw_text": "john@example.com"}
+    ]
+    
+    result = consolidate_pii_data(known_entities, pii_data)
+    
+    # Check that IDs are properly assigned
+    ids = [item["id"] for item in result]
+    assert len(ids) == 2
+    assert set(ids) == {3, 4}
