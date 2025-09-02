@@ -582,7 +582,6 @@
 
 	let floatingMenuElement = null;
 	let bubbleMenuElement = null;
-	
 
 	let element: HTMLElement;
 
@@ -1226,9 +1225,12 @@
 								onPiiDetected: onPiiDetected,
 								onPiiToggled: onPiiToggled,
 								onPiiDetectionStateChanged: handlePiiDetectionStateChanged,
-								detectOnlyAfterUserEdit: piiDetectionOnlyAfterUserEdit !== undefined 
-									? piiDetectionOnlyAfterUserEdit 
-									: (messageInput ? false : true)
+								detectOnlyAfterUserEdit:
+									piiDetectionOnlyAfterUserEdit !== undefined
+										? piiDetectionOnlyAfterUserEdit
+										: messageInput
+											? false
+											: true
 							})
 						]
 					: []),
@@ -1274,7 +1276,7 @@
 						]
 					: []),
 				// BubbleMenu: show when formatting toolbar is on OR PII modifiers are enabled
-				...((showFormattingToolbar || (enablePiiDetection && enablePiiModifiers))
+				...(showFormattingToolbar || (enablePiiDetection && enablePiiModifiers)
 					? [
 							BubbleMenu.configure({
 								element: bubbleMenuElement,
@@ -1301,11 +1303,12 @@
 										// Ensure high z-index when showing
 										if (bubbleMenuElement) {
 											bubbleMenuElement.style.zIndex = '9999';
-											
+
 											// Check if position is calculated correctly and trigger fallback if needed
-											const hasPosition = bubbleMenuElement.style.position && 
-															   (bubbleMenuElement.style.left !== '' || bubbleMenuElement.style.top !== '');
-											
+											const hasPosition =
+												bubbleMenuElement.style.position &&
+												(bubbleMenuElement.style.left !== '' || bubbleMenuElement.style.top !== '');
+
 											if (!hasPosition) {
 												// Simple fallback - trigger one resize event to help positioning
 												setTimeout(() => {
@@ -1316,7 +1319,7 @@
 									}
 								}
 							})
-					]
+						]
 					: []),
 				// FloatingMenu stays tied to formatting toolbar only
 				...(showFormattingToolbar
@@ -1331,7 +1334,7 @@
 									offset: [-12, 4]
 								}
 							})
-					]
+						]
 					: []),
 				...(collaboration ? [YjsCollaboration] : [])
 			],
@@ -1429,7 +1432,7 @@
 							console.log('PiiDetectionExtension: Content input detected, marking user activity');
 							editor.commands.markUserActivity();
 						}
-						
+
 						// Force entity remapping on input for immediate highlight updates
 						if (enablePiiDetection && editor && editor.commands.forceEntityRemapping) {
 							if (!isMouseSelecting) {
@@ -1604,7 +1607,7 @@
 							console.log('PiiDetectionExtension: Paste detected, marking user activity');
 							editor.commands.markUserActivity();
 						}
-						
+
 						if (preventDocEdits) {
 							event.preventDefault();
 							return true;
@@ -1728,8 +1731,12 @@
 				const list = [];
 				const addIfScrollable = (el) => {
 					const style = window.getComputedStyle(el);
-					const canScrollY = (style.overflowY === 'auto' || style.overflowY === 'scroll') && el.scrollHeight > el.clientHeight;
-					const canScrollX = (style.overflowX === 'auto' || style.overflowX === 'scroll') && el.scrollWidth > el.clientWidth;
+					const canScrollY =
+						(style.overflowY === 'auto' || style.overflowY === 'scroll') &&
+						el.scrollHeight > el.clientHeight;
+					const canScrollX =
+						(style.overflowX === 'auto' || style.overflowX === 'scroll') &&
+						el.scrollWidth > el.clientWidth;
 					if (canScrollY || canScrollX) {
 						list.push({ el, x: el.scrollLeft, y: el.scrollTop });
 					}
@@ -2006,13 +2013,17 @@
 </script>
 
 {#if showFormattingToolbar || (enablePiiDetection && enablePiiModifiers)}
-	<div bind:this={bubbleMenuElement} id="bubble-menu" class="p-0 flex items-center gap-1 z-[9999] relative">
+	<div
+		bind:this={bubbleMenuElement}
+		id="bubble-menu"
+		class="p-0 flex items-center gap-1 z-[9999] relative"
+	>
 		{#if showFormattingToolbar}
 			<FormattingButtons {editor} />
 		{/if}
 		{#if enablePiiDetection && enablePiiModifiers}
 			<div class="inline-flex">
-				<PiiModifierButtons editor={editor} enabled={enablePiiDetection && enablePiiModifiers} />
+				<PiiModifierButtons {editor} enabled={enablePiiDetection && enablePiiModifiers} />
 			</div>
 		{/if}
 	</div>

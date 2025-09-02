@@ -262,55 +262,73 @@
 										if (item.status !== 'uploaded') {
 											// Check for duplicate content first
 											if (json?.duplicate) {
-												toast.info($i18n.t('{{filename}} already exists in knowledge base - content is duplicate', {
-													filename: item.name
-												}));
+												toast.info(
+													$i18n.t(
+														'{{filename}} already exists in knowledge base - content is duplicate',
+														{
+															filename: item.name
+														}
+													)
+												);
 											} else {
 												// Check for extraction information and show appropriate toast messages
 												if (json?.data?.extraction) {
-												const extraction = json.data.extraction;
-												if (extraction.fallback_used) {
-													// Handle classified error structure
-													let errorMessage = 'Unknown error';
-													if (extraction.error && typeof extraction.error === 'object') {
-														const errorInfo = extraction.error;
-														switch (errorInfo.category) {
-															case 'service_unavailable':
-																errorMessage = $i18n.t('Docling extraction service is not available');
-																break;
-															case 'timeout':
-																errorMessage = $i18n.t('Docling extraction took too long and timed out');
-																break;
-															case 'unknown':
-															default:
-																errorMessage = $i18n.t('Docling extraction failed with an unexpected error');
-																break;
+													const extraction = json.data.extraction;
+													if (extraction.fallback_used) {
+														// Handle classified error structure
+														let errorMessage = 'Unknown error';
+														if (extraction.error && typeof extraction.error === 'object') {
+															const errorInfo = extraction.error;
+															switch (errorInfo.category) {
+																case 'service_unavailable':
+																	errorMessage = $i18n.t(
+																		'Docling extraction service is not available'
+																	);
+																	break;
+																case 'timeout':
+																	errorMessage = $i18n.t(
+																		'Docling extraction took too long and timed out'
+																	);
+																	break;
+																case 'unknown':
+																default:
+																	errorMessage = $i18n.t(
+																		'Docling extraction failed with an unexpected error'
+																	);
+																	break;
+															}
+														} else if (extraction.error) {
+															// Fallback for old string-based errors
+															errorMessage = extraction.error;
 														}
-													} else if (extraction.error) {
-														// Fallback for old string-based errors
-														errorMessage = extraction.error;
+
+														toast.warning(
+															$i18n.t(
+																'Docling extraction failed for {{filename}}, using standard extraction: {{error}}',
+																{
+																	filename: item.name,
+																	error: errorMessage
+																}
+															)
+														);
+													} else if (extraction.method?.toLowerCase() === 'docling') {
+														toast.success(
+															$i18n.t('{{filename}} processed successfully using Docling', {
+																filename: item.name
+															})
+														);
+													} else if (extraction.method) {
+														toast.success(
+															$i18n.t('{{filename}} processed successfully using {{method}}', {
+																filename: item.name,
+																method: extraction.method
+															})
+														);
 													}
-													
-													toast.warning(
-														$i18n.t('Docling extraction failed for {{filename}}, using standard extraction: {{error}}', {
-															filename: item.name,
-															error: errorMessage
-														})
-													);
-												} else if (extraction.method?.toLowerCase() === 'docling') {
-													toast.success($i18n.t('{{filename}} processed successfully using Docling', {
-														filename: item.name
-													}));
-												} else if (extraction.method) {
-													toast.success($i18n.t('{{filename}} processed successfully using {{method}}', {
-														filename: item.name,
-														method: extraction.method
-													}));
 												}
 											}
-											}
 										}
-										
+
 										item.status = 'uploaded';
 									}
 									if (processing.status === 'error') {
@@ -938,12 +956,16 @@
 
 						<div class="self-center shrink-0 flex gap-2">
 							{#if piiConfigEnabled}
-								<Tooltip content={enablePiiDetection 
-									? $i18n.t('PII detection is enabled for this knowledge base')
-									: $i18n.t('PII detection is disabled for this knowledge base')}>
-									<div class="bg-gray-50 dark:bg-gray-850 transition px-2 py-1 rounded-full flex gap-1 items-center {enablePiiDetection
-										? 'text-sky-500 dark:text-sky-300'
-										: 'text-gray-500 dark:text-gray-400'}">
+								<Tooltip
+									content={enablePiiDetection
+										? $i18n.t('PII detection is enabled for this knowledge base')
+										: $i18n.t('PII detection is disabled for this knowledge base')}
+								>
+									<div
+										class="bg-gray-50 dark:bg-gray-850 transition px-2 py-1 rounded-full flex gap-1 items-center {enablePiiDetection
+											? 'text-sky-500 dark:text-sky-300'
+											: 'text-gray-500 dark:text-gray-400'}"
+									>
 										<Mask strokeWidth="2.5" className="size-3.5" />
 										<div class="text-sm font-medium shrink-0">
 											{enablePiiDetection ? $i18n.t('PII Enabled') : $i18n.t('PII Disabled')}
@@ -1034,8 +1056,8 @@
 										bind:value={selectedFileContent}
 										placeholder={$i18n.t('Add content here')}
 										preserveBreaks={false}
-										enablePiiDetection={enablePiiDetection}
-										piiApiKey={piiApiKey}
+										{enablePiiDetection}
+										{piiApiKey}
 										enablePiiModifiers={enablePiiDetection}
 										piiMaskingEnabled={enablePiiDetection}
 										piiDetectionOnlyAfterUserEdit={true}
@@ -1117,8 +1139,8 @@
 										bind:value={selectedFileContent}
 										placeholder={$i18n.t('Add content here')}
 										preserveBreaks={false}
-										enablePiiDetection={enablePiiDetection}
-										piiApiKey={piiApiKey}
+										{enablePiiDetection}
+										{piiApiKey}
 										enablePiiModifiers={enablePiiDetection}
 										piiMaskingEnabled={enablePiiDetection}
 										piiDetectionOnlyAfterUserEdit={true}

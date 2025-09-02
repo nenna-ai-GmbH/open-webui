@@ -1,96 +1,92 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  
-  export let editor: any = null;
-  export let enabled: boolean = true;
+	import { onMount } from 'svelte';
 
-  let showPii = false;
-  let attachedEditor: any = null;
+	export let editor: any = null;
+	export let enabled: boolean = true;
 
-  const isValidSelection = () => {
-    if (!editor) return false;
-    const { from, to } = editor.state?.selection || { from: 0, to: 0 };
-    const len = to - from;
-    return len >= 2 && len <= 50;
-  };
+	let showPii = false;
+	let attachedEditor: any = null;
 
-  const updateVisibility = () => {
-    showPii = enabled && isValidSelection();
-  };
+	const isValidSelection = () => {
+		if (!editor) return false;
+		const { from, to } = editor.state?.selection || { from: 0, to: 0 };
+		const len = to - from;
+		return len >= 2 && len <= 50;
+	};
 
-  function handleEditorEvent() {
-    updateVisibility();
-  }
+	const updateVisibility = () => {
+		showPii = enabled && isValidSelection();
+	};
 
-  function attach(e: any) {
-    if (!e || attachedEditor === e) return;
-    e?.on?.('selectionUpdate', handleEditorEvent);
-    e?.on?.('transaction', handleEditorEvent);
-    e?.on?.('update', handleEditorEvent);
-    attachedEditor = e;
-    updateVisibility();
-  }
+	function handleEditorEvent() {
+		updateVisibility();
+	}
 
-  function detach() {
-    if (!attachedEditor) return;
-    attachedEditor?.off?.('selectionUpdate', handleEditorEvent);
-    attachedEditor?.off?.('transaction', handleEditorEvent);
-    attachedEditor?.off?.('update', handleEditorEvent);
-    attachedEditor = null;
-  }
+	function attach(e: any) {
+		if (!e || attachedEditor === e) return;
+		e?.on?.('selectionUpdate', handleEditorEvent);
+		e?.on?.('transaction', handleEditorEvent);
+		e?.on?.('update', handleEditorEvent);
+		attachedEditor = e;
+		updateVisibility();
+	}
 
-  onMount(() => {
-    // Initial attach if editor is ready on mount
-    if (enabled && editor) attach(editor);
-    // Cleanup on unmount
-    return () => {
-      detach();
-    };
-  });
+	function detach() {
+		if (!attachedEditor) return;
+		attachedEditor?.off?.('selectionUpdate', handleEditorEvent);
+		attachedEditor?.off?.('transaction', handleEditorEvent);
+		attachedEditor?.off?.('update', handleEditorEvent);
+		attachedEditor = null;
+	}
 
-  // React to editor or enabled changes (covers HMR + dynamic hosts)
-  $: {
-    if (enabled && editor) {
-      if (attachedEditor !== editor) {
-        detach();
-        attach(editor);
-      } else {
-        // Even if same editor, recompute when enabled toggles
-        updateVisibility();
-      }
-    } else {
-      // Disabled or no editor → ensure cleanup and hide
-      if (attachedEditor) detach();
-      showPii = false;
-    }
-  }
+	onMount(() => {
+		// Initial attach if editor is ready on mount
+		if (enabled && editor) attach(editor);
+		// Cleanup on unmount
+		return () => {
+			detach();
+		};
+	});
 
-  const addTokenizedMask = () => {
-    if (!isValidSelection()) return;
-    // Use the new addTokenizedMask command that applies findTokenizedWords
-    editor?.commands?.addTokenizedMask?.();
-  };
+	// React to editor or enabled changes (covers HMR + dynamic hosts)
+	$: {
+		if (enabled && editor) {
+			if (attachedEditor !== editor) {
+				detach();
+				attach(editor);
+			} else {
+				// Even if same editor, recompute when enabled toggles
+				updateVisibility();
+			}
+		} else {
+			// Disabled or no editor → ensure cleanup and hide
+			if (attachedEditor) detach();
+			showPii = false;
+		}
+	}
 
-
+	const addTokenizedMask = () => {
+		if (!isValidSelection()) return;
+		// Use the new addTokenizedMask command that applies findTokenizedWords
+		editor?.commands?.addTokenizedMask?.();
+	};
 </script>
 
 {#if enabled && editor && showPii}
-  <div 
-    class="flex gap-0.5 p-0.5 rounded-lg shadow-lg bg-white text-gray-800 dark:text-white dark:bg-gray-800 min-w-fit"
-  >
-    <button
-      type="button"
-      class="hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg p-1.5 transition-all text-xs font-medium flex items-center gap-1"
-      on:click={addTokenizedMask}
-      title="PII Modifier: Mask selected text"
-    >
-      🛡️ Mask
-    </button>
-  </div>
+	<div
+		class="flex gap-0.5 p-0.5 rounded-lg shadow-lg bg-white text-gray-800 dark:text-white dark:bg-gray-800 min-w-fit"
+	>
+		<button
+			type="button"
+			class="hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg p-1.5 transition-all text-xs font-medium flex items-center gap-1"
+			on:click={addTokenizedMask}
+			title="PII Modifier: Mask selected text"
+		>
+			🛡️ Mask
+		</button>
+	</div>
 {/if}
 
 <style>
-  /* No custom styles; rely on Tailwind utility classes from project */
+	/* No custom styles; rely on Tailwind utility classes from project */
 </style>
-
-

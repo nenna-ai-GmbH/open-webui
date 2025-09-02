@@ -23,7 +23,7 @@ export const uploadFile = async (
 		queryParams.set('enable_pii_detection', options.enablePiiDetection.toString());
 	}
 	const qs = queryParams.toString() ? `?${queryParams.toString()}` : '';
-	
+
 	const res = await fetch(`${WEBUI_API_BASE_URL}/files/${qs}`, {
 		method: 'POST',
 		headers: {

@@ -414,7 +414,7 @@
 			console.log('MessageInput: Skipping PII sync - detection disabled');
 			return;
 		}
-		
+
 		try {
 			const piiState = fileData?.data?.piiState;
 			const stateEntitiesArr = Array.isArray(piiState?.entities) ? piiState.entities : [];
@@ -631,11 +631,11 @@
 			if (chatInputElement?.clearAllPiiHighlights) {
 				chatInputElement.clearAllPiiHighlights();
 			}
-			
+
 			// Clear current entities and masked prompt
 			currentPiiEntities = [];
 			maskedPrompt = '';
-			
+
 			// Clear PII data from session manager for current conversation
 			try {
 				if (chatId && chatId.trim() !== '') {
@@ -827,10 +827,18 @@
 					// Kick off retrieval processing only for non-audio/video documents
 					if (!shouldProcessOnUpload) {
 						try {
-							console.log('MessageInput: Triggering file processing with PII detection:', enablePiiDetection);
+							console.log(
+								'MessageInput: Triggering file processing with PII detection:',
+								enablePiiDetection
+							);
 							// Do not await to keep UI responsive
 							// eslint-disable-next-line @typescript-eslint/no-floating-promises
-							triggerProcessFile(localStorage.token, uploadedFile.id, null, enablePiiDetection).catch(() => {});
+							triggerProcessFile(
+								localStorage.token,
+								uploadedFile.id,
+								null,
+								enablePiiDetection
+							).catch(() => {});
 						} catch (e) {}
 					}
 
@@ -875,49 +883,62 @@
 										if (fileItem.status !== 'uploaded') {
 											// Check for duplicate content first
 											if (json?.duplicate) {
-												toast.info($i18n.t('File already exists in knowledge base - content is duplicate'));
+												toast.info(
+													$i18n.t('File already exists in knowledge base - content is duplicate')
+												);
 											} else {
 												// Check for extraction information and show appropriate toast messages
 												if (json?.data?.extraction) {
-												const extraction = json.data.extraction;
-												if (extraction.fallback_used) {
-													// Handle classified error structure
-													let errorMessage = 'Unknown error';
-													if (extraction.error && typeof extraction.error === 'object') {
-														const errorInfo = extraction.error;
-														switch (errorInfo.category) {
-															case 'service_unavailable':
-																errorMessage = $i18n.t('Docling extraction service is not available');
-																break;
-															case 'timeout':
-																errorMessage = $i18n.t('Docling extraction took too long and timed out');
-																break;
-															case 'unknown':
-															default:
-																errorMessage = $i18n.t('Docling extraction failed with an unexpected error');
-																break;
+													const extraction = json.data.extraction;
+													if (extraction.fallback_used) {
+														// Handle classified error structure
+														let errorMessage = 'Unknown error';
+														if (extraction.error && typeof extraction.error === 'object') {
+															const errorInfo = extraction.error;
+															switch (errorInfo.category) {
+																case 'service_unavailable':
+																	errorMessage = $i18n.t(
+																		'Docling extraction service is not available'
+																	);
+																	break;
+																case 'timeout':
+																	errorMessage = $i18n.t(
+																		'Docling extraction took too long and timed out'
+																	);
+																	break;
+																case 'unknown':
+																default:
+																	errorMessage = $i18n.t(
+																		'Docling extraction failed with an unexpected error'
+																	);
+																	break;
+															}
+														} else if (extraction.error) {
+															// Fallback for old string-based errors
+															errorMessage = extraction.error;
 														}
-													} else if (extraction.error) {
-														// Fallback for old string-based errors
-														errorMessage = extraction.error;
+
+														toast.warning(
+															$i18n.t(
+																'Docling extraction failed, using standard extraction: {{error}}',
+																{
+																	error: errorMessage
+																}
+															)
+														);
+													} else if (extraction.method?.toLowerCase() === 'docling') {
+														toast.success($i18n.t('File processed successfully using Docling'));
+													} else if (extraction.method) {
+														toast.success(
+															$i18n.t('File processed successfully using {{method}}', {
+																method: extraction.method
+															})
+														);
 													}
-													
-													toast.warning(
-														$i18n.t('Docling extraction failed, using standard extraction: {{error}}', {
-															error: errorMessage
-														})
-													);
-												} else if (extraction.method?.toLowerCase() === 'docling') {
-													toast.success($i18n.t('File processed successfully using Docling'));
-												} else if (extraction.method) {
-													toast.success($i18n.t('File processed successfully using {{method}}', {
-														method: extraction.method
-													}));
 												}
 											}
-											}
 										}
-										
+
 										fileItem.status = 'uploaded';
 										files = files;
 										return; // stop polling

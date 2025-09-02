@@ -135,7 +135,9 @@
 						<div class="text-sm font-medium text-gray-700 dark:text-gray-300">
 							{$i18n.t('PII Detection')}
 						</div>
-						<Tooltip content={$i18n.t('Enable PII detection and masking for files in this knowledge base')}>
+						<Tooltip
+							content={$i18n.t('Enable PII detection and masking for files in this knowledge base')}
+						>
 							<button
 								class="flex gap-1.5 items-center text-sm rounded-full transition-colors duration-300 focus:outline-hidden px-2 py-1 {enablePiiDetection
 									? 'text-sky-500 dark:text-sky-300 bg-sky-50 dark:bg-sky-200/5'
@@ -146,13 +148,17 @@
 							>
 								<Mask className="size-4" />
 								<span class="whitespace-nowrap">
-									{enablePiiDetection ? $i18n.t('PII Detection Enabled') : $i18n.t('PII Detection Disabled')}
+									{enablePiiDetection
+										? $i18n.t('PII Detection Enabled')
+										: $i18n.t('PII Detection Disabled')}
 								</span>
 							</button>
 						</Tooltip>
 					</div>
 					<div class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-						{$i18n.t('When enabled, files uploaded to this knowledge base will be automatically analyzed for personally identifiable information (PII) and highlighted in the editor.')}
+						{$i18n.t(
+							'When enabled, files uploaded to this knowledge base will be automatically analyzed for personally identifiable information (PII) and highlighted in the editor.'
+						)}
 					</div>
 				</div>
 			</div>

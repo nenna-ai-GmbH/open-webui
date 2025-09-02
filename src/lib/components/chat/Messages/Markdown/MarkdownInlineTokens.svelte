@@ -43,7 +43,12 @@
 			</a>
 		{:else}
 			<a href={token.href} target="_blank" rel="nofollow" title={token.title}>
-				<PiiAwareInlineText text={unescapeHtml(token.text ?? '')} id={`${id}-a-text`} {conversationId} {done} />
+				<PiiAwareInlineText
+					text={unescapeHtml(token.text ?? '')}
+					id={`${id}-a-text`}
+					{conversationId}
+					{done}
+				/>
 			</a>
 		{/if}
 	{:else if token.type === 'image'}

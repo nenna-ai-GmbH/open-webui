@@ -39,7 +39,7 @@
 	let scrollContainerEl: HTMLElement | null = null;
 	let cachedScrollTop = 0;
 	let isScrollLocked = false;
-    let hasRestoredScroll = false;
+	let hasRestoredScroll = false;
 	function handleScroll() {
 		// Allow user scrolling; do not override while user scrolls
 		if (scrollContainerEl) {
