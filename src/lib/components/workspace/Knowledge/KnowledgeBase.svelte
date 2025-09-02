@@ -51,6 +51,8 @@
 	import LockClosed from '$lib/components/icons/LockClosed.svelte';
 	import AccessControlModal from '../common/AccessControlModal.svelte';
 	import Search from '$lib/components/icons/Search.svelte';
+	import Mask from '$lib/components/icons/Mask.svelte';
+	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	// PII session manager to seed backend-detected entities for highlighting
 	import { PiiSessionManager, type ExtendedPiiEntity } from '$lib/utils/pii';
 
@@ -88,6 +90,8 @@
 			file_ids: string[];
 		};
 		files: any[];
+		enable_pii_detection?: boolean;
+		access_control?: any;
 	};
 
 	let id = null;
@@ -137,6 +141,12 @@
 	let debounceTimeout = null;
 	let mediaQuery;
 	let dragged = false;
+
+	// PII detection reactive variables
+	$: piiConfigEnabled = $config?.features?.enable_pii_detection ?? false;
+	$: piiApiKey = $config?.pii?.api_key ?? '';
+	$: knowledgeBasePiiEnabled = knowledge?.enable_pii_detection ?? false;
+	$: enablePiiDetection = piiConfigEnabled && knowledgeBasePiiEnabled;
 
 	const createFileFromText = (name, content) => {
 		const blob = new Blob([content], { type: 'text/plain' });
@@ -198,7 +208,10 @@
 				};
 			}
 
-			const uploadedFile = await uploadFile(localStorage.token, file, metadata).catch((e) => {
+			const uploadedFile = await uploadFile(localStorage.token, file, metadata, {
+				process: true,
+				enablePiiDetection: enablePiiDetection
+			}).catch((e) => {
 				toast.error(`${e}`);
 				return null;
 			});
@@ -625,7 +638,8 @@
 				...knowledge,
 				name: knowledge.name,
 				description: knowledge.description,
-				access_control: knowledge.access_control
+				access_control: knowledge.access_control,
+				enable_pii_detection: knowledge.enable_pii_detection
 			}).catch((e) => {
 				toast.error(`${e}`);
 			});
@@ -917,7 +931,22 @@
 							/>
 						</div>
 
-						<div class="self-center shrink-0">
+						<div class="self-center shrink-0 flex gap-2">
+							{#if piiConfigEnabled}
+								<Tooltip content={enablePiiDetection 
+									? $i18n.t('PII detection is enabled for this knowledge base')
+									: $i18n.t('PII detection is disabled for this knowledge base')}>
+									<div class="bg-gray-50 dark:bg-gray-850 transition px-2 py-1 rounded-full flex gap-1 items-center {enablePiiDetection
+										? 'text-sky-500 dark:text-sky-300'
+										: 'text-gray-500 dark:text-gray-400'}">
+										<Mask strokeWidth="2.5" className="size-3.5" />
+										<div class="text-sm font-medium shrink-0">
+											{enablePiiDetection ? $i18n.t('PII Enabled') : $i18n.t('PII Disabled')}
+										</div>
+									</div>
+								</Tooltip>
+							{/if}
+
 							<button
 								class="bg-gray-50 hover:bg-gray-100 text-black dark:bg-gray-850 dark:hover:bg-gray-800 dark:text-white transition px-2 py-1 rounded-full flex gap-1 items-center"
 								type="button"
@@ -1000,10 +1029,10 @@
 										bind:value={selectedFileContent}
 										placeholder={$i18n.t('Add content here')}
 										preserveBreaks={false}
-										enablePiiDetection={$config?.features?.enable_pii_detection ?? false}
-										piiApiKey={$config?.pii?.api_key ?? ''}
-										enablePiiModifiers={true}
-										piiMaskingEnabled={true}
+										enablePiiDetection={enablePiiDetection}
+										piiApiKey={piiApiKey}
+										enablePiiModifiers={enablePiiDetection}
+										piiMaskingEnabled={enablePiiDetection}
 										piiModifierLabels={[
 											'PERSON',
 											'EMAIL',
@@ -1082,10 +1111,10 @@
 										bind:value={selectedFileContent}
 										placeholder={$i18n.t('Add content here')}
 										preserveBreaks={false}
-										enablePiiDetection={$config?.features?.enable_pii_detection ?? false}
-										piiApiKey={$config?.pii?.api_key ?? ''}
-										enablePiiModifiers={true}
-										piiMaskingEnabled={true}
+										enablePiiDetection={enablePiiDetection}
+										piiApiKey={piiApiKey}
+										enablePiiModifiers={enablePiiDetection}
+										piiMaskingEnabled={enablePiiDetection}
 										piiModifierLabels={[
 											'PERSON',
 											'EMAIL',

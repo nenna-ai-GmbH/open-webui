@@ -1052,6 +1052,30 @@
 		}
 	};
 
+	// Export method to enable PII detection dynamically
+	export const enablePiiDetectionDynamically = () => {
+		if (!editor || !editor.commands?.enablePiiDetection) {
+			return;
+		}
+		editor.commands.enablePiiDetection();
+	};
+
+	// Export method to disable PII detection dynamically
+	export const disablePiiDetectionDynamically = () => {
+		if (!editor || !editor.commands?.disablePiiDetection) {
+			return;
+		}
+		editor.commands.disablePiiDetection();
+	};
+
+	// Export method to clear all PII highlights but keep detection enabled
+	export const clearAllPiiHighlights = () => {
+		if (!editor || !editor.commands?.clearAllPiiHighlights) {
+			return;
+		}
+		editor.commands.clearAllPiiHighlights();
+	};
+
 	const selectTemplate = () => {
 		if (value !== '') {
 			// After updating the state, try to find and select the next template

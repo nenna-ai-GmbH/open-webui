@@ -4,7 +4,7 @@ export const uploadFile = async (
 	token: string,
 	file: File,
 	metadata?: object | null,
-	options?: { process?: boolean }
+	options?: { process?: boolean; enablePiiDetection?: boolean }
 ) => {
 	const data = new FormData();
 	data.append('file', file);
@@ -14,7 +14,16 @@ export const uploadFile = async (
 
 	let error = null;
 
-	const qs = options?.process === false ? '?process=false' : '';
+	// Build query string with process and enablePiiDetection parameters
+	const queryParams = new URLSearchParams();
+	if (options?.process === false) {
+		queryParams.set('process', 'false');
+	}
+	if (options?.enablePiiDetection !== undefined) {
+		queryParams.set('enable_pii_detection', options.enablePiiDetection.toString());
+	}
+	const qs = queryParams.toString() ? `?${queryParams.toString()}` : '';
+	
 	const res = await fetch(`${WEBUI_API_BASE_URL}/files/${qs}`, {
 		method: 'POST',
 		headers: {

@@ -89,6 +89,7 @@ def upload_file(
     file: UploadFile = File(...),
     metadata: Optional[dict | str] = Form(None),
     process: bool = Query(True),
+    enable_pii_detection: bool = Query(True),
     internal: bool = False,
     user=Depends(get_verified_user),
 ):
@@ -173,18 +174,34 @@ def upload_file(
                         result = transcribe(request, file_path, file_metadata)
                         process_file(
                             request,
-                            ProcessFileForm(file_id=id, content=result.get("text", "")),
+                            ProcessFileForm(
+                                file_id=id,
+                                content=result.get("text", ""),
+                                enable_pii_detection=enable_pii_detection,
+                            ),
                             user=user,
                         )
                     elif (not file.content_type.startswith(("image/", "video/"))) or (
                         request.app.state.config.CONTENT_EXTRACTION_ENGINE == "external"
                     ):
-                        process_file(request, ProcessFileForm(file_id=id), user=user)
+                        process_file(
+                            request,
+                            ProcessFileForm(
+                                file_id=id, enable_pii_detection=enable_pii_detection
+                            ),
+                            user=user,
+                        )
                 else:
                     log.info(
                         f"File type {file.content_type} is not provided, but trying to process anyway"
                     )
-                    process_file(request, ProcessFileForm(file_id=id), user=user)
+                    process_file(
+                        request,
+                        ProcessFileForm(
+                            file_id=id, enable_pii_detection=enable_pii_detection
+                        ),
+                        user=user,
+                    )
 
                 file_item = Files.get_file_by_id(id=id)
             except Exception as e:
