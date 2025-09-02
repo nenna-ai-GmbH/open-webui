@@ -11,74 +11,133 @@ describe('PII Session Manager', () => {
   });
 
   describe('Entity Consolidation', () => {
-    it('should consolidate entities from different sources', () => {
-      const knownEntities = [
-        { id: 1, label: 'PERSON_1', name: 'John Doe' },
-        { id: 2, label: 'EMAIL_1', name: 'john@example.com' }
+    it('should consolidate entities with same text but different IDs', () => {
+      const conversationId = 'test-conversation-same-text-different-ids';
+      
+      // First, set up existing entities
+      const existingEntities: ExtendedPiiEntity[] = [
+        {
+          id: 1,
+          label: 'PERSON_1',
+          type: 'PERSON',
+          raw_text: 'John Doe',
+          text: 'john doe',
+          occurrences: [{ start_idx: 0, end_idx: 8 }],
+          shouldMask: true
+        }
       ];
-
-      const fileEntities = [
-        { text: 'John Doe', type: 'PERSON', occurrences: [{ start_idx: 0, end_idx: 8 }] },
-        { text: 'john@example.com', type: 'EMAIL', occurrences: [{ start_idx: 10, end_idx: 25 }] }
+      
+      piiManager.setConversationEntitiesFromLatestDetection(conversationId, existingEntities);
+      
+      // Now add new entities with different ID
+      const newEntities: ExtendedPiiEntity[] = [
+        {
+          id: 999, // Different ID
+          label: 'PERSON_999', // Should consolidate
+          type: 'PERSON',
+          raw_text: 'John Doe',
+          text: 'john doe',
+          occurrences: [{ start_idx: 20, end_idx: 28 }], // Different position
+          shouldMask: false
+        }
       ];
-
-      // Simulate consolidation by matching names
-      const consolidated = fileEntities.map(fileEntity => {
-        const knownEntity = knownEntities.find(known => 
-          known.name.toLowerCase() === fileEntity.text.toLowerCase()
-        );
-        return {
-          ...fileEntity,
-          id: knownEntity?.id
-        };
-      });
-
-      expect(consolidated[0].id).toBe(1);
-      expect(consolidated[1].id).toBe(2);
+      
+      // This should consolidate by label, not by ID
+      piiManager.setConversationEntitiesFromLatestDetection(conversationId, newEntities);
+      
+      const result = piiManager.getEntitiesForDisplay(conversationId);
+      
+      // Should have only one entity (consolidated)
+      expect(result).toHaveLength(1);
+      expect(result[0].label).toBe('PERSON_1');
+      expect(result[0].id).toBe(1); // Should keep original ID
+      expect(result[0].shouldMask).toBe(true); // Should preserve original masking state
+      expect(result[0].occurrences).toHaveLength(2); // Should merge occurrences
+      expect(result[0].occurrences[0]).toEqual({ start_idx: 0, end_idx: 8 });
+      expect(result[0].occurrences[1]).toEqual({ start_idx: 20, end_idx: 28 });
     });
 
     it('should handle case-insensitive matching', () => {
-      const knownEntities = [
-        { id: 1, label: 'PERSON_1', name: 'John Doe' }
+      const conversationId = 'test-conversation-case-insensitive';
+      const existingEntities: ExtendedPiiEntity[] = [
+        { id: 1, 
+          label: 'PERSON_1',
+          type: 'PERSON',
+          raw_text: 'John Doe',
+          text: 'john doe',
+          occurrences: [{ start_idx: 0, end_idx: 8 }],
+          shouldMask: true
+        }
       ];
 
-      const fileEntities = [
-        { text: 'JOHN DOE', type: 'PERSON', occurrences: [{ start_idx: 0, end_idx: 8 }] }
+      const newEntities: ExtendedPiiEntity[] = [
+        { id: 2, 
+          label: 'PERSON_1',
+          type: 'PERSON',
+          raw_text: 'JOHN DOE',
+          text: 'john doe',
+          occurrences: [{ start_idx: 10, end_idx: 18 }],
+          shouldMask: true
+        }
       ];
 
-      const consolidated = fileEntities.map(fileEntity => {
-        const knownEntity = knownEntities.find(known => 
-          known.name.toLowerCase() === fileEntity.text.toLowerCase()
-        );
-        return {
-          ...fileEntity,
-          id: knownEntity?.id
-        };
-      });
+      // This should consolidate by label, not by ID
+      piiManager.setConversationEntitiesFromLatestDetection(conversationId, newEntities);
+      
+      const result = piiManager.getEntitiesForDisplay(conversationId);
 
-      expect(consolidated[0].id).toBe(1);
+      expect(result[0].id).toBe(1);
+      expect(result[0].label).toBe('PERSON_1');
+      expect(result[0].raw_text).toBe('John Doe');
+      expect(result[0].text).toBe('john doe');
+      expect(result[0].shouldMask).toBe(true);
+      expect(result[0].occurrences).toHaveLength(2);
+      expect(result[0].occurrences[0]).toEqual({ start_idx: 0, end_idx: 8 });
+      expect(result[0].occurrences[1]).toEqual({ start_idx: 10, end_idx: 18 });
     });
 
     it('should handle entities without matches', () => {
-      const knownEntities = [
-        { id: 1, label: 'PERSON_1', name: 'John Doe' }
+      const conversationId = 'test-conversation-without-matches';
+      const existingEntities: ExtendedPiiEntity[] = [
+        { id: 1, label: 'PERSON_1',
+          type: 'PERSON',
+          raw_text: 'John Doe',
+          text: 'john doe',
+          occurrences: [{ start_idx: 0, end_idx: 8 }],
+          shouldMask: true
+        }
       ];
 
-      const fileEntities = [
-        { text: 'Jane Smith', type: 'PERSON', occurrences: [{ start_idx: 0, end_idx: 10 }] }
+      const newEntities: ExtendedPiiEntity[] = [
+        { id: 2, label: 'PERSON_2',
+          type: 'PERSON',
+          raw_text: 'Jane Smith',
+          text: 'jane smith',
+          occurrences: [{ start_idx: 0, end_idx: 10 }],
+          shouldMask: true
+        }
       ];
 
-      const consolidated = fileEntities.map(fileEntity => {
-        const knownEntity = knownEntities.find(known => 
-          known.name.toLowerCase() === fileEntity.text.toLowerCase()
-        );
-        return {
-          ...fileEntity,
-          id: knownEntity?.id
-        };
-      });
+     // This should consolidate by label, not by ID
+     piiManager.setConversationEntitiesFromLatestDetection(conversationId, newEntities);
+      
+     const result = piiManager.getEntitiesForDisplay(conversationId);
 
-      expect(consolidated[0].id).toBeUndefined();
+     expect(result).toHaveLength(2);
+     expect(result[0].id).toBe(1);
+     expect(result[0].label).toBe('PERSON_1');
+     expect(result[0].raw_text).toBe('John Doe');
+     expect(result[0].text).toBe('john doe');
+     expect(result[0].shouldMask).toBe(true);
+     expect(result[0].occurrences).toHaveLength(1);
+     expect(result[0].occurrences[0]).toEqual({ start_idx: 0, end_idx: 8 });
+     expect(result[1].id).toBe(2);
+     expect(result[1].label).toBe('PERSON_2');
+     expect(result[1].raw_text).toBe('Jane Smith');
+     expect(result[1].text).toBe('jane smith');
+     expect(result[1].shouldMask).toBe(true);
+     expect(result[1].occurrences).toHaveLength(1);
+     expect(result[1].occurrences[0]).toEqual({ start_idx: 0, end_idx: 10 });
     });
   });
 
@@ -91,6 +150,7 @@ describe('PII Session Manager', () => {
           label: 'PERSON_1',
           type: 'PERSON',
           raw_text: 'John Doe',
+          text: 'john doe',
           occurrences: [{ start_idx: 0, end_idx: 8 }],
           shouldMask: true
         }
@@ -112,6 +172,7 @@ describe('PII Session Manager', () => {
           label: 'PERSON_1',
           type: 'PERSON',
           raw_text: 'John Doe',
+          text: 'john doe',
           occurrences: [{ start_idx: 0, end_idx: 8 }],
           shouldMask: true
         }
@@ -125,6 +186,7 @@ describe('PII Session Manager', () => {
           label: 'EMAIL_1',
           type: 'EMAIL',
           raw_text: 'john@example.com',
+          text: 'john@example.com',
           occurrences: [{ start_idx: 10, end_idx: 25 }],
           shouldMask: false
         }
@@ -146,6 +208,7 @@ describe('PII Session Manager', () => {
           label: 'PERSON_1',
           type: 'PERSON',
           raw_text: 'John Doe',
+          text: 'john doe',
           occurrences: [{ start_idx: 0, end_idx: 8 }],
           shouldMask: true
         }
@@ -173,6 +236,7 @@ describe('PII Session Manager', () => {
           label: 'PERSON_1',
           type: 'PERSON',
           raw_text: 'John Doe',
+          text: 'john doe',
           occurrences: [{ start_idx: 0, end_idx: 8 }],
           shouldMask: true
         }
@@ -194,6 +258,7 @@ describe('PII Session Manager', () => {
           label: 'PERSON_1',
           type: 'PERSON',
           raw_text: 'John Doe',
+          text: 'john doe',
           occurrences: [{ start_idx: 0, end_idx: 8 }],
           shouldMask: true
         }
@@ -222,6 +287,7 @@ describe('PII Session Manager', () => {
           label: 'PERSON_1',
           type: 'PERSON',
           raw_text: 'John Doe',
+          text: 'john doe',
           occurrences: [{ start_idx: 0, end_idx: 8 }],
           shouldMask: true
         }
