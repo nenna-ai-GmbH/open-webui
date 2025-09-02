@@ -176,7 +176,9 @@
 
 							{#if piiConfigEnabled && item?.enable_pii_detection}
 								<Tooltip content={$i18n.t('PII detection is enabled for this knowledge base')}>
-									<div class="flex items-center gap-1 px-2 py-0.5 bg-sky-50 dark:bg-sky-900/30 text-sky-600 dark:text-sky-300 rounded-full text-xs">
+									<div
+										class="flex items-center gap-1 px-2 py-0.5 bg-sky-50 dark:bg-sky-900/30 text-sky-600 dark:text-sky-300 rounded-full text-xs"
+									>
 										<Mask strokeWidth="2.5" className="size-3" />
 										<span class="font-medium">{$i18n.t('PII Masking')}</span>
 									</div>

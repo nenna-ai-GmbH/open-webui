@@ -626,15 +626,21 @@ export class PiiSessionManager {
 		let persistentChanged = false;
 		const mergedPersistent: ExtendedPiiEntity[] = [...persistentEntities];
 
-		const occurrenceKey = (o: { start_idx: number; end_idx: number }) => `${o.start_idx}-${o.end_idx}`;
+		const occurrenceKey = (o: { start_idx: number; end_idx: number }) =>
+			`${o.start_idx}-${o.end_idx}`;
 
 		for (const incoming of extendedEntities) {
 			const idx = mergedPersistent.findIndex((e) => e.label === incoming.label);
 			if (idx >= 0) {
 				const current = mergedPersistent[idx];
 				const currentOccKeys = new Set((current.occurrences || []).map(occurrenceKey));
-				const newOcc = (incoming.occurrences || []).filter((o) => !currentOccKeys.has(occurrenceKey(o)));
-				if (newOcc.length > 0 || (incoming.shouldMask !== undefined && current.shouldMask === undefined)) {
+				const newOcc = (incoming.occurrences || []).filter(
+					(o) => !currentOccKeys.has(occurrenceKey(o))
+				);
+				if (
+					newOcc.length > 0 ||
+					(incoming.shouldMask !== undefined && current.shouldMask === undefined)
+				) {
 					mergedPersistent[idx] = {
 						...current,
 						// Prefer existing shouldMask; otherwise adopt incoming

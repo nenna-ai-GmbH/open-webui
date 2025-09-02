@@ -1087,7 +1087,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 			return [];
 		}
 
-								let isHoverMenuShowing = false;
+		let isHoverMenuShowing = false;
 		let hoverTimeout: number | null = null;
 		let menuCloseTimeout: ReturnType<typeof setTimeout> | null = null;
 		const isMouseOverMenu = false;
@@ -1186,19 +1186,32 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 											// If not aligned yet, derive the best token from the slice
 											if (finalFrom === selFrom && finalTo === selTo) {
 												// Tokenize slice and prefer alphabetic tokens
-												const tokens: Array<{ start: number; end: number; text: string; hasAlpha: boolean }>= [];
+												const tokens: Array<{
+													start: number;
+													end: number;
+													text: string;
+													hasAlpha: boolean;
+												}> = [];
 												const re = /[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9_-]*|[0-9]+(?:[.,][0-9]+)*/gu;
 												let m: RegExpExecArray | null;
 												re.lastIndex = 0;
 												while ((m = re.exec(slice)) !== null) {
 													const t = m[0];
-													tokens.push({ start: m.index, end: m.index + t.length, text: t, hasAlpha: /[A-Za-zÀ-ÿ]/.test(t) });
+													tokens.push({
+														start: m.index,
+														end: m.index + t.length,
+														text: t,
+														hasAlpha: /[A-Za-zÀ-ÿ]/.test(t)
+													});
 												}
 
 												if (tokens.length > 0) {
 													// Prefer the last alphabetic token; else the last token
-													const alphaTokens = tokens.filter(t => t.hasAlpha);
-													const pick = (alphaTokens.length > 0 ? alphaTokens[alphaTokens.length - 1] : tokens[tokens.length - 1]);
+													const alphaTokens = tokens.filter((t) => t.hasAlpha);
+													const pick =
+														alphaTokens.length > 0
+															? alphaTokens[alphaTokens.length - 1]
+															: tokens[tokens.length - 1];
 													finalFrom = selFrom + pick.start;
 													finalTo = selFrom + pick.end;
 													finalEntity = pick.text;
@@ -1222,7 +1235,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 									from: finalFrom,
 									to: finalTo
 								};
- 
+
 								// Replace any existing modifier for the same entity text (case-insensitive)
 								const filteredModifiers = newState.modifiers.filter(
 									(modifier) => modifier.entity.toLowerCase() !== finalEntity.toLowerCase()
@@ -1405,9 +1418,9 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 
 							if (!existingEntity) {
 								// Hide menu if no entity found
-							if (isHoverMenuShowing && options.hidePiiHoverMenu) {
-								options.hidePiiHoverMenu();
-								isHoverMenuShowing = false;
+								if (isHoverMenuShowing && options.hidePiiHoverMenu) {
+									options.hidePiiHoverMenu();
+									isHoverMenuShowing = false;
 								}
 								return;
 							}
@@ -1546,17 +1559,22 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 								timeoutManager.clearAll();
 							};
 
-														// Use Svelte component interface
+							// Use Svelte component interface
 							if (options.showPiiHoverMenu) {
 								// ALWAYS use mouse coordinates for positioning - they're the most reliable
 								const menuX = event.clientX;
 								const menuY = event.clientY;
-								
+
 								// debug logs removed
-								const labelFromModifier = (existingModifiers.find((m) => m.action === 'string-mask')?.type) || '';
+								const labelFromModifier =
+									existingModifiers.find((m) => m.action === 'string-mask')?.type || '';
 								const elAtPoint = document.elementFromPoint(menuX, menuY) as HTMLElement | null;
 								const labelFromDom = (elAtPoint?.getAttribute('data-pii-type') || '').toUpperCase();
-								const computedCurrentLabel = (labelFromModifier || labelFromDom || 'CUSTOM').toUpperCase();
+								const computedCurrentLabel = (
+									labelFromModifier ||
+									labelFromDom ||
+									'CUSTOM'
+								).toUpperCase();
 								const menuData: PiiHoverMenuData = {
 									wordInfo: {
 										word: finalTargetText,
@@ -1567,7 +1585,8 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 									},
 									showIgnoreButton: isPiiHighlighted,
 									existingModifiers,
-									showTextField: existingModifiers.length === 0 ||
+									showTextField:
+										existingModifiers.length === 0 ||
 										existingModifiers.some((m) => m.action === 'string-mask'),
 									currentLabel: computedCurrentLabel,
 									onIgnore,
@@ -1597,7 +1616,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 										}, 500);
 									}
 								};
-								
+
 								options.showPiiHoverMenu(menuData);
 								isHoverMenuShowing = true;
 							}
@@ -1714,7 +1733,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 
 					// Derive canonical entity from current selection if necessary
 					let entity = (options.entity || '').normalize('NFKC').trim();
-					
+
 					// If this is from an existing PII highlight, trust the entity text and don't tokenize
 					if (options.isExistingPii && entity) {
 						// Use the entity text and positions as provided - no tokenization needed
@@ -1725,17 +1744,26 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 						if (!entity || (selText && selText.indexOf(entity) === -1)) {
 							// Try to pick a token from selection
 							const slice = selText || '';
-							const tokens: Array<{ start: number; end: number; text: string; hasAlpha: boolean }> = [];
+							const tokens: Array<{ start: number; end: number; text: string; hasAlpha: boolean }> =
+								[];
 							const re = /[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9_-]*|[0-9]+(?:[.,][0-9]+)*/gu;
 							let m: RegExpExecArray | null;
 							re.lastIndex = 0;
 							while ((m = re.exec(slice)) !== null) {
 								const t = m[0];
-								tokens.push({ start: m.index, end: m.index + t.length, text: t, hasAlpha: /[A-Za-zÀ-ÿ]/.test(t) });
+								tokens.push({
+									start: m.index,
+									end: m.index + t.length,
+									text: t,
+									hasAlpha: /[A-Za-zÀ-ÿ]/.test(t)
+								});
 							}
 							if (tokens.length > 0) {
-								const alphaTokens = tokens.filter(t => t.hasAlpha);
-								const pick = (alphaTokens.length > 0 ? alphaTokens[alphaTokens.length - 1] : tokens[tokens.length - 1]);
+								const alphaTokens = tokens.filter((t) => t.hasAlpha);
+								const pick =
+									alphaTokens.length > 0
+										? alphaTokens[alphaTokens.length - 1]
+										: tokens[tokens.length - 1];
 								entity = pick.text;
 								useFrom = selFrom + pick.start;
 								useTo = selFrom + pick.end;
@@ -1755,11 +1783,11 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 						from: useFrom,
 						to: useTo
 					});
- 
+
 					if (dispatch) {
 						dispatch(tr);
 					}
- 
+
 					return true;
 				},
 
@@ -1772,12 +1800,12 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 
 					// Get all tokenized words touched by the selection
 					const tokenizedWords = findTokenizedWords(state.doc, from, to);
-					
+
 					if (tokenizedWords.length === 0) return false;
 
 					// Create a transaction that adds modifiers for all tokenized words
 					let tr = state.tr;
-					
+
 					tokenizedWords.forEach((word) => {
 						tr = tr.setMeta(piiModifierExtensionKey, {
 							type: 'ADD_MODIFIER',
