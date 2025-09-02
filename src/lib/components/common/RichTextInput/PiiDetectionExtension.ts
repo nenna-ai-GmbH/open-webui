@@ -7,6 +7,16 @@ import type { PiiEntity } from '$lib/apis/pii';
 import { maskPiiText } from '$lib/apis/pii';
 import { debounce, PiiSessionManager } from '$lib/utils/pii';
 import type { PiiModifier } from './PiiModifierExtension';
+import { 
+	extractCompletedWords, 
+	findNewWords, 
+	extractIncrementalContent, 
+	createContextSnippet, 
+	mergeIncrementalEntities, 
+	getSmartDebounceDelay, 
+	hasSignificantContent,
+	TypingPauseDetector
+} from './PiiDetectionUtils';
 
 // Interface for PII entity occurrences
 interface PiiOccurrence {
@@ -44,6 +54,14 @@ function decodeHtmlEntities(text: string): string {
 	return result;
 }
 
+// Track text nodes and their content for reliable change detection
+interface TextNodeInfo {
+	nodeId: string; // Unique identifier for the node based on position and content
+	content: string;
+	startPos: number;
+	endPos: number;
+}
+
 interface PiiDetectionState {
 	entities: ExtendedPiiEntity[];
 	positionMapping: PositionMapping | null;
@@ -51,6 +69,10 @@ interface PiiDetectionState {
 	lastText: string;
 	needsSync: boolean;
 	userEdited?: boolean;
+	textNodes: TextNodeInfo[]; // Track all text nodes in the document
+	lastWordCount: number; // Track word count for more granular change detection
+	cachedDecorations?: DecorationSet; // Cache decorations to prevent rebuilding on every keystroke
+	lastDecorationHash?: string; // Hash to detect when decorations need updating
 	dynamicallyEnabled?: boolean; // Track if PII detection is dynamically enabled/disabled
 }
 
@@ -67,6 +89,171 @@ export interface PiiDetectionOptions {
 }
 
 // Removed unused interfaces - let TypeScript infer TipTap command types
+
+// Extract all text nodes from the document for change detection
+function extractTextNodes(doc: ProseMirrorNode): TextNodeInfo[] {
+	const textNodes: TextNodeInfo[] = [];
+	let nodeCounter = 0;
+
+	doc.nodesBetween(0, doc.content.size, (node, pos) => {
+		if (node.isText && node.text) {
+			const nodeId = `${pos}-${node.text.length}-${nodeCounter++}`;
+			textNodes.push({
+				nodeId,
+				content: node.text,
+				startPos: pos,
+				endPos: pos + node.text.length
+			});
+		}
+		return true;
+	});
+
+	return textNodes;
+}
+
+// Count words in text for granular change detection
+function countWords(text: string): number {
+	if (!text.trim()) return 0;
+	// Split on whitespace and filter empty strings
+	return text.trim().split(/\s+/).filter(word => word.length > 0).length;
+}
+
+// Extract individual words from text for comparison
+function extractWords(text: string): Set<string> {
+	if (!text.trim()) return new Set();
+	return new Set(
+		text.trim()
+			.toLowerCase()
+			.split(/\s+/)
+			.filter(word => word.length > 0)
+			.map(word => word.replace(/[.,!?;:"'()[\]{}]/g, '')) // Remove punctuation
+			.filter(word => word.length > 0)
+	);
+}
+
+// Note: Removed simple PII pattern pre-filtering as it was too simplistic
+// and could miss real PII cases. Let the AI-powered API handle sophisticated detection.
+
+
+
+
+
+
+
+
+
+
+
+// Check if new content has been added by comparing text nodes
+function hasNewContent(
+	previousNodes: TextNodeInfo[],
+	currentNodes: TextNodeInfo[],
+	previousWordCount: number,
+	currentWordCount: number
+): boolean {
+	// Special case: if we had no content before and now have content, it's new
+	// This handles initial content loading (e.g., in KnowledgeBase)
+	if (previousWordCount === 0 && currentWordCount > 0) {
+		console.log('PiiDetectionExtension: Initial content loaded', {
+			wordCount: currentWordCount,
+			nodeCount: currentNodes.length
+		});
+		return true;
+	}
+
+	// Quick check: if word count increased, we definitely have new content
+	if (currentWordCount > previousWordCount) {
+		console.log('PiiDetectionExtension: Word count increased', { 
+			previous: previousWordCount, 
+			current: currentWordCount 
+		});
+		return true;
+	}
+
+	// If we have no previous nodes but have current nodes, it's new content
+	if (previousNodes.length === 0 && currentNodes.length > 0) {
+		console.log('PiiDetectionExtension: Content loaded into empty editor', {
+			nodeCount: currentNodes.length
+		});
+		return true;
+	}
+
+	// If we have fewer nodes than before, content was removed (not new)
+	if (currentNodes.length < previousNodes.length) {
+		return false;
+	}
+
+	// If we have more nodes, we likely have new content
+	if (currentNodes.length > previousNodes.length) {
+		console.log('PiiDetectionExtension: New text nodes detected', {
+			previous: previousNodes.length,
+			current: currentNodes.length
+		});
+		return true;
+	}
+
+	// Special case: if content completely changed (like when switching files in KnowledgeBase)
+	// Check if the majority of content is different
+	if (previousNodes.length > 0 && currentNodes.length > 0) {
+		let changedNodes = 0;
+		const maxNodes = Math.max(previousNodes.length, currentNodes.length);
+		
+		for (let i = 0; i < maxNodes; i++) {
+			const currentNode = currentNodes[i];
+			const previousNode = previousNodes[i];
+			
+			if (!currentNode || !previousNode || currentNode.content !== previousNode.content) {
+				changedNodes++;
+			}
+		}
+		
+		// If more than 50% of nodes changed, consider it new content
+		const changeRatio = changedNodes / maxNodes;
+		if (changeRatio > 0.5) {
+			console.log('PiiDetectionExtension: Substantial content change detected', {
+				changedNodes,
+				totalNodes: maxNodes,
+				changeRatio: Math.round(changeRatio * 100) + '%'
+			});
+			return true;
+		}
+	}
+
+	// Same number of nodes - check if any node content has grown
+	for (let i = 0; i < currentNodes.length; i++) {
+		const currentNode = currentNodes[i];
+		const previousNode = previousNodes[i];
+		
+		if (!previousNode) continue;
+
+		// If current node content is longer and contains the previous content,
+		// it's likely new content was added to this node
+		if (currentNode.content.length > previousNode.content.length &&
+			currentNode.content.includes(previousNode.content)) {
+			console.log('PiiDetectionExtension: Node content expanded', {
+				node: i,
+				previous: previousNode.content.length,
+				current: currentNode.content.length,
+				previousContent: previousNode.content.slice(0, 50) + '...',
+				currentContent: currentNode.content.slice(0, 50) + '...'
+			});
+			return true;
+		}
+
+		// If node content changed completely, consider it new content
+		if (currentNode.content !== previousNode.content &&
+			currentNode.content.trim() !== '') {
+			console.log('PiiDetectionExtension: Node content changed', {
+				node: i,
+				previousContent: previousNode.content.slice(0, 50) + '...',
+				currentContent: currentNode.content.slice(0, 50) + '...'
+			});
+			return true;
+		}
+	}
+
+	return false;
+}
 
 // Build position mapping between plain text and ProseMirror positions
 function buildPositionMapping(doc: ProseMirrorNode): PositionMapping {
@@ -446,6 +633,9 @@ function createPiiDecorations(
 	});
 
 	// Add modifier decorations using entity-based matching and fallback to text matching
+	// Track applied ranges to prevent duplicates
+	const appliedRanges = new Set<string>();
+	
 	(modifiers || []).forEach((modifier, modifierIndex) => {
 		let decorationCreated = false;
 		
@@ -453,6 +643,10 @@ function createPiiDecorations(
 		// This handles cases where the modifier was created from an existing PII highlight
 		entities.forEach((entity, entityIndex) => {
 			entity.occurrences?.forEach((occurrence, occurrenceIndex) => {
+				// Create range key to prevent duplicate decorations
+				const rangeKey = `${occurrence.start_idx}-${occurrence.end_idx}-${modifier.id}`;
+				if (appliedRanges.has(rangeKey)) return;
+				
 				// Get the actual text content from the document at this entity's position
 				const entityText = doc.textBetween(occurrence.start_idx, occurrence.end_idx, '\n', '\0').trim();
 				
@@ -463,7 +657,10 @@ function createPiiDecorations(
 							? 'pii-modifier-highlight pii-modifier-mask'
 							: 'pii-modifier-highlight pii-modifier-ignore';
 
-					console.log(`✅ Applied ${modifier.action} modifier to: "${entityText}"`);
+					// Only log once per modifier for performance
+					if (!decorationCreated) {
+						console.log(`✅ Applied ${modifier.action} modifier to: "${entityText}" (${entity.occurrences?.length || 0} occurrences)`);
+					}
 
 					decorations.push(
 						Decoration.inline(occurrence.start_idx, occurrence.end_idx, {
@@ -475,6 +672,7 @@ function createPiiDecorations(
 							style: 'z-index: 10; position: relative;'
 						})
 					);
+					appliedRanges.add(rangeKey);
 					decorationCreated = true;
 				}
 			});
@@ -531,12 +729,19 @@ function createPiiDecorations(
 				const to = pmEnd + 1;
 				if (!(from >= 0 && to <= doc.content.size && from < to)) continue;
 
+				// Check for duplicate ranges in fallback strategy too
+				const rangeKey = `${from}-${to}-${modifier.id}`;
+				if (appliedRanges.has(rangeKey)) continue;
+
 				const decorationClass =
 					modifier.action === 'string-mask'
 						? 'pii-modifier-highlight pii-modifier-mask'
 						: 'pii-modifier-highlight pii-modifier-ignore';
 
-				console.log(`✅ Applied ${modifier.action} modifier to: "${match[0]}" (text search)`);
+				// Only log once per modifier for performance
+				if (!decorationCreated) {
+					console.log(`✅ Applied ${modifier.action} modifier to: "${match[0]}" (text search)`);
+				}
 
 				decorations.push(
 					Decoration.inline(from, to, {
@@ -548,6 +753,7 @@ function createPiiDecorations(
 						style: 'z-index: 10; position: relative;'
 					})
 				);
+				appliedRanges.add(rangeKey);
 				decorationCreated = true;
 			}
 		}
@@ -593,14 +799,41 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 		const piiSessionManager = PiiSessionManager.getInstance();
 		piiSessionManager.setApiKey(apiKey);
 
+		// Initialize typing pause detector for catching missed changes after typing pauses
+		const typingPauseDetector = new TypingPauseDetector(1000); // 1 second pause threshold
+		
+		// Store detector reference for command access
+		if (this.editor) {
+			(this.editor as any)._typingPauseDetector = typingPauseDetector;
+		}
+
+		// Handle pause-triggered detection
+		const handlePauseTriggeredDetection = (textDiff: { previous: string; current: string }) => {
+			console.log('PiiDetectionExtension: ⏰ Pause-triggered detection activated', {
+				previousLength: textDiff.previous.length,
+				currentLength: textDiff.current.length,
+				lengthDiff: textDiff.current.length - textDiff.previous.length
+			});
+
+			// Use the full text for pause-triggered detection (more comprehensive than incremental)
+			performPiiDetection(textDiff.current);
+		};
+
 		const performPiiDetection = async (plainText: string) => {
 			if (!plainText.trim()) {
 				return;
 			}
 
+			// Prevent race conditions - check if detection is already running
+			const editorView = this.editor?.view;
+			const currentState = editorView?.state ? plugin.getState(editorView.state) : null;
+			if (currentState?.isDetecting) {
+				console.log('PiiDetectionExtension: ⚠️ Full detection skipped - already detecting');
+				return;
+			}
+
 			try {
 				// Set detecting state to true at the start
-				const editorView = this.editor?.view;
 				if (editorView) {
 					const tr = editorView.state.tr.setMeta(piiDetectionPluginKey, {
 						type: 'SET_DETECTING',
@@ -620,6 +853,9 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 					false,
 					false
 				);
+
+				// Track this API call for pause detection
+				typingPauseDetector.onApiCallMade(plainText);
 
 				if (response.pii && response.pii[0] && response.pii[0].length > 0) {
 					const editorView = this.editor?.view;
@@ -706,8 +942,145 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 			}
 		};
 
-		// Debounced version
+		// Smart debouncing based on content significance
+		const getSmartDebounceDelay = (newWords: string[], incrementalContent: string | null): number => {
+			const baseDelay = debounceMs || 500;
+			
+			// Factors that reduce delay (make detection faster):
+			if (newWords.length > 10) return Math.max(baseDelay * 0.8, 400); // Faster for many new words
+			if (incrementalContent && incrementalContent.length > 200) return Math.max(baseDelay * 0.9, 450); // Faster for large additions
+			
+			// Factors that increase delay (make detection slower):
+			if (newWords.length <= 3) return baseDelay * 2; // Much slower for few words
+			if (newWords.every(word => word.length <= 4)) return baseDelay * 1.5; // Slower for short words
+			
+			return baseDelay; // Default delay
+		};
+
+		// Debounced version with smart timing
+		let smartDebouncedDetection: (text: string) => void;
+		let smartDebouncedIncrementalDetection: (incrementalText: string, fullText: string) => void;
+		
+		// Incremental detection for better performance with large documents
+		const performIncrementalPiiDetection = async (incrementalText: string, fullText: string, incrementalOffset?: number) => {
+			if (!incrementalText.trim()) {
+				return;
+			}
+
+			// Prevent race conditions - check if detection is already running
+			const editorView = this.editor?.view;
+			const currentState = editorView?.state ? plugin.getState(editorView.state) : null;
+			if (currentState?.isDetecting) {
+				console.log('PiiDetectionExtension: ⚠️ Incremental detection skipped - already detecting');
+				return;
+			}
+
+			try {
+				// Set detecting state to true at the start
+				if (editorView) {
+					const tr = editorView.state.tr.setMeta(piiDetectionPluginKey, {
+						type: 'SET_DETECTING',
+						isDetecting: true
+					});
+					editorView.dispatch(tr);
+				}
+
+				const knownEntities = piiSessionManager.getKnownEntitiesForApi(options.conversationId);
+				const modifiers = piiSessionManager.getModifiersForApi(options.conversationId);
+				
+				// Detect PII in the incremental content only
+				console.log('PiiDetectionExtension: Analyzing context snippet for PII', {
+					contextSnippetLength: incrementalText.length,
+					fullLength: fullText.length,
+					contextOffset: incrementalOffset || 0,
+					contextPreview: incrementalText.substring(0, 100) + (incrementalText.length > 100 ? '...' : '')
+				});
+				
+				const response = await maskPiiText(
+					apiKey,
+					[incrementalText],
+					knownEntities,
+					modifiers,
+					false,
+					false
+				);
+
+				// Track this API call for pause detection (use full text as baseline, not just snippet)
+				typingPauseDetector.onApiCallMade(fullText);
+
+				if (response.pii && response.pii[0] && response.pii[0].length > 0) {
+					console.log('PiiDetectionExtension: ✅ Found PII in context snippet, processing with positioning adjustment', {
+						piiEntitiesFound: response.pii[0].length,
+						contextSnippetLength: incrementalText.length,
+						contextOffset: incrementalOffset || 0,
+						avoidedFullDetection: true
+					});
+					
+					// Calculate offset to map incremental positions to full document positions
+					// Use provided offset if available, otherwise try to find it
+					const calculatedOffset = incrementalOffset !== undefined ? incrementalOffset : fullText.indexOf(incrementalText);
+					
+					if (calculatedOffset >= 0) {
+						// Adjust PII entity positions to match full document
+						const adjustedEntities = response.pii[0].map(entity => ({
+							...entity,
+							occurrences: entity.occurrences.map(occ => ({
+								start_idx: occ.start_idx + calculatedOffset,
+								end_idx: occ.end_idx + calculatedOffset
+							}))
+						}));
+						
+						// Merge incremental results with existing entities
+						const existingEntities = piiSessionManager.getEntitiesForDisplay(options.conversationId);
+						const mergedEntities = mergeIncrementalEntities(existingEntities, adjustedEntities);
+						piiSessionManager.setConversationWorkingEntitiesWithMaskStates(options.conversationId, mergedEntities);
+						
+						// Update plugin state with adjusted entities
+						if (editorView) {
+							const state = piiDetectionPluginKey.getState(editorView.state);
+							if (state?.positionMapping) {
+								const mappedEntities = mapPiiEntitiesToProseMirror(adjustedEntities, state.positionMapping);
+								
+								const tr = editorView.state.tr.setMeta(piiDetectionPluginKey, {
+									type: 'UPDATE_ENTITIES',
+									entities: mappedEntities
+								});
+								editorView.dispatch(tr);
+								
+								// Notify parent component
+								if (onPiiDetected) {
+									onPiiDetected(mappedEntities, fullText);
+								}
+							}
+						}
+						
+						console.log('PiiDetectionExtension: 🎉 Incremental detection completed successfully - saved API bandwidth!');
+					} else {
+						console.log('PiiDetectionExtension: ⚠️ Could not find context snippet in full text, falling back to full detection');
+						await performPiiDetection(fullText);
+					}
+				} else {
+					console.log('PiiDetectionExtension: ✅ No PII found in context snippet - context-aware detection complete');
+				}
+				
+				// Always update detecting state
+				if (editorView) {
+					const tr = editorView.state.tr.setMeta(piiDetectionPluginKey, {
+						type: 'SET_DETECTING',
+						isDetecting: false
+					});
+					editorView.dispatch(tr);
+				}
+			} catch (error) {
+				console.error('PiiDetectionExtension: Context snippet detection failed, falling back to full detection:', error);
+				// Fall back to full detection on error
+				await performPiiDetection(fullText);
+			}
+		};
+		
+		// Initialize with default debounce, will be updated dynamically
 		const debouncedDetection = debounce(performPiiDetection, debounceMs || 500);
+		const debouncedIncrementalDetection = debounce(performIncrementalPiiDetection, debounceMs || 500);
 
 		const plugin = new Plugin<PiiDetectionState>({
 			key: piiDetectionPluginKey,
@@ -720,6 +1093,9 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 						isDetecting: false,
 						lastText: '',
 						needsSync: false,
+						userEdited: false,
+						textNodes: [],
+						lastWordCount: 0,
 						dynamicallyEnabled: options.enabled // Initialize with the static enabled option
 					};
 				},
@@ -729,7 +1105,10 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 
 					const meta = tr.getMeta(piiDetectionPluginKey);
 					if (meta) {
-						console.log('PiiDetectionExtension: meta action', meta.type);
+						// Reduce verbose meta action logging - only log important actions
+						if (meta.type === 'TRIGGER_DETECTION' || meta.type === 'FORCE_DETECTION') {
+							console.log('PiiDetectionExtension: meta action', meta.type);
+						}
 						switch (meta.type) {
 							case 'SET_USER_EDITED':
 								newState.userEdited = true;
@@ -771,6 +1150,9 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 								} else {
 									newState.entities = [];
 								}
+								// Clear decoration cache when entities are updated
+								newState.cachedDecorations = undefined;
+								newState.lastDecorationHash = undefined;
 								break;
 
 							case 'SYNC_WITH_SESSION_MANAGER': {
@@ -849,13 +1231,17 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 										options.conversationId
 									);
 
-									// CRITICAL FIX: Mark that we need to sync with session manager on next transaction
-									// This ensures that subsequent detections use the correct shouldMask state
-									newState.needsSync = true;
+																	// CRITICAL FIX: Mark that we need to sync with session manager on next transaction
+								// This ensures that subsequent detections use the correct shouldMask state
+								newState.needsSync = true;
 
-									if (options.onPiiToggled) {
-										options.onPiiToggled(newState.entities);
-									}
+								// Clear decoration cache when entity masking is toggled
+								newState.cachedDecorations = undefined;
+								newState.lastDecorationHash = undefined;
+
+								if (options.onPiiToggled) {
+									options.onPiiToggled(newState.entities);
+								}
 								}
 								break;
 							}
@@ -863,9 +1249,15 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 							case 'TRIGGER_DETECTION':
 							case 'TRIGGER_DETECTION_WITH_MODIFIERS': {
 								const currentMapping = buildPositionMapping(tr.doc);
+								const currentTextNodes = extractTextNodes(tr.doc);
+								const currentWordCount = countWords(currentMapping.plainText);
+								
 								newState.positionMapping = currentMapping;
+								newState.textNodes = currentTextNodes;
+								newState.lastWordCount = currentWordCount;
 
 								if (currentMapping.plainText.trim()) {
+									newState.lastText = currentMapping.plainText;
 									performPiiDetection(currentMapping.plainText);
 								}
 								break;
@@ -875,7 +1267,13 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 								options.conversationId = meta.conversationId;
 
 								const newMapping = buildPositionMapping(tr.doc);
+								const currentTextNodes = extractTextNodes(tr.doc);
+								const currentWordCount = countWords(newMapping.plainText);
+								
 								newState.positionMapping = newMapping;
+								newState.textNodes = currentTextNodes;
+								newState.lastWordCount = currentWordCount;
+								newState.lastText = newMapping.plainText;
 
 								// Populate entities from session immediately without triggering detection
 								const sessionEntities = piiSessionManager.getEntitiesForDisplay(
@@ -892,92 +1290,268 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 								}
 								break;
 							}
+
+							case 'FORCE_DETECTION': {
+								// Update state to indicate content has changed and should be detected
+								const newMapping = buildPositionMapping(tr.doc);
+								const currentTextNodes = extractTextNodes(tr.doc);
+								const currentWordCount = countWords(newMapping.plainText);
+								
+								newState.positionMapping = newMapping;
+								newState.textNodes = currentTextNodes;
+								newState.lastWordCount = currentWordCount;
+								newState.lastText = newMapping.plainText;
+								newState.userEdited = true; // Mark as user edited to bypass edit checks
+								
+								console.log('PiiDetectionExtension: Force detection triggered for content:', {
+									wordCount: currentWordCount,
+									nodeCount: currentTextNodes.length
+								});
+								break;
+							}
 						}
 					}
 
 					if (tr.docChanged) {
 						const newMapping = buildPositionMapping(tr.doc);
-						const textActuallyChanged =
-							newMapping.plainText !== prevState.positionMapping?.plainText;
+						const currentTextNodes = extractTextNodes(tr.doc);
+						const currentWordCount = countWords(newMapping.plainText);
 
-						// Update position mapping
+						// Track this transaction for rapid change detection
+						const isRapidChange = typingPauseDetector.onTransaction();
+
+						// Reset typing pause timer on every content change
+						typingPauseDetector.onTextChange(newMapping.plainText, handlePauseTriggeredDetection);
+						
+						// Detect if this is a user edit vs programmatic change
+						// Be more restrictive: only consider it a user edit if there's clear evidence of user interaction
+						const isPiiPluginTransaction = !!tr.getMeta(piiDetectionPluginKey);
+						const hasInputMeta = !!(tr.getMeta('inputType') || tr.getMeta('paste') || tr.getMeta('uiEvent'));
+						const hasReplaceSteps = tr.steps.some(step => 
+							step.jsonID === 'replace' || step.jsonID === 'replaceAround'
+						);
+						
+						// Calculate the size of changes to distinguish between user typing and bulk loading
+						const totalChangeSize = tr.steps.reduce((size, step) => {
+							if (step.jsonID === 'replace') {
+								// Approximate change size - this isn't perfect but gives us an indication
+								return size + ((step as any).to - (step as any).from) + ((step as any).slice?.content?.size || 0);
+							}
+							return size;
+						}, 0);
+						
+						// Consider it a user edit ONLY if:
+						// 1. Not from our plugin AND
+						// 2. Has clear input metadata (paste, inputType, uiEvent)
+						// 
+						// NOTE: Removed change size detection because decoration updates, entity remapping,
+						// and other internal operations can create small replace steps that aren't user edits
+						const isUserEdit = !isPiiPluginTransaction && hasInputMeta;
+						
+						if (isUserEdit) {
+							console.log('PiiDetectionExtension: Detected user edit transaction', {
+								hasReplaceSteps,
+								hasInputMeta,
+								totalChangeSize,
+								isRapidChange,
+								steps: tr.steps.map(s => s.jsonID),
+								previousWordCount: prevState.lastWordCount
+							});
+							newState.userEdited = true;
+							// Mark user activity for typing pause detection
+							typingPauseDetector.onUserKeystroke();
+						} else if (tr.docChanged && !isPiiPluginTransaction) {
+							// Log programmatic changes for debugging
+							console.log('PiiDetectionExtension: Programmatic content change detected (not user edit)', {
+								hasReplaceSteps,
+								hasInputMeta,
+								totalChangeSize,
+								isRapidChange,
+								steps: tr.steps.map(s => s.jsonID),
+								previousWordCount: prevState.lastWordCount,
+								reason: hasInputMeta ? 'Has input meta but failed other checks' : 'No input meta (decoration/internal update)'
+							});
+						}
+						
+						// Update position mapping and tracking data
 						newState.positionMapping = newMapping;
 
-						if (textActuallyChanged) {
-							console.log(
-								'PiiDetectionExtension: Text actually changed, length:',
-								newMapping.plainText.length
-							);
+						// Check if we have new content using node-based detection
+						const hasNewTextContent = hasNewContent(
+							prevState.textNodes,
+							currentTextNodes,
+							prevState.lastWordCount,
+							currentWordCount
+						);
+
+						// Update text node tracking
+						newState.textNodes = currentTextNodes;
+						newState.lastWordCount = currentWordCount;
+						
+						// CRITICAL: Always update lastText when document changes to prevent circular word detection failure
+						newState.lastText = newMapping.plainText;
+
+											// Smart API call filtering - only call API when there's actually significant new content
+					const newWords = findNewWords(prevState.lastText, newMapping.plainText);
+					const hasSignificantNewContent = hasSignificantContent(newWords);
+						
+						// Only log when filtering decisions are interesting (new words found but blocked)
+						if (hasNewTextContent && newWords.length > 0 && !hasSignificantNewContent) {
+							console.log('PiiDetectionExtension: 🔍 Filtering blocked detection', {
+								newWordsCount: newWords.length,
+								newWords: newWords.slice(0, 3),
+								reason: 'No meaningful words (3+ chars, alphabetic)'
+							});
 						}
 
-						// Remap entities based on whether text changed
-						if (textActuallyChanged) {
-							// Text changed: remap existing entities to current document positions
-							if (newState.entities.length > 0) {
-								// First, try to remap entities to current positions
-								const remappedEntities = remapEntitiesForCurrentDocument(
-									newState.entities,
+						// Determine if we should trigger detection
+						// Only call API if:
+						// 1. We have new text content
+						// 2. The new content contains new words (not just formatting changes)
+						// 3. We're not already detecting
+						// 4. User edit requirements are met
+						const shouldTriggerDetection = hasNewTextContent && 
+							hasSignificantNewContent &&
+							!newState.isDetecting &&
+							(!options.detectOnlyAfterUserEdit || newState.userEdited) &&
+							newMapping.plainText.trim().length > 0;
+						
+						// Debug why detection might be skipped
+						if (hasNewTextContent && hasSignificantNewContent && !shouldTriggerDetection) {
+							console.log('PiiDetectionExtension: 🔍 Detection blocked despite significant content', {
+								hasNewTextContent,
+								hasSignificantNewContent,
+								isDetecting: newState.isDetecting,
+								detectOnlyAfterUserEdit: options.detectOnlyAfterUserEdit,
+								userEdited: newState.userEdited,
+								textLength: newMapping.plainText.trim().length,
+								userEditRequirement: !options.detectOnlyAfterUserEdit || newState.userEdited,
+								allConditions: {
+									hasNewTextContent,
+									hasSignificantNewContent,
+									notDetecting: !newState.isDetecting,
+									userEditOk: !options.detectOnlyAfterUserEdit || newState.userEdited,
+									hasText: newMapping.plainText.trim().length > 0
+								}
+							});
+						}
+
+						if (shouldTriggerDetection) {
+							// Try incremental detection first for better performance
+							const incrementalResult = extractIncrementalContent(prevState.lastText, newMapping.plainText);
+							// Use more flexible criteria for larger documents
+							const documentSize = newMapping.plainText.length;
+							const maxIncrementalRatio = documentSize < 1000 ? 0.5 : // 50% for small docs
+												  documentSize < 10000 ? 0.4 : // 40% for medium docs  
+												  0.3; // 30% for large docs
+							const useIncremental = incrementalResult !== null && 
+												   incrementalResult.content.length < documentSize * maxIncrementalRatio;
+							
+							console.log('PiiDetectionExtension: 🚀 Triggering PII detection', {
+								newWordsCount: newWords.length,
+								useIncremental,
+								textLength: newMapping.plainText.trim().length
+							});
+							
+							// Calculate smart debounce delay based on content significance
+							const smartDelay = getSmartDebounceDelay(newWords, incrementalResult?.content || null);
+							
+							if (useIncremental && incrementalResult) {
+								// Create context snippet around the change for more meaningful PII detection
+								const contextSnippet = createContextSnippet(
+									newMapping.plainText, 
+									incrementalResult.offset, 
+									incrementalResult.content.length
+								);
+								
+								// Use context snippet detection for better performance with smart timing
+								console.log('PiiDetectionExtension: Using context snippet detection with smart timing', {
+									originalIncrementalLength: incrementalResult.content.length,
+									contextSnippetLength: contextSnippet.content.length,
+									contextSnippetOffset: contextSnippet.offset,
+									originalOffset: incrementalResult.offset,
+									fullLength: newMapping.plainText.length,
+									savingsPercent: Math.round((1 - contextSnippet.content.length / newMapping.plainText.length) * 100),
+									smartDelay,
+									defaultDelay: debounceMs || 500,
+									contextPreview: contextSnippet.content.substring(0, 100) + (contextSnippet.content.length > 100 ? '...' : '')
+								});
+								
+								// Create a one-time debounced function with smart delay and pass the context snippet offset
+								const smartIncrementalDetection = debounce((text: string, fullText: string) => 
+									performIncrementalPiiDetection(text, fullText, contextSnippet.offset), smartDelay
+								);
+								smartIncrementalDetection(contextSnippet.content, newMapping.plainText);
+							} else {
+								// Fall back to full document detection with smart timing
+								console.log('PiiDetectionExtension: Using full detection with smart timing', {
+									smartDelay,
+									defaultDelay: debounceMs || 500,
+									newWordsCount: newWords.length,
+									incrementalFailed: incrementalResult === null,
+									incrementalTooLarge: incrementalResult && incrementalResult.content.length >= documentSize * maxIncrementalRatio
+								});
+								
+								// Create a one-time debounced function with smart delay  
+								const smartDetection = debounce(performPiiDetection, smartDelay);
+								smartDetection(newMapping.plainText);
+							}
+						} else if (hasNewTextContent && newWords.length === 0) {
+							console.log('PiiDetectionExtension: ⏭️ No new words detected, skipping API call');
+						}
+
+						// Always remap existing entities when document changes
+						if (newState.entities.length > 0) {
+							// First, try to remap entities to current positions
+							const remappedEntities = remapEntitiesForCurrentDocument(
+								newState.entities,
+								newState.positionMapping,
+								tr.doc
+							);
+
+							// Then sync with session manager for external changes
+							newState.entities = syncWithSessionManager(
+								options.conversationId,
+								piiSessionManager,
+								remappedEntities,
+								newState.positionMapping,
+								tr.doc
+							);
+							newState.entities = resolveOverlaps(newState.entities, tr.doc);
+						} else {
+							// If we have no entities yet, populate from session if available
+							const sessionEntities = piiSessionManager.getEntitiesForDisplay(
+								options.conversationId
+							);
+							if (sessionEntities.length) {
+								const remapped = remapEntitiesForCurrentDocument(
+									sessionEntities,
 									newState.positionMapping,
 									tr.doc
 								);
-
-								// Then sync with session manager for external changes
-								newState.entities = syncWithSessionManager(
-									options.conversationId,
-									piiSessionManager,
-									remappedEntities,
-									newState.positionMapping,
-									tr.doc
+								newState.entities = validateAndFilterEntities(
+									remapped,
+									tr.doc,
+									newState.positionMapping
 								);
 								newState.entities = resolveOverlaps(newState.entities, tr.doc);
-							} else {
-								// If we have no entities yet, populate from session if available
-								const sessionEntities = piiSessionManager.getEntitiesForDisplay(
-									options.conversationId
-								);
-								if (sessionEntities.length) {
-									const remapped = remapEntitiesForCurrentDocument(
-										sessionEntities,
-										newState.positionMapping,
-										tr.doc
-									);
-									newState.entities = validateAndFilterEntities(
-										remapped,
-										tr.doc,
-										newState.positionMapping
-									);
-									newState.entities = resolveOverlaps(newState.entities, tr.doc);
-								}
 							}
-						} else {
-							// Text hasn't changed but doc changed (likely due to decoration updates)
-							// Still sync with session manager to get latest shouldMask states
-							if (newState.entities.length > 0) {
-								newState.entities = syncWithSessionManager(
-									options.conversationId,
-									piiSessionManager,
-									newState.entities,
-									newState.positionMapping,
-									tr.doc
-								);
-							}
+						}
 
-							// CRITICAL FIX: If we need to sync after toggle, do it now BEFORE detection
-							// This ensures shouldMask state is consistent before next detection
-							if (newState.needsSync) {
-								newState.entities = syncWithSessionManager(
-									options.conversationId,
-									piiSessionManager,
-									newState.entities,
-									newState.positionMapping,
-									tr.doc
-								);
-								newState.needsSync = false;
-							}
+						// Handle sync flag for consistency
+						if (newState.needsSync) {
+							newState.entities = syncWithSessionManager(
+								options.conversationId,
+								piiSessionManager,
+								newState.entities,
+								newState.positionMapping,
+								tr.doc
+							);
+							newState.needsSync = false;
+						}
 
-							// Trigger detection if text changed significantly AND detection is enabled
-							if (
-								newState.dynamicallyEnabled &&
+							// Trigger detection if text changed significantly
+							if (newState.dynamicallyEnabled &&
 								!newState.isDetecting &&
 								newMapping.plainText !== newState.lastText &&
 								(!options.detectOnlyAfterUserEdit || newState.userEdited)
@@ -989,12 +1563,15 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 								} else {
 									// If text is empty, clear entities
 									newState.entities = [];
+									newState.textNodes = [];
+									newState.lastWordCount = 0;
+									newState.lastText = '';
 								}
-							} else if (!newState.dynamicallyEnabled) {
-								// If detection is disabled, clear entities
-								newState.entities = [];
 							}
 						}
+					}							 else if (!newState.dynamicallyEnabled) {
+						// If detection is disabled, clear entities
+						newState.entities = [];
 					}
 
 					return newState;
@@ -1014,33 +1591,49 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 					const piiSessionManager = PiiSessionManager.getInstance();
 					const modifiers = piiSessionManager.getModifiersForDisplay(options.conversationId);
 
-					// Debug logging (can be removed in production)
-					// console.log('PiiDetectionExtension decorations - modifiers:', modifiers.length, modifiers);
-					// console.log('PiiDetectionExtension decorations - entities:', pluginState?.entities?.length || 0);
+					// Create hash to detect if decorations need updating
+					const entitiesHash = JSON.stringify((pluginState.entities || []).map(e => ({
+						label: e.label,
+						shouldMask: e.shouldMask,
+						occurrences: e.occurrences
+					})));
+					const modifiersHash = JSON.stringify(modifiers.map(m => ({ id: m.id, entity: m.entity, action: m.action })));
+					const currentHash = `${entitiesHash}-${modifiersHash}-${state.doc.content.size}`;
+
+					// Return cached decorations if nothing changed and we have active selection
+					// This prevents decoration rebuilding during typing which causes cursor jumping
+					if (pluginState.cachedDecorations && 
+						pluginState.lastDecorationHash === currentHash && 
+						state.selection.from === state.selection.to) { // Only for cursor positions, not ranges
+						return pluginState.cachedDecorations;
+					}
 
 					// If no entities yet, pull from session to allow immediate rendering
-					if (!pluginState?.entities.length) {
+					let entities = pluginState.entities || [];
+					if (!entities.length) {
 						const sessionEntities = piiSessionManager.getEntitiesForDisplay(options.conversationId);
 						if (sessionEntities.length) {
 							const mapping = buildPositionMapping(state.doc);
 							const remapped = remapEntitiesForCurrentDocument(sessionEntities, mapping, state.doc);
-							const validated = validateAndFilterEntities(remapped, state.doc, mapping);
-
-							// Create decorations for these remapped entities + modifiers
-							const decorations = createPiiDecorations(validated, modifiers, state.doc);
-							return DecorationSet.create(state.doc, decorations);
+							entities = validateAndFilterEntities(remapped, state.doc, mapping);
 						}
 					}
-					if (!pluginState?.entities.length && !modifiers.length) {
+
+					if (!entities.length && !modifiers.length) {
 						return DecorationSet.empty;
 					}
 
-					const decorations = createPiiDecorations(
-						pluginState?.entities || [],
-						modifiers,
-						state.doc
-					);
-					return DecorationSet.create(state.doc, decorations);
+					// Create new decorations
+					const decorations = createPiiDecorations(entities, modifiers, state.doc);
+					const decorationSet = DecorationSet.create(state.doc, decorations);
+
+					// Cache the decorations in plugin state for next time
+					// Note: This is a bit of a hack since we're modifying state in a read-only function
+					// but it's necessary to prevent cursor jumping
+					(pluginState as any).cachedDecorations = decorationSet;
+					(pluginState as any).lastDecorationHash = currentHash;
+
+					return decorationSet;
 				},
 
 				handleClick(view, pos, event) {
@@ -1071,6 +1664,12 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 
 	addCommands() {
 		const options = this.options;
+		
+		// Get access to the typing pause detector from the extension storage
+		const getTypingPauseDetector = () => {
+			// Access the detector from the editor instance if available
+			return (this.editor as any)?._typingPauseDetector;
+		};
 
 		// Helper function to update all entity masking states (DRY)
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1143,6 +1742,14 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 					const tr = state.tr.setMeta(piiDetectionPluginKey, { type: 'SET_USER_EDITED' });
 					dispatch(tr);
 					return true;
+				},
+				
+			// Get current plugin state (useful for debugging)
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			getPluginState:
+				() =>
+				({ state }: any) => {
+					return piiDetectionPluginKey.getState(state);
 				},
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			triggerDetection:
@@ -1238,9 +1845,79 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 			// Mask all PII entities
 			maskAllEntities: () => updateAllEntityMaskingStates(true),
 
-			// Enable PII detection dynamically
+			// Force PII detection (useful for programmatically loaded content)
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			enablePiiDetection:
+			forceDetection:
+				() =>
+				({ state, dispatch }: any) => {
+					const mapping = buildPositionMapping(state.doc);
+					
+					if (!mapping.plainText.trim()) {
+						return false; // No content to detect
+					}
+
+					// Force detection by updating the plugin state to mark content as changed
+					const tr = state.tr.setMeta(piiDetectionPluginKey, {
+						type: 'FORCE_DETECTION',
+						plainText: mapping.plainText
+					});
+					
+					if (dispatch) {
+						dispatch(tr);
+						
+						// Trigger detection immediately (bypass debounce for forced detection)
+						performPiiDetection(mapping.plainText);
+						return true;
+					}
+					
+					return false;
+				},
+
+			// Cleanup typing pause detector (call when component unmounts)
+			cleanup: () => {
+				const detector = getTypingPauseDetector();
+				if (detector) {
+					detector.cleanup();
+					console.log('PiiDetectionExtension: Cleaned up typing pause detector');
+				}
+			},
+
+			// Debug command to get typing pause detector state
+			getTypingPauseDetectorState: () => {
+				const detector = getTypingPauseDetector();
+				if (detector) {
+					const state = detector.getState();
+					console.log('PiiDetectionExtension: Typing pause detector state:', state);
+					return state;
+				} else {
+					console.warn('PiiDetectionExtension: typingPauseDetector not available');
+					return null;
+				}
+			},
+
+			// Manually mark user activity (for explicit user interaction tracking)
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			markUserActivity:
+				() =>
+				({ state, dispatch }: any) => {
+					console.log('PiiDetectionExtension: User activity manually marked');
+					
+					// Access the typing pause detector
+					const detector = getTypingPauseDetector();
+					if (detector) {
+						detector.onUserKeystroke();
+					} else {
+						console.warn('PiiDetectionExtension: typingPauseDetector not available in command context');
+					}
+					
+					// Also mark the document as user-edited
+					if (dispatch) {
+						const tr = state.tr.setMeta(piiDetectionPluginKey, { type: 'SET_USER_EDITED' });
+						dispatch(tr);
+					}
+					return true;
+				}
+				enablePiiDetection:
 				() =>
 				({ state, dispatch }: any) => {
 					if (dispatch) {

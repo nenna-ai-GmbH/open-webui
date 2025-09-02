@@ -83,6 +83,7 @@
 	// Calculate position using the same reliable logic as the old DOM-based approach
 	let menuLeft = 0;
 	let menuTop = 0;
+	let isPositioned = false; // Track if menu has been properly positioned
 	
 	// Portal the menu either to KnowledgeBase container or <body>
 	function portalToContainer(node: HTMLElement) {
@@ -102,25 +103,33 @@
 			}
 		};
 	}
-	
-	$: if (visible && wordInfo) {
+
+	// Function to calculate position with proper DOM measurements
+	const calculatePosition = () => {
+		if (!visible || !wordInfo || !menuElement) return;
+
 		// Use mouse coordinates directly - viewport coords from the extension
 		const x = wordInfo.x || 0;
 		const y = wordInfo.y || 0;
 		
-		// Use measured size if available for accurate centering
-		const measuredWidth = (menuElement?.offsetWidth ?? 0) || 250;
-		const measuredHeight = (menuElement?.offsetHeight ?? 0) || 90;
+		// Get actual element dimensions - wait for proper rendering
+		const rect = menuElement.getBoundingClientRect();
+		const hasProperDimensions = rect.width > 0 && rect.height > 0;
+		
+		// If element doesn't have proper dimensions yet, use fallback positioning
+		const measuredWidth = hasProperDimensions ? rect.width : 250;
+		const measuredHeight = hasProperDimensions ? rect.height : 90;
 
 		const kb = typeof document !== 'undefined' ? document.getElementById('collection-container') : null;
 		if (kb) {
-			const rect = kb.getBoundingClientRect();
-			const desiredLeft = x - measuredWidth / 2 - rect.left + kb.scrollLeft;
-			const desiredTopBase = (y - rect.top + kb.scrollTop);
-			const spaceBelowOK = (y + measuredHeight + 15) <= (rect.top + rect.height - 10);
-			menuLeft = Math.max(10, Math.min(desiredLeft, rect.width - measuredWidth - 10));
+			const kbRect = kb.getBoundingClientRect();
+			const desiredLeft = x - measuredWidth / 2 - kbRect.left + kb.scrollLeft;
+			const desiredTopBase = (y - kbRect.top + kb.scrollTop);
+			const spaceBelowOK = (y + measuredHeight + 15) <= (kbRect.top + kbRect.height - 10);
+			
+			menuLeft = Math.max(10, Math.min(desiredLeft, kbRect.width - measuredWidth - 10));
 			menuTop = (spaceBelowOK ? (desiredTopBase + 15) : (desiredTopBase - measuredHeight - 10));
-			menuTop = Math.max(10, Math.min(menuTop, rect.height - measuredHeight - 10));
+			menuTop = Math.max(10, Math.min(menuTop, kbRect.height - measuredHeight - 10));
 		} else {
 			// Horizontal: center on click, clamp to viewport
 			const desiredLeft = x - measuredWidth / 2;
@@ -129,6 +138,34 @@
 			const spaceBelowOK = y + measuredHeight + 15 <= window.innerHeight - 10;
 			menuTop = spaceBelowOK ? (y + 15) : (y - measuredHeight - 10);
 			menuTop = Math.max(10, Math.min(menuTop, window.innerHeight - measuredHeight - 10));
+		}
+
+		// Mark as positioned if we have proper dimensions
+		isPositioned = hasProperDimensions;
+	};
+
+	// Reactive positioning with proper timing
+	$: if (visible && wordInfo) {
+		// Reset positioning state when menu becomes visible
+		isPositioned = false;
+		
+		// Calculate initial position immediately
+		calculatePosition();
+		
+		// If we don't have proper dimensions yet, retry after DOM update
+		if (!isPositioned) {
+			// Use tick() to wait for DOM update, then requestAnimationFrame for layout
+			tick().then(() => {
+				requestAnimationFrame(() => {
+					calculatePosition();
+					// If still not positioned, try one more time after a short delay
+					if (!isPositioned) {
+						setTimeout(() => {
+							calculatePosition();
+						}, 10);
+					}
+				});
+			});
 		}
 	}
 
@@ -262,7 +299,7 @@
 		bind:this={menuElement}
 		use:portalToContainer
 		class="min-w-[220px] max-w-[300px] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-3 z-[2147483600] pointer-events-auto"
-		style="left: {menuLeft}px; top: {menuTop}px; position: {document.getElementById('collection-container') ? 'absolute' : 'fixed'};"
+		style="left: {menuLeft}px; top: {menuTop}px; position: {document.getElementById('collection-container') ? 'absolute' : 'fixed'}; opacity: {isPositioned ? '1' : '0'}; transition: opacity 0.1s ease-in-out;"
 		role="dialog"
 		aria-label="PII Modifier Menu"
 		on:mouseenter|capture={handleMouseEnter}

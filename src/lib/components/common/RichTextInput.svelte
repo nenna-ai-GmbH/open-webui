@@ -582,6 +582,8 @@
 
 	let floatingMenuElement = null;
 	let bubbleMenuElement = null;
+	
+
 	let element: HTMLElement;
 
 	// PII Hover Menu state
@@ -601,6 +603,7 @@
 	export let enablePiiModifiers = false;
 	export let onPiiModifiersChanged: (modifiers: PiiModifier[]) => void = () => {};
 	export let piiModifierLabels: string[] = [];
+	export let piiDetectionOnlyAfterUserEdit: boolean | undefined = undefined; // Allow manual control of detection timing
 
 	// PII Loading state
 	let isPiiDetectionInProgress = false;
@@ -1223,7 +1226,9 @@
 								onPiiDetected: onPiiDetected,
 								onPiiToggled: onPiiToggled,
 								onPiiDetectionStateChanged: handlePiiDetectionStateChanged,
-								detectOnlyAfterUserEdit: messageInput ? false : true
+								detectOnlyAfterUserEdit: piiDetectionOnlyAfterUserEdit !== undefined 
+									? piiDetectionOnlyAfterUserEdit 
+									: (messageInput ? false : true)
 							})
 						]
 					: []),
@@ -1286,15 +1291,27 @@
 									return false;
 								},
 								options: {
-									strategy: 'fixed',
+									strategy: 'absolute',
 									placement: 'top',
 									offset: [0, 8],
 									flip: true,
 									shift: true,
+									delay: { show: 50, hide: 0 },
 									onShow: () => {
 										// Ensure high z-index when showing
 										if (bubbleMenuElement) {
 											bubbleMenuElement.style.zIndex = '9999';
+											
+											// Check if position is calculated correctly and trigger fallback if needed
+											const hasPosition = bubbleMenuElement.style.position && 
+															   (bubbleMenuElement.style.left !== '' || bubbleMenuElement.style.top !== '');
+											
+											if (!hasPosition) {
+												// Simple fallback - trigger one resize event to help positioning
+												setTimeout(() => {
+													window.dispatchEvent(new Event('resize'));
+												}, 20);
+											}
 										}
 									}
 								}
@@ -1407,6 +1424,12 @@
 						return false;
 					},
 					input: (view, event) => {
+						// Mark user activity for PII detection (actual content change)
+						if (enablePiiDetection && editor && editor.commands.markUserActivity) {
+							console.log('PiiDetectionExtension: Content input detected, marking user activity');
+							editor.commands.markUserActivity();
+						}
+						
 						// Force entity remapping on input for immediate highlight updates
 						if (enablePiiDetection && editor && editor.commands.forceEntityRemapping) {
 							if (!isMouseSelecting) {
@@ -1576,6 +1599,12 @@
 						return false;
 					},
 					paste: (view, event) => {
+						// Mark user activity for PII detection (paste is user content change)
+						if (enablePiiDetection && editor && editor.commands.markUserActivity) {
+							console.log('PiiDetectionExtension: Paste detected, marking user activity');
+							editor.commands.markUserActivity();
+						}
+						
 						if (preventDocEdits) {
 							event.preventDefault();
 							return true;
