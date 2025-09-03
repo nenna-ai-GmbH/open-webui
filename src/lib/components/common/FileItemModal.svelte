@@ -11,8 +11,10 @@
 	} from '$lib/utils/pii';
 	import RichTextInput from '$lib/components/common/RichTextInput.svelte';
 	import { config } from '$lib/stores';
+	import type { i18n as i18nType } from 'i18next';
+	import type { Writable } from 'svelte/store';
 
-	const i18n = getContext('i18n');
+	const i18n = getContext<Writable<i18nType>>('i18n');
 
 	import Modal from './Modal.svelte';
 	import XMark from '../icons/XMark.svelte';

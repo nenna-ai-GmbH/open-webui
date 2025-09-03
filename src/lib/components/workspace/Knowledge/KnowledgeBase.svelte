@@ -146,8 +146,9 @@
 	let dragged = false;
 
 	// PII detection reactive variables
-	$: piiConfigEnabled = $config?.features?.enable_pii_detection ?? false;
-	$: piiApiKey = $config?.pii?.api_key ?? '';
+	// Access config as any to bypass TypeScript type issues  
+	$: piiConfigEnabled = ($config as any)?.features?.enable_pii_detection ?? false;
+	$: piiApiKey = ($config as any)?.pii?.api_key ?? '';
 	$: knowledgeBasePiiEnabled = knowledge?.enable_pii_detection ?? false;
 	$: enablePiiDetection = piiConfigEnabled && knowledgeBasePiiEnabled;
 
@@ -232,10 +233,19 @@
 						// Add filename mapping if PII detection is enabled
 						if (enablePiiDetection && uploadedFile.id && item.name) {
 							const convoId = `${id || 'kb'}:${uploadedFile.id}`;
-							console.log('KnowledgeBase: Adding filename mapping for uploaded file:', {
-								fileId: uploadedFile.id,
-								originalName: item.name
-							});
+
+							// Ensure conversation state exists before adding filename mapping
+							if (!piiSessionManager.getConversationState(convoId)) {
+								// Create empty conversation state
+								const emptyState = {
+									entities: [],
+									modifiers: [],
+									filenameMappings: [],
+									lastUpdated: Date.now()
+								};
+								piiSessionManager.loadConversationState(convoId, emptyState);
+							}
+							
 							// Store the original filename in the mapping and meta
 							piiSessionManager.addFilenameMapping(convoId, uploadedFile.id, item.name);
 							// Keep original in meta for fallback
@@ -243,6 +253,18 @@
 							item.meta.name = item.meta.name || item.name;
 							// Replace item.name with the masked ID for display
 							item.name = uploadedFile.id;
+							
+							// Save the PII state to server immediately to persist filename mappings
+							setTimeout(async () => {
+								try {
+									const state = piiSessionManager.getConversationState(convoId);
+									if (state) {
+										await updateFilePiiStateById(localStorage.token, uploadedFile.id, state);
+									}
+								} catch (e) {
+									// Silent fail
+								}
+							}, 100);
 						}
 					}
 					// Remove temporary item id
@@ -572,7 +594,34 @@
 		);
 
 		if (updatedKnowledge) {
-			knowledge = updatedKnowledge;
+			// Preserve filename masking after server update
+			if (enablePiiDetection) {
+				// Store current masked filenames
+				const maskedFilenames = new Map();
+				knowledge.files.forEach(file => {
+					if (file.id && file.name && file.meta?.name && file.name !== file.meta.name) {
+						maskedFilenames.set(file.id, { maskedName: file.name, originalName: file.meta.name });
+					}
+				});
+				
+				// Update with server response
+				knowledge = updatedKnowledge;
+				
+				// Restore masked filenames
+				knowledge.files = knowledge.files.map(file => {
+					const maskedInfo = maskedFilenames.get(file.id);
+					if (maskedInfo) {
+						return {
+							...file,
+							name: maskedInfo.maskedName,
+							meta: { ...file.meta, name: maskedInfo.originalName }
+						};
+					}
+					return file;
+				});
+			} else {
+				knowledge = updatedKnowledge;
+			}
 			toast.success($i18n.t('File added successfully.'));
 		} else {
 			toast.error($i18n.t('Failed to add file.'));
@@ -888,6 +937,51 @@
 
 		if (res) {
 			knowledge = res;
+			
+			// Check PII detection status directly (reactive var might not be updated yet)
+			// Access config as any to bypass TypeScript type issues
+			const configAny = $config as any;
+			const currentPiiConfigEnabled = configAny?.features?.enable_pii_detection ?? false;
+			const currentKnowledgeBasePiiEnabled = knowledge?.enable_pii_detection ?? false;
+			const currentEnablePiiDetection = currentPiiConfigEnabled && currentKnowledgeBasePiiEnabled;
+			
+			// Restore filename masking state if PII detection is enabled
+			if (currentEnablePiiDetection && knowledge.files) {
+				// First, load filename mappings from persisted file data
+				const loadPromises = knowledge.files.map(async (file) => {
+					try {
+						const convoId = `${id || 'kb'}:${file.id}`;
+						const fileResponse = await getFileById(localStorage.token, file.id);
+						
+						if (fileResponse?.data?.piiState) {
+							// Load PII state which includes filename mappings
+							piiSessionManager.loadConversationState(convoId, fileResponse.data.piiState);
+						}
+					} catch (e) {
+						// Silent fail - file might not have PII state
+					}
+				});
+				
+				// Wait for all states to load, then apply filename masking
+				await Promise.all(loadPromises);
+				
+				knowledge.files = knowledge.files.map(file => {
+					const convoId = `${id || 'kb'}:${file.id}`;
+					const mappings = piiSessionManager.getFilenameMappingsForDisplay(convoId);
+					const mapping = mappings.find(m => m.fileId === file.id);
+					
+					if (mapping && mapping.originalFilename) {
+						// File has filename mapping - apply masking
+						return {
+							...file,
+							name: file.id, // Use file ID as masked name
+							meta: { ...file.meta, name: mapping.originalFilename }
+						};
+					}
+					
+					return file;
+				});
+			}
 		} else {
 			goto('/workspace/knowledge');
 		}

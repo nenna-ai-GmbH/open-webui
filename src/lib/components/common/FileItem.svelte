@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { createEventDispatcher, getContext } from 'svelte';
 	import { formatFileSize } from '$lib/utils';
+	import type { i18n as i18nType } from 'i18next';
+	import type { Writable } from 'svelte/store';
 
 	import FileItemModal from './FileItemModal.svelte';
 	import GarbageBin from '../icons/GarbageBin.svelte';
@@ -10,7 +12,7 @@
 	import Mask from '$lib/components/icons/Mask.svelte';
 	import { settings } from '$lib/stores';
 
-	const i18n = getContext('i18n');
+	const i18n = getContext<Writable<i18nType>>('i18n');
 	const dispatch = createEventDispatcher();
 
 	export let className = 'w-60';
@@ -55,6 +57,8 @@
 				: item?.status === 'uploading'
 					? 'Uploading'
 					: null;
+
+
 
 	// Get the display name and masking status
 	$: ({ displayName, isFilenameMasked } = (() => {
@@ -229,9 +233,9 @@
 					{#if isFilenameMasked}
 						<Tooltip content={$i18n.t('Filename masked for privacy')} placement="top">
 							<div
-								class="flex items-center justify-center size-3.5 bg-sky-50 dark:bg-sky-200/10 text-sky-600 dark:text-sky-400 rounded-full mr-1"
+								class="flex items-center justify-center size-4 bg-sky-50 dark:bg-sky-200/10 text-sky-600 dark:text-sky-400 rounded-full mx-1 flex-shrink-0"
 							>
-								<Mask className="size-2" />
+								<Mask className="size-2.5" />
 							</div>
 						</Tooltip>
 					{/if}
