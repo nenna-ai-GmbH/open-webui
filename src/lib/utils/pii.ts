@@ -216,6 +216,13 @@ export class PiiSessionManager {
 		return PiiSessionManager.instance;
 	}
 
+	/**
+	 * Reset the singleton instance (for testing only)
+	 */
+	static resetInstance(): void {
+		PiiSessionManager.instance = undefined as any;
+	}
+
 	setApiKey(apiKey: string) {
 		this.apiKey = apiKey;
 
