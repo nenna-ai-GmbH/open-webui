@@ -5,7 +5,7 @@ from open_webui.utils.pii import consolidate_pii_data, text_masking
 
 
 def test_consolidate_pii_data_basic():
-    """Test basic PII consolidation functionality"""
+    """Test basic PII consolidation functionality - same text, different ID"""
     known_entities = [
         {"id": 1, "label": "PERSON_1", "name": "John Doe"},
         {"id": 2, "label": "EMAIL_1", "name": "john@example.com"}
@@ -19,6 +19,7 @@ def test_consolidate_pii_data_basic():
     result = consolidate_pii_data(known_entities, pii_data)
     
     # Check that IDs are properly assigned
+    assert len(result) == 2
     assert result[0]["id"] == 1  # John Doe should get ID 1
     assert result[1]["id"] == 2  # john@example.com should get ID 2
 
@@ -36,6 +37,7 @@ def test_consolidate_pii_data_no_match():
     result = consolidate_pii_data(known_entities, pii_data)
     
     # Should return original data without ID assignment
+    assert len(result) == 1
     assert result[0]["id"] == 3
 
 
@@ -84,7 +86,7 @@ def test_text_masking_with_modifiers():
     result = text_masking(text, pii_list, modifiers)
     
     # Should not mask "John Doe" due to ignore modifier
-    expected = "Hello [{PERSON_1}], [{TEST}] is john@example.com"
+    expected = "Hello [{PERSON_1}], [{TEST_2}] is john@example.com"
     assert result == expected
 
 
@@ -110,7 +112,7 @@ def test_text_masking_overlapping_entities():
     result = text_masking(text, pii_list, [])
     
     # Should handle overlapping entities (longer span takes precedence)
-    assert "[{PERSON_2}]" in result  # Doe Smith should be masked
+    assert "John [{PERSON_2}]" in result  # Doe Smith should be masked
 
 
 def test_pii_data_parsing_from_metadata():
@@ -155,20 +157,21 @@ def test_consolidation_with_empty_data():
 
 
 def test_consolidate_ids():
-    """Test consolidation of IDs"""
+    """Test consolidation of IDs - not matching text"""
     known_entities = [
         {"id": 1, "label": "PERSON_1", "name": "John McDowell"},
         {"id": 2, "label": "EMAIL_1", "name": "mcdowell@example.com"}
     ]
     
     pii_data = [
-        {"text": "john doe", "label": "PERSON_1", "type": "PERSON", "occurrences": [{"start_idx": 0, "end_idx": 8}], "id": 1, "raw_text": "John Doe"},
-        {"text": "john@example.com", "label": "EMAIL_2", "type": "EMAIL", "occurrences": [{"start_idx": 10, "end_idx": 25}], "id": 2, "raw_text": "john@example.com"}
+        {"id": 1, "label": "PERSON_1", "text": "john doe", "type": "PERSON", "occurrences": [{"start_idx": 0, "end_idx": 8}], "raw_text": "John Doe"},  
+        {"id": 2, "label": "EMAIL_2", "text": "john@example.com", "type": "EMAIL", "occurrences": [{"start_idx": 10, "end_idx": 25}], "raw_text": "john@example.com"} 
     ]
     
     result = consolidate_pii_data(known_entities, pii_data)
     
     # Check that IDs are properly assigned
+    assert len(result) == 2
     ids = [item["id"] for item in result]
     assert len(ids) == 2
     assert set(ids) == {3, 4}
