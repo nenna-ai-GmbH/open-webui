@@ -295,7 +295,7 @@ export class PiiSessionManager {
 			`${o.start_idx}-${o.end_idx}`;
 
 		for (const incoming of entities) {
-			const idx = merged.findIndex((e) => e.label === incoming.label);
+			const idx = merged.findIndex((e) => e.label === incoming.label); // TODO: This should be by text instead of label
 			if (idx >= 0) {
 				const current = merged[idx];
 				// Preserve shouldMask, update other fields
@@ -678,7 +678,7 @@ export class PiiSessionManager {
 			`${o.start_idx}-${o.end_idx}`;
 
 		for (const incoming of entities) {
-			const idx = merged.findIndex((e) => e.label === incoming.label);
+			const idx = merged.findIndex((e) => e.label === incoming.label); // TODO: This should be by text instead of label
 			if (idx >= 0) {
 				const current = merged[idx];
 				const currentOccKeys = new Set((current.occurrences || []).map(occurrenceKey));
@@ -710,8 +710,6 @@ export class PiiSessionManager {
 		this.errorBackup.set(conversationId, { ...newState });
 		this.triggerChatSave(conversationId);
 	}
-
-	// Removed getConversationEntitiesForDisplay() - functionality moved to getEntitiesForDisplay()
 
 	clearConversationWorkingEntities(conversationId: string) {
 		this.workingEntitiesForConversations.delete(conversationId);
