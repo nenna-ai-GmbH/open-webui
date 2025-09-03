@@ -351,7 +351,7 @@
 						>
 							<span>{displayName}</span>
 							{#if isFilenameMasked}
-								<Tooltip content="Filename masked for privacy" placement="top">
+								<Tooltip content={$i18n.t('Filename masked for privacy')} placement="top">
 									<div
 										class="flex items-center justify-center size-5 bg-sky-50 dark:bg-sky-200/10 text-sky-600 dark:text-sky-400 rounded-full flex-shrink-0"
 									>

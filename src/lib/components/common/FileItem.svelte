@@ -178,7 +178,7 @@
 					{decodeString(displayName)}
 				</div>
 				{#if isFilenameMasked}
-					<Tooltip content="Filename masked for privacy" placement="top">
+					<Tooltip content={$i18n.t('Filename masked for privacy')} placement="top">
 						<div
 							class="flex items-center justify-center size-4 bg-sky-50 dark:bg-sky-200/10 text-sky-600 dark:text-sky-400 rounded-full"
 						>
@@ -227,7 +227,7 @@
 					{/if}
 					<div class="font-medium line-clamp-1 flex-1">{decodeString(displayName)}</div>
 					{#if isFilenameMasked}
-						<Tooltip content="Filename masked for privacy" placement="top">
+						<Tooltip content={$i18n.t('Filename masked for privacy')} placement="top">
 							<div
 								class="flex items-center justify-center size-3.5 bg-sky-50 dark:bg-sky-200/10 text-sky-600 dark:text-sky-400 rounded-full mr-1"
 							>

@@ -670,6 +670,7 @@
 	"File size should not exceed {{maxSize}} MB.": "Datei darf nicht größer als {{maxSize}} MB sein.",
 	"File Upload": "Dateiupload",
 	"File uploaded successfully": "Datei erfolgreich hochgeladen",
+	"Filename masked for privacy": "Dateiname aus Datenschutzgründen maskiert",
 	"Files": "Dateien",
 	"Filter": "Filter",
 	"Filter is now globally disabled": "Filter ist jetzt global deaktiviert",
