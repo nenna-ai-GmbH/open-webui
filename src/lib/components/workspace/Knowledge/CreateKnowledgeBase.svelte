@@ -132,7 +132,10 @@
 			<div class="mt-2">
 				<div class="px-3 py-2 bg-gray-50 dark:bg-gray-950 rounded-lg">
 					<div class="py-0.5 flex w-full justify-between">
-						<div id="pii-detection-label" class="self-center text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
+						<div
+							id="pii-detection-label"
+							class="self-center text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2"
+						>
 							<Mask className="size-4" />
 							{$i18n.t('PII Detection')}
 						</div>

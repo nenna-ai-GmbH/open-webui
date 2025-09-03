@@ -58,8 +58,6 @@
 					? 'Uploading'
 					: null;
 
-
-
 	// Get the display name and masking status
 	$: ({ displayName, isFilenameMasked } = (() => {
 		if (!enablePiiDetection || !name) {

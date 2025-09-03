@@ -651,8 +651,7 @@ async def chat_completion_files_handler(
                         request=request,
                         items=files,
                         queries=queries,
-                        embedding_function=lambda query,
-                        prefix: request.app.state.EMBEDDING_FUNCTION(
+                        embedding_function=lambda query, prefix: request.app.state.EMBEDDING_FUNCTION(
                             query, prefix=prefix, user=user
                         ),
                         k=request.app.state.config.TOP_K,
@@ -1975,9 +1974,7 @@ async def process_chat_response(
             content = (
                 message.get("content", "")
                 if message
-                else last_assistant_message
-                if last_assistant_message
-                else ""
+                else last_assistant_message if last_assistant_message else ""
             )
 
             content_blocks = [
