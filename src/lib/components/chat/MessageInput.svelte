@@ -415,6 +415,7 @@
 	let currentPiiEntities: ExtendedPiiEntity[] = [];
 	let maskedPrompt = '';
 	let piiMaskingEnabled = true; // Toggle state for PII masking
+	let loadedFileIds = new Set<string>(); // Track which files have had their PII entities loaded
 
 	// Transfer PII state from Knowledge Base context to chat context
 	function syncPiiFromKnowledgeBaseFile(fileData: any, knowledgeBaseId: string | null) {
@@ -637,6 +638,42 @@
 	$: enablePiiDetection = piiConfigEnabled && piiMaskingEnabled;
 	$: piiApiKey = $config?.pii?.api_key ?? '';
 
+	// Load PII entities for existing files on page load or when PII detection is enabled
+	$: if (enablePiiDetection && files && files.length > 0) {
+		// Check for files that have IDs but haven't had their PII entities loaded yet
+		files.forEach(async (file) => {
+			if (file.id && !loadedFileIds.has(file.id) && file.status !== 'uploading' && file.status !== 'processing') {
+				console.log('MessageInput: Loading PII entities for existing file:', {
+					fileId: file.id,
+					fileName: file.name,
+					fileType: file.type
+				});
+
+				try {
+					// Add to loaded set immediately to prevent duplicate loading
+					loadedFileIds.add(file.id);
+
+					// Fetch fresh file data to ensure PII state is available
+					const freshFileData = await getFileById(localStorage.token, file.id);
+					if (freshFileData) {
+						// Determine if this is a Knowledge Base file
+						const isKnowledgeBaseFile = file.knowledge === true || file.type === 'collection';
+						const knowledgeBaseId = file.collection?.id || null;
+
+						// Sync PII detections from the file data
+						syncPiiDetectionsFromFileData(freshFileData, isKnowledgeBaseFile, knowledgeBaseId);
+
+						console.log('MessageInput: Successfully loaded PII entities for existing file:', file.id);
+					}
+				} catch (e) {
+					console.log('MessageInput: Error loading PII entities for existing file:', file.id, e);
+					// Remove from loaded set on error so we can retry later
+					loadedFileIds.delete(file.id);
+				}
+			}
+		});
+	}
+
 	let visionCapableModels = [];
 	$: visionCapableModels = (atSelectedModel?.id ? [atSelectedModel.id] : selectedModels).filter(
 		(model) => $models.find((m) => m.id === model)?.info?.meta?.capabilities?.vision ?? true
@@ -755,6 +792,9 @@
 			// Clear current entities and masked prompt
 			currentPiiEntities = [];
 			maskedPrompt = '';
+
+			// Clear the loaded file IDs so PII entities can be re-loaded if PII detection is re-enabled
+			loadedFileIds.clear();
 
 			// Clear PII data from session manager for current conversation
 			try {
@@ -1001,11 +1041,15 @@
 								try {
 									fileItem.file = json;
 								} catch (e) {}
-								// NEW: sync any PII detections from this file into the session manager
-								// Only if PII detection is enabled
-								if (enablePiiDetection) {
-									syncPiiDetectionsFromFileData(json, false, null);
+															// NEW: sync any PII detections from this file into the session manager
+							// Only if PII detection is enabled
+							if (enablePiiDetection) {
+								syncPiiDetectionsFromFileData(json, false, null);
+								// Mark this file as having its PII entities loaded
+								if (uploadedFile.id) {
+									loadedFileIds.add(uploadedFile.id);
 								}
+							}
 								const processing = json?.meta?.processing;
 								if (processing) {
 									console.log('Processing progress:', processing);
@@ -1479,7 +1523,9 @@
 											if (json) {
 												// Pass Knowledge Base context information for proper PII state transfer
 												syncPiiDetectionsFromFileData(json, isKnowledgeBaseFile, knowledgeBaseId);
-											}
+												// Mark this file as having its PII entities loaded
+											loadedFileIds.add(data.id);
+										}
 										} catch (e) {}
 									})();
 								}
@@ -1622,6 +1668,8 @@
 																		chatId || undefined,
 																		file.id
 																	);
+																	// Remove from loaded files set
+																	loadedFileIds.delete(file.id);
 																}
 
 																files.splice(fileIdx, 1);
@@ -1664,6 +1712,8 @@
 																}
 															);
 															piiSessionManager.removeFilenameMapping(chatId || undefined, file.id);
+															// Remove from loaded files set
+															loadedFileIds.delete(file.id);
 														}
 
 														// Remove from UI state
