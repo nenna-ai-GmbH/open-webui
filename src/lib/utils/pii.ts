@@ -282,16 +282,17 @@ export class PiiSessionManager {
 		return this.temporaryState.isActive;
 	}
 
-	setTemporaryStateEntities(entities: ExtendedPiiEntity[]) {
-		if (!this.temporaryState.isActive) {
-			console.warn('PiiSessionManager: Attempted to set temporary state when not active');
-			return;
-		}
-
-		// Merge new entities into temporary state without losing existing ones
-		const existing = this.temporaryState.entities || [];
-		const merged: ExtendedPiiEntity[] = [...existing];
-
+	/**
+	 * Shared helper method to merge entities by text content with proper ID assignment
+	 * @param existingEntities - Current entities to merge with
+	 * @param incomingEntities - New entities to merge in
+	 * @returns Merged entities with proper ID assignment and occurrence merging
+	 */
+	private mergeEntitiesByText(
+		existingEntities: ExtendedPiiEntity[],
+		incomingEntities: (ExtendedPiiEntity | PiiEntity)[]
+	): ExtendedPiiEntity[] {
+		const merged: ExtendedPiiEntity[] = [...existingEntities];
 		const occurrenceKey = (o: { start_idx: number; end_idx: number }) =>
 			`${o.start_idx}-${o.end_idx}`;
 
@@ -314,15 +315,18 @@ export class PiiSessionManager {
 			return `${type}_${id}`;
 		};
 
-		for (const incoming of entities) {
+		for (const incoming of incomingEntities) {
+			// Cast to ExtendedPiiEntity for consistent access
+			const incomingEntity = incoming as ExtendedPiiEntity;
+			
 			// Find existing entity by text content (not label)
-			const idx = merged.findIndex((e) => e.text === incoming.text);
+			const idx = merged.findIndex((e) => e.text === incomingEntity.text);
 			
 			if (idx >= 0) {
 				// Entity with same text already exists - merge occurrences
 				const current = merged[idx];
 				const currentOccKeys = new Set((current.occurrences || []).map(occurrenceKey));
-				const newOcc = (incoming.occurrences || []).filter(
+				const newOcc = (incomingEntity.occurrences || []).filter(
 					(o) => !currentOccKeys.has(occurrenceKey(o))
 				);
 				
@@ -333,25 +337,36 @@ export class PiiSessionManager {
 				};
 			} else {
 				// New entity - preserve original ID/label if not in use, otherwise assign new ones
-				let finalId = incoming.id;
-				let finalLabel = incoming.label;
+				let finalId = incomingEntity.id;
+				let finalLabel = incomingEntity.label;
 				
-				if (isIdUsed(incoming.id)) {
+				if (isIdUsed(incomingEntity.id)) {
 					// ID is already used, assign next available ID and generate label
-					finalId = getNextIdForType(incoming.type);
-					finalLabel = generateLabel(incoming.type, finalId);
+					finalId = getNextIdForType(incomingEntity.type);
+					finalLabel = generateLabel(incomingEntity.type, finalId);
 				}
 				
 				merged.push({ 
-					...incoming, 
+					...incomingEntity, 
 					id: finalId,
 					label: finalLabel,
-					shouldMask: incoming.shouldMask ?? true 
+					shouldMask: incomingEntity.shouldMask ?? true 
 				});
 			}
 		}
 
-		this.temporaryState.entities = merged;
+		return merged;
+	}
+
+	setTemporaryStateEntities(entities: ExtendedPiiEntity[]) {
+		if (!this.temporaryState.isActive) {
+			console.warn('PiiSessionManager: Attempted to set temporary state when not active');
+			return;
+		}
+
+		// Merge new entities into temporary state using shared helper
+		const existing = this.temporaryState.entities || [];
+		this.temporaryState.entities = this.mergeEntitiesByText(existing, entities);
 	}
 
 	getTemporaryStateEntities(): ExtendedPiiEntity[] {
@@ -717,66 +732,8 @@ export class PiiSessionManager {
 		const existingState = this.conversationStates.get(conversationId);
 		const existingEntities = existingState?.entities || [];
 
-		// Merge strategy: by text content, preserve shouldMask, append unique occurrences
-		const merged: ExtendedPiiEntity[] = [...existingEntities];
-		const occurrenceKey = (o: { start_idx: number; end_idx: number }) =>
-			`${o.start_idx}-${o.end_idx}`;
-
-		// Helper function to check if ID is already used
-		const isIdUsed = (id: number): boolean => {
-			return merged.some(e => e.id === id);
-		};
-
-		// Helper function to get next available ID for a given type
-		const getNextIdForType = (type: string): number => {
-			const existingOfType = merged.filter(e => e.type === type);
-			if (existingOfType.length === 0) return 1;
-			
-			const maxId = Math.max(...existingOfType.map(e => e.id));
-			return maxId + 1;
-		};
-
-		// Helper function to generate label from type and id
-		const generateLabel = (type: string, id: number): string => {
-			return `${type}_${id}`;
-		};
-
-		for (const incoming of entities) {
-			// Find existing entity by text content (not label)
-			const idx = merged.findIndex((e) => e.text === (incoming as any).text);
-			
-			if (idx >= 0) {
-				// Entity with same text already exists - merge occurrences
-				const current = merged[idx];
-				const currentOccKeys = new Set((current.occurrences || []).map(occurrenceKey));
-				const newOcc = (incoming.occurrences || []).filter(
-					(o) => !currentOccKeys.has(occurrenceKey(o))
-				);
-				
-				merged[idx] = {
-					...current,
-					// Keep existing shouldMask and other properties, just add new occurrences
-					occurrences: [...(current.occurrences || []), ...newOcc]
-				};
-			} else {
-				// New entity - preserve original ID/label if not in use, otherwise assign new ones
-				let finalId = (incoming as any).id;
-				let finalLabel = (incoming as any).label;
-				
-				if (isIdUsed((incoming as any).id)) {
-					// ID is already used, assign next available ID and generate label
-					finalId = getNextIdForType((incoming as any).type);
-					finalLabel = generateLabel((incoming as any).type, finalId);
-				}
-				
-				merged.push({ 
-					...(incoming as any), 
-					id: finalId,
-					label: finalLabel,
-					shouldMask: true 
-				});
-			}
-		}
+		// Merge entities using shared helper
+		const merged = this.mergeEntitiesByText(existingEntities, entities);
 
 		const newState: ConversationPiiState = {
 			entities: merged,
