@@ -295,6 +295,11 @@ export class PiiSessionManager {
 		const occurrenceKey = (o: { start_idx: number; end_idx: number }) =>
 			`${o.start_idx}-${o.end_idx}`;
 
+		// Helper function to check if ID is already used
+		const isIdUsed = (id: number): boolean => {
+			return merged.some(e => e.id === id);
+		};
+
 		// Helper function to get next available ID for a given type
 		const getNextIdForType = (type: string): number => {
 			const existingOfType = merged.filter(e => e.type === type);
@@ -327,14 +332,20 @@ export class PiiSessionManager {
 					occurrences: [...(current.occurrences || []), ...newOcc]
 				};
 			} else {
-				// New entity - assign next available ID and generate label
-				const nextId = getNextIdForType(incoming.type);
-				const newLabel = generateLabel(incoming.type, nextId);
+				// New entity - preserve original ID/label if not in use, otherwise assign new ones
+				let finalId = incoming.id;
+				let finalLabel = incoming.label;
+				
+				if (isIdUsed(incoming.id)) {
+					// ID is already used, assign next available ID and generate label
+					finalId = getNextIdForType(incoming.type);
+					finalLabel = generateLabel(incoming.type, finalId);
+				}
 				
 				merged.push({ 
 					...incoming, 
-					id: nextId,
-					label: newLabel,
+					id: finalId,
+					label: finalLabel,
 					shouldMask: incoming.shouldMask ?? true 
 				});
 			}
@@ -711,6 +722,11 @@ export class PiiSessionManager {
 		const occurrenceKey = (o: { start_idx: number; end_idx: number }) =>
 			`${o.start_idx}-${o.end_idx}`;
 
+		// Helper function to check if ID is already used
+		const isIdUsed = (id: number): boolean => {
+			return merged.some(e => e.id === id);
+		};
+
 		// Helper function to get next available ID for a given type
 		const getNextIdForType = (type: string): number => {
 			const existingOfType = merged.filter(e => e.type === type);
@@ -743,14 +759,20 @@ export class PiiSessionManager {
 					occurrences: [...(current.occurrences || []), ...newOcc]
 				};
 			} else {
-				// New entity - assign next available ID and generate label
-				const nextId = getNextIdForType((incoming as any).type);
-				const newLabel = generateLabel((incoming as any).type, nextId);
+				// New entity - preserve original ID/label if not in use, otherwise assign new ones
+				let finalId = (incoming as any).id;
+				let finalLabel = (incoming as any).label;
+				
+				if (isIdUsed((incoming as any).id)) {
+					// ID is already used, assign next available ID and generate label
+					finalId = getNextIdForType((incoming as any).type);
+					finalLabel = generateLabel((incoming as any).type, finalId);
+				}
 				
 				merged.push({ 
 					...(incoming as any), 
-					id: nextId,
-					label: newLabel,
+					id: finalId,
+					label: finalLabel,
 					shouldMask: true 
 				});
 			}
