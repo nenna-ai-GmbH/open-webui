@@ -84,7 +84,7 @@ from open_webui.utils.filter import (
 )
 from open_webui.utils.code_interpreter import execute_code_jupyter
 from open_webui.utils.payload import apply_model_system_prompt_to_body
-from open_webui.utils.pii import text_masking, consolidate_pii_data
+from open_webui.utils.pii import text_masking, consolidate_pii_data, set_file_entity_ids
 
 from open_webui.tasks import create_task
 
@@ -1038,6 +1038,24 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     if len(sources) > 0:
         context_string = ""
         citation_idx_map = {}
+        # Create a dictionary to store known entities with text as key
+        file_entities_dict = {}
+
+        for file_source in sources:
+            if "document" in file_source and not file_source.get("tool_result", False):
+                for file_metadata in file_source["metadata"]:
+                    pii_dict = {}
+                    if "pii" in file_metadata:
+                        try:
+                            pii_dict = json.loads(file_metadata["pii"])
+                        except (json.JSONDecodeError, TypeError) as e:
+                            log.warning(f"Failed to parse PII dict: {e}")
+                    file_entities_dict.update(pii_dict)
+
+        file_entities_dict = set_file_entity_ids(file_entities_dict, metadata["known_entities"])
+
+        # Log the known entities dictionary for debugging
+        log.debug(f"Known entities dictionary: {file_entities_dict}")
 
         for source in sources:
             is_tool_result = source.get("tool_result", False)
@@ -1096,7 +1114,7 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                             pii_data = []
 
                     consolidated_pii = consolidate_pii_data(
-                        metadata["known_entities"], pii_data
+                        metadata["known_entities"], pii_data, file_entities_dict
                     )
                     # Mask PII in the document text using metadata from the vector DB
                     masked_text = text_masking(document_text, consolidated_pii, [])
