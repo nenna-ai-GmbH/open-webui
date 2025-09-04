@@ -536,6 +536,7 @@
 						id: e.id,
 						label: e.label,
 						type: e.type || e.entity_type || 'PII',
+						text: e.text || e.raw_text || e.name || '',
 						raw_text: e.raw_text || e.text || e.name || '',
 						occurrences: (e.occurrences || []).map((o: any) => ({
 							start_idx: o.start_idx,
@@ -556,6 +557,7 @@
 						id: e.id,
 						label: e.label,
 						type: e.type || e.entity_type || 'PII',
+						text: e.text || e.raw_text || e.name || '',
 						raw_text: e.raw_text || e.text || e.name || '',
 						occurrences: (e.occurrences || []).map((o: any) => ({
 							start_idx: o.start_idx,

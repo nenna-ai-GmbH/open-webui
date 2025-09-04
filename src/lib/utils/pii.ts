@@ -307,6 +307,7 @@ export class PiiSessionManager {
 				merged[idx] = {
 					...current,
 					// keep existing shouldMask, prefer non-empty raw_text
+					text: current.text || incoming.text,
 					raw_text: current.raw_text || incoming.raw_text,
 					type: incoming.type || current.type,
 					occurrences: [...(current.occurrences || []), ...newOcc]
@@ -471,7 +472,7 @@ export class PiiSessionManager {
 		return entities.map((entity) => ({
 			id: entity.id,
 			label: entity.label,
-			name: entity.raw_text
+			name: entity.text || entity.raw_text.toLowerCase()
 		}));
 	}
 
@@ -698,6 +699,7 @@ export class PiiSessionManager {
 				merged[idx] = {
 					...current,
 					// keep existing shouldMask, prefer non-empty raw_text
+					text: current.text || (incoming as any).text,
 					raw_text: current.raw_text || (incoming as any).raw_text,
 					type: (incoming as any).type || current.type,
 					occurrences: [...(current.occurrences || []), ...newOcc]
@@ -779,6 +781,7 @@ export class PiiSessionManager {
 						// Prefer existing shouldMask; otherwise adopt incoming
 						shouldMask: current.shouldMask ?? incoming.shouldMask,
 						// Prefer non-empty raw_text/type
+						text: current.text || incoming.text,
 						raw_text: current.raw_text || incoming.raw_text,
 						type: current.type || incoming.type,
 						occurrences: [...(current.occurrences || []), ...newOcc]

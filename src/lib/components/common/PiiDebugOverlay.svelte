@@ -223,7 +223,7 @@
 									{entity.shouldMask ? 'masked' : 'unmasked'}
 								</span>
 							</div>
-							<div class="text-gray-300">"{entity.raw_text}"</div>
+							<div class="text-gray-300">"{entity.text}"</div>
 							<div class="flex items-center justify-between mt-1 text-[10px] text-gray-400">
 								<span>{entity.type}</span>
 								<span>{entity.occurrences?.length || 0} occurrence(s)</span>

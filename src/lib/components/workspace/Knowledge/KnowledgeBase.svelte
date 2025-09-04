@@ -681,7 +681,7 @@
 						id: ent.id,
 						label: ent.label,
 						type: ent.type || 'PII',
-						text: ent.raw_text || ent.label,
+						text: (ent.raw_text || ent.label).toLowerCase(),
 						raw_text: ent.raw_text || ent.label,
 						occurrences: (ent.occurrences || []).map((o) => ({
 							start_idx: o.start_idx,
@@ -811,7 +811,7 @@
 							label: e.label,
 							type: e.type || e.entity_type || 'PII',
 							raw_text: e.raw_text || e.text || e.name || '',
-							text: e.raw_text || e.text || e.name || '',
+							text: e.text || e.raw_text || e.name || '',
 							occurrences: (e.occurrences || []).map((o: any) => ({
 								start_idx: o.start_idx,
 								end_idx: o.end_idx
