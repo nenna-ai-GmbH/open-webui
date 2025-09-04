@@ -1114,9 +1114,7 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                             log.warning(f"Failed to parse PII data: {e}")
                             pii_data = []
 
-                    consolidated_pii = consolidate_pii_data(
-                        metadata["known_entities"], pii_data, file_entities_dict
-                    )
+                    consolidated_pii = consolidate_pii_data(pii_data, file_entities_dict)
                     # Mask PII in the document text using metadata from the vector DB
                     masked_text = text_masking(document_text, consolidated_pii, [])
 
