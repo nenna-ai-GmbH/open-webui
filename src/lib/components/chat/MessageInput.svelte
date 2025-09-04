@@ -416,12 +416,110 @@
 	let maskedPrompt = '';
 	let piiMaskingEnabled = true; // Toggle state for PII masking
 
+	// Transfer PII state from Knowledge Base context to chat context
+	function syncPiiFromKnowledgeBaseFile(fileData: any, knowledgeBaseId: string | null) {
+		// Only process PII data if detection is enabled
+		if (!enablePiiDetection) {
+			console.log('MessageInput: Skipping KB PII sync - detection disabled');
+			return;
+		}
+
+		try {
+			const fileId = fileData?.id;
+			if (!fileId) return;
+
+			// Try to get PII state from Knowledge Base context
+			const kbConvoId = `${knowledgeBaseId || 'kb'}:${fileId}`;
+			const kbState = piiSessionManager.getConversationState(kbConvoId);
+			
+			if (kbState && kbState.entities && kbState.entities.length > 0) {
+				console.log('MessageInput: Found KB PII state, transferring to chat context:', {
+					kbConvoId,
+					chatId,
+					entitiesCount: kbState.entities.length
+				});
+
+				// Transfer entities to chat context
+				const chatConvoId = chatId || 'temp';
+				if (chatId && chatId.trim() !== '') {
+					piiSessionManager.setConversationEntitiesFromLatestDetection(chatConvoId, kbState.entities);
+					
+					// Apply masking states
+					try {
+						kbState.entities.forEach((ent: any) =>
+							piiSessionManager.setEntityMaskingState(chatConvoId, ent.label, ent.shouldMask ?? true)
+						);
+					} catch (_) {}
+
+					// Transfer modifiers if present
+					if (kbState.modifiers && kbState.modifiers.length > 0) {
+						try {
+							const existing = piiSessionManager.getModifiersForDisplay(chatConvoId) || [];
+							const byEntity = new Map<string, any>();
+							existing.forEach((m: any) => byEntity.set((m.entity || '').toString(), m));
+							kbState.modifiers.forEach((m: any) => byEntity.set((m.entity || '').toString(), m));
+							const merged = Array.from(byEntity.values());
+							piiSessionManager.setConversationModifiers(chatConvoId, merged);
+						} catch (_) {}
+					}
+
+					// Transfer filename mappings from KB context to chat context
+					if (kbState.filenameMappings) {
+						kbState.filenameMappings.forEach((mapping: any) => {
+							if (mapping.fileId === fileId && mapping.originalFilename) {
+								piiSessionManager.addFilenameMapping(chatConvoId, fileId, mapping.originalFilename);
+							}
+						});
+					}
+				} else {
+					// Temporary chat: seed temporary state
+					if (!piiSessionManager.isTemporaryStateActive()) {
+						piiSessionManager.activateTemporaryState();
+					}
+					piiSessionManager.setTemporaryStateEntities(kbState.entities);
+					
+					if (kbState.modifiers && kbState.modifiers.length > 0) {
+						try {
+							const existing = piiSessionManager.getModifiersForDisplay(undefined) || [];
+							const byEntity = new Map<string, any>();
+							existing.forEach((m: any) => byEntity.set((m.entity || '').toString(), m));
+							kbState.modifiers.forEach((m: any) => byEntity.set((m.entity || '').toString(), m));
+							const merged = Array.from(byEntity.values());
+							piiSessionManager.setTemporaryModifiers(merged);
+						} catch (_) {}
+					}
+				}
+
+				// Ask the editor to sync its decorations
+				try {
+					if (chatInputElement?.syncWithSession) {
+						chatInputElement.syncWithSession();
+					}
+				} catch (_) {}
+
+				return true; // Successfully transferred KB PII state
+			}
+		} catch (e) {
+			console.log('MessageInput: Error syncing KB PII state:', e);
+		}
+
+		return false; // No KB PII state found or transfer failed
+	}
+
 	// Sync PII detections found on files to the current conversation's PII session
-	function syncPiiDetectionsFromFileData(fileData: any) {
+	function syncPiiDetectionsFromFileData(fileData: any, isKnowledgeBaseFile: boolean = false, knowledgeBaseId: string | null = null) {
 		// Only process PII data if detection is enabled
 		if (!enablePiiDetection) {
 			console.log('MessageInput: Skipping PII sync - detection disabled');
 			return;
+		}
+
+		// For Knowledge Base files, try to transfer PII state from KB context first
+		if (isKnowledgeBaseFile) {
+			const kbTransferSuccess = syncPiiFromKnowledgeBaseFile(fileData, knowledgeBaseId);
+			if (kbTransferSuccess) {
+				return; // Successfully transferred KB PII state, no need to process file data
+			}
 		}
 
 		try {
@@ -893,7 +991,7 @@
 								// NEW: sync any PII detections from this file into the session manager
 								// Only if PII detection is enabled
 								if (enablePiiDetection) {
-									syncPiiDetectionsFromFileData(json);
+									syncPiiDetectionsFromFileData(json, false, null);
 								}
 								const processing = json?.meta?.processing;
 								if (processing) {
@@ -1318,45 +1416,64 @@
 						show={showCommands}
 						{command}
 						insertTextHandler={insertTextAtCursor}
-						onUpload={(e) => {
-							const { type, data } = e;
+											onUpload={(e) => {
+						const { type, data } = e;
 
-							if (type === 'file') {
-								if (files.find((f) => f.id === data.id)) {
-									return;
-								}
-								files = [
-									...files,
-									{
-										...data,
-										status: 'processed'
-									}
-								];
-								// Add filename mapping if PII detection is enabled
-								if (enablePiiDetection && data.id && data.name) {
-									console.log('MessageInput: Adding filename mapping for command-selected file:', {
-										fileId: data.id,
-										originalName: data.name
-									});
-									piiSessionManager.addFilenameMapping(chatId || undefined, data.id, data.name);
-								}
-
-								// Fetch full file details to seed PII entities into the current conversation
-								// Only do this if PII detection is enabled
-								if (enablePiiDetection) {
-									(async () => {
-										try {
-											const json = await getFileById(localStorage.token, data.id);
-											if (json) {
-												syncPiiDetectionsFromFileData(json);
-											}
-										} catch (e) {}
-									})();
-								}
-							} else {
-								dispatch('upload', e);
+						if (type === 'file') {
+							if (files.find((f) => f.id === data.id)) {
+								return;
 							}
-						}}
+
+							// Check if this is a Knowledge Base file
+							const isKnowledgeBaseFile = data.knowledge === true;
+							const knowledgeBaseId = data.collection?.id || null;
+
+							// For Knowledge Base files, apply filename masking
+							let fileToAdd = { ...data, status: 'processed' };
+							if (isKnowledgeBaseFile && enablePiiDetection) {
+								console.log('MessageInput: Processing Knowledge Base file with PII masking:', {
+									fileId: data.id,
+									originalName: data.name,
+									knowledgeBaseId: knowledgeBaseId
+								});
+
+								// Apply filename masking - use file ID as display name and store original
+								fileToAdd = {
+									...fileToAdd,
+									name: data.id, // Use file ID as masked name
+									meta: { ...fileToAdd.meta, name: data.name } // Store original name in meta
+								};
+
+								// Add filename mapping for this file
+								piiSessionManager.addFilenameMapping(chatId || undefined, data.id, data.name);
+							} else if (enablePiiDetection && data.id && data.name) {
+								// Regular file - add filename mapping if PII detection is enabled
+								console.log('MessageInput: Adding filename mapping for command-selected file:', {
+									fileId: data.id,
+									originalName: data.name
+								});
+								piiSessionManager.addFilenameMapping(chatId || undefined, data.id, data.name);
+							}
+
+							files = [...files, fileToAdd];
+
+							// Fetch full file details to seed PII entities into the current conversation
+							// Only do this if PII detection is enabled
+							if (enablePiiDetection) {
+								(async () => {
+									try {
+										const json = await getFileById(localStorage.token, data.id);
+										if (json) {
+											// Pass Knowledge Base context information for proper PII state transfer
+											syncPiiDetectionsFromFileData(json, isKnowledgeBaseFile, knowledgeBaseId);
+										}
+									} catch (e) {}
+								})();
+							}
+						} else {
+							dispatch('upload', e);
+						}
+					}}
 						onSelect={(e) => {
 							const { type, data } = e;
 

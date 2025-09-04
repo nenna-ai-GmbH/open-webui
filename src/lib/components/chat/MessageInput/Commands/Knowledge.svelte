@@ -137,18 +137,22 @@
 		let collection_files =
 			$knowledge.length > 0
 				? [
-						...$knowledge
-							.reduce((a, item) => {
-								return [
-									...new Set([
-										...a,
-										...(item?.files ?? []).map((file) => ({
-											...file,
-											collection: { name: item.name, description: item.description } // DO NOT REMOVE, USED IN FILE DESCRIPTION/ATTACHMENT
-										}))
-									])
-								];
-							}, [])
+													...$knowledge
+								.reduce((a, item) => {
+									return [
+										...new Set([
+											...a,
+											...(item?.files ?? []).map((file) => ({
+												...file,
+												collection: { 
+													id: item.id, 
+													name: item.name, 
+													description: item.description 
+												} // DO NOT REMOVE, USED IN FILE DESCRIPTION/ATTACHMENT
+											}))
+										])
+									];
+								}, [])
 							.map((file) => ({
 								...file,
 								name: file?.meta?.name,

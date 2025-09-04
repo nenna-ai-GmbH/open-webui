@@ -568,13 +568,6 @@ function createPiiDecorations(
 							? 'pii-modifier-highlight pii-modifier-mask'
 							: 'pii-modifier-highlight pii-modifier-ignore';
 
-					// Only log once per modifier for performance
-					if (!decorationCreated) {
-						console.log(
-							`✅ Applied ${modifier.action} modifier to: "${entityText}" (${entity.occurrences?.length || 0} occurrences)`
-						);
-					}
-
 					decorations.push(
 						Decoration.inline(occurrence.start_idx, occurrence.end_idx, {
 							class: decorationClass,
@@ -650,11 +643,6 @@ function createPiiDecorations(
 					modifier.action === 'string-mask'
 						? 'pii-modifier-highlight pii-modifier-mask'
 						: 'pii-modifier-highlight pii-modifier-ignore';
-
-				// Only log once per modifier for performance
-				if (!decorationCreated) {
-					console.log(`✅ Applied ${modifier.action} modifier to: "${match[0]}" (text search)`);
-				}
 
 				decorations.push(
 					Decoration.inline(from, to, {
