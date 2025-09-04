@@ -213,13 +213,34 @@ def text_masking(
     return text
 
 
-def consolidate_pii_data(known_entities: list[dict], pii_data: list[dict]) -> dict:
+def consolidate_pii_data(pii_data: list[dict], file_entities_dict: dict) -> dict:
     """
     Consolidate PII data by using id from known entities.
     """
-    # TODO: handle already used ids
-    for pii in known_entities:
-        for file_pii in pii_data:
-            if pii["name"].lower() == file_pii["text"]:
-                file_pii["id"] = pii["id"]
+    # update ids
+    for file_pii in pii_data:
+            file_pii["id"] = file_entities_dict[file_pii["text"].lower()]["id"]
+            file_pii["type"] = file_entities_dict[file_pii["text"].lower()]["type"]
+            file_pii["label"] = f"{file_entities_dict[file_pii['text'].lower()]['type']}_{file_entities_dict[file_pii['text'].lower()]['id']}"
     return pii_data
+
+
+def set_file_entity_ids(file_entities_dict: dict, known_entities: list[dict]) -> dict:
+    """
+    Set the ids of the file entities based on the known entities.
+    """
+    known_entities_dict = {known_entity["name"].lower(): known_entity for known_entity in known_entities}
+
+    # update id in file_entities_dict with next free unique id or known entity id
+    max_id_known_entities = max([pii["id"] for pii in known_entities]) if known_entities_dict else 0
+    for pii in file_entities_dict:
+        if pii in known_entities_dict:
+            file_entities_dict[pii]["id"] = known_entities_dict[pii]["id"]
+            file_entities_dict[pii]["type"] = known_entities_dict[pii]["label"].split("_")[0]
+            file_entities_dict[pii]["label"] = f"{file_entities_dict[pii]['type']}_{file_entities_dict[pii]['id']}"
+        else:
+            max_id_known_entities += 1
+            file_entities_dict[pii]["id"] = max_id_known_entities
+            file_entities_dict[pii]["label"] = f"{file_entities_dict[pii]['type']}_{file_entities_dict[pii]['id']}"        
+
+    return file_entities_dict
