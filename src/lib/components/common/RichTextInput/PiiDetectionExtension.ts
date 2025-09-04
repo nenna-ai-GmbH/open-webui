@@ -7,6 +7,10 @@ import type { PiiEntity } from '$lib/apis/pii';
 import { maskPiiText } from '$lib/apis/pii';
 import { debounce, PiiSessionManager } from '$lib/utils/pii';
 import type { PiiModifier } from './PiiModifierExtension';
+import { decodeHtmlEntities, countWords, extractWords } from './PiiTextUtils';
+import { buildPositionMapping, type PositionMapping } from './PiiPositionMapping';
+import { getPiiConfig, type PiiExtensionConfig } from './PiiExtensionConfig';
+import { PiiPerformanceTracker } from './PiiPerformanceOptimizer';
 import {
 	extractCompletedWords,
 	findNewWords,
@@ -24,35 +28,8 @@ interface PiiOccurrence {
 	end_idx: number;
 }
 
-interface PositionMapping {
-	plainTextToProseMirror: Map<number, number>;
-	proseMirrorToPlainText: Map<number, number>;
-	plainText: string;
-}
-// Decode common HTML entities to plain characters for matching
-function decodeHtmlEntities(text: string): string {
-	if (!text) return text;
-	// Fast path for numeric entities and a few named ones we often see
-	const named: Record<string, string> = {
-		'&amp;': '&',
-		'&lt;': '<',
-		'&gt;': '>',
-		'&quot;': '"',
-		'&#39;': "'",
-		'&nbsp;': '\u00A0'
-	};
-	let result = text.replace(/&(amp|lt|gt|quot|#39);/g, (m) => named[m] || m);
-	// Generic numeric (decimal or hex)
-	result = result.replace(/&#(x?[0-9a-fA-F]+);/g, (_m, code) => {
-		try {
-			const num =
-				code[0] === 'x' || code[0] === 'X' ? parseInt(code.slice(1), 16) : parseInt(code, 10);
-			if (!isNaN(num)) return String.fromCharCode(num);
-		} catch {}
-		return _m;
-	});
-	return result;
-}
+// PositionMapping interface moved to PiiPositionMapping.ts
+// decodeHtmlEntities function moved to PiiTextUtils.ts
 
 // Track text nodes and their content for reliable change detection
 interface TextNodeInfo {
@@ -111,29 +88,9 @@ function extractTextNodes(doc: ProseMirrorNode): TextNodeInfo[] {
 	return textNodes;
 }
 
-// Count words in text for granular change detection
-function countWords(text: string): number {
-	if (!text.trim()) return 0;
-	// Split on whitespace and filter empty strings
-	return text
-		.trim()
-		.split(/\s+/)
-		.filter((word) => word.length > 0).length;
-}
+// countWords function moved to PiiTextUtils.ts
 
-// Extract individual words from text for comparison
-function extractWords(text: string): Set<string> {
-	if (!text.trim()) return new Set();
-	return new Set(
-		text
-			.trim()
-			.toLowerCase()
-			.split(/\s+/)
-			.filter((word) => word.length > 0)
-			.map((word) => word.replace(/[.,!?;:"'()[\]{}]/g, '')) // Remove punctuation
-			.filter((word) => word.length > 0)
-	);
-}
+// extractWords function moved to PiiTextUtils.ts
 
 // Note: Removed simple PII pattern pre-filtering as it was too simplistic
 // and could miss real PII cases. Let the AI-powered API handle sophisticated detection.
@@ -251,70 +208,7 @@ function hasNewContent(
 }
 
 // Build position mapping between plain text and ProseMirror positions
-function buildPositionMapping(doc: ProseMirrorNode): PositionMapping {
-	const plainTextToProseMirror = new Map<number, number>();
-	const proseMirrorToPlainText = new Map<number, number>();
-	let plainTextOffset = 0;
-	let plainText = '';
-
-	function addSyntheticChar(ch: string, pmPos: number) {
-		const plainPos = plainTextOffset;
-		plainTextToProseMirror.set(plainPos, pmPos);
-		proseMirrorToPlainText.set(pmPos, plainPos);
-		plainText += ch;
-		plainTextOffset += ch.length;
-	}
-
-	let previousWasTableCell = false;
-
-	doc.nodesBetween(0, doc.content.size, (node, pos, parent, index) => {
-		if (node.isText && node.text) {
-			for (let i = 0; i < node.text.length; i++) {
-				const proseMirrorPos = pos + i;
-				const plainTextPos = plainTextOffset + i;
-				plainTextToProseMirror.set(plainTextPos, proseMirrorPos);
-				proseMirrorToPlainText.set(proseMirrorPos, plainTextPos);
-			}
-			plainText += node.text;
-			plainTextOffset += node.text.length;
-			previousWasTableCell = false;
-		} else {
-			const typeName = node.type.name;
-
-			// Insert block separators BEFORE starting a new block
-			const needsLeadingNewline = () =>
-				plainTextOffset > 0 && plainText.charAt(plainTextOffset - 1) !== '\n';
-
-			if (typeName === 'tableRow') {
-				if (needsLeadingNewline()) addSyntheticChar('\n', pos);
-				previousWasTableCell = false;
-			} else if (typeName === 'tableCell' || typeName === 'tableHeader') {
-				if (previousWasTableCell) addSyntheticChar('\t', pos);
-				previousWasTableCell = true;
-			} else if (typeName === 'hardBreak') {
-				addSyntheticChar('\n', pos);
-				previousWasTableCell = false;
-			} else if (
-				typeName === 'paragraph' ||
-				typeName === 'heading' ||
-				typeName === 'blockquote' ||
-				typeName === 'codeBlock' ||
-				typeName === 'listItem' ||
-				typeName === 'bulletList' ||
-				typeName === 'orderedList' ||
-				typeName === 'taskList'
-			) {
-				if (needsLeadingNewline()) addSyntheticChar('\n', pos);
-				previousWasTableCell = false;
-			} else {
-				previousWasTableCell = false;
-			}
-		}
-		return true;
-	});
-
-	return { plainTextToProseMirror, proseMirrorToPlainText, plainText };
-}
+// buildPositionMapping function moved to PiiPositionMapping.ts
 
 // Convert PII entity positions from plain text to ProseMirror positions
 // Preserves existing shouldMask state from current entities
@@ -398,16 +292,9 @@ function resolveOverlaps(entities: ExtendedPiiEntity[], doc: ProseMirrorNode): E
 		length: number;
 		score: number;
 	}
-	const typePriority: Record<string, number> = {
-		PERSON: 5,
-		ADDRESS: 4,
-		DATE: 4,
-		EMAIL: 4,
-		PHONE_NUMBER: 4,
-		ORGANISATION: 3,
-		ORGANIZATION: 3,
-		LOCATION: 3
-	};
+	// Entity priorities for overlap resolution
+	const config = getPiiConfig();
+	const typePriority = config.entityTypePriorities;
 
 	const spans: SpanRef[] = [];
 	entities.forEach((e, ei) => {
@@ -531,6 +418,8 @@ function syncWithSessionManager(
 	mapping: PositionMapping,
 	doc: ProseMirrorNode
 ): ExtendedPiiEntity[] {
+	const tracker = PiiPerformanceTracker.getInstance();
+	tracker.recordSyncOperation();
 	// Get all entities from session manager using simplified display logic
 	const sessionEntities = piiSessionManager.getEntitiesForDisplay(conversationId);
 
@@ -589,7 +478,15 @@ function createPiiDecorations(
 	const decorations: Decoration[] = [];
 
 	// Build a fresh mapping for this render pass
+	const tracker = PiiPerformanceTracker.getInstance();
+	const endTiming = tracker.startTiming();
 	const mapping = buildPositionMapping(doc);
+	const elapsed = endTiming();
+	tracker.recordPositionRemap();
+	if (elapsed > 10) {
+		console.log(`PiiDetectionExtension: Slow position mapping in createPiiDecorations: ${elapsed.toFixed(1)}ms`);
+	}
+	
 	const source = decodeHtmlEntities(mapping.plainText);
 
 	// Helper for alnum
@@ -671,13 +568,6 @@ function createPiiDecorations(
 							? 'pii-modifier-highlight pii-modifier-mask'
 							: 'pii-modifier-highlight pii-modifier-ignore';
 
-					// Only log once per modifier for performance
-					if (!decorationCreated) {
-						console.log(
-							`✅ Applied ${modifier.action} modifier to: "${entityText}" (${entity.occurrences?.length || 0} occurrences)`
-						);
-					}
-
 					decorations.push(
 						Decoration.inline(occurrence.start_idx, occurrence.end_idx, {
 							class: decorationClass,
@@ -754,11 +644,6 @@ function createPiiDecorations(
 						? 'pii-modifier-highlight pii-modifier-mask'
 						: 'pii-modifier-highlight pii-modifier-ignore';
 
-				// Only log once per modifier for performance
-				if (!decorationCreated) {
-					console.log(`✅ Applied ${modifier.action} modifier to: "${match[0]}" (text search)`);
-				}
-
 				decorations.push(
 					Decoration.inline(from, to, {
 						class: decorationClass,
@@ -792,7 +677,7 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 			onPiiDetected: undefined,
 			onPiiToggled: undefined,
 			onPiiDetectionStateChanged: undefined,
-			debounceMs: 500,
+			debounceMs: getPiiConfig().timing.defaultDebounceMs,
 			detectOnlyAfterUserEdit: false
 		};
 	},
@@ -809,7 +694,7 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 			conversationId: options.conversationId,
 			enabled,
 			hasApiKey: !!apiKey,
-			debounceMs: debounceMs || 500
+			debounceMs: debounceMs || getPiiConfig().timing.defaultDebounceMs
 		});
 
 		const piiSessionManager = PiiSessionManager.getInstance();
@@ -860,20 +745,32 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 
 				const knownEntities = piiSessionManager.getKnownEntitiesForApi(options.conversationId);
 
-				const modifiers = piiSessionManager.getModifiersForApi(options.conversationId);
-				const response = await maskPiiText(
-					apiKey,
-					[plainText],
-					knownEntities,
-					modifiers,
-					false,
+							const modifiers = piiSessionManager.getModifiersForApi(options.conversationId);
+			
+			// Track API performance
+			const tracker = PiiPerformanceTracker.getInstance();
+			const apiStartTime = performance.now();
+			tracker.recordApiCall();
+			
+			const response = await maskPiiText(
+				apiKey,
+				[plainText],
+				knownEntities,
+				modifiers,
+				false,
 					false
 				);
 
 				// Track this API call for pause detection
-				typingPauseDetector.onApiCallMade(plainText);
+							typingPauseDetector.onApiCallMade(plainText);
+			
+			// Track API completion
+			const apiElapsed = performance.now() - apiStartTime;
+			if (apiElapsed > 1000) {
+				console.log(`PiiDetectionExtension: Slow full API call: ${apiElapsed.toFixed(0)}ms, text length: ${plainText.length}`);
+			}
 
-				if (response.pii && response.pii[0] && response.pii[0].length > 0) {
+			if (response.pii && response.pii[0] && response.pii[0].length > 0) {
 					const editorView = this.editor?.view;
 					const state = piiDetectionPluginKey.getState(editorView?.state);
 
@@ -963,16 +860,20 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 			newWords: string[],
 			incrementalContent: string | null
 		): number => {
-			const baseDelay = debounceMs || 500;
+			const config = getPiiConfig();
+			const baseDelay = debounceMs || config.timing.defaultDebounceMs;
 
 			// Factors that reduce delay (make detection faster):
-			if (newWords.length > 10) return Math.max(baseDelay * 0.8, 400); // Faster for many new words
-			if (incrementalContent && incrementalContent.length > 200)
+			if (newWords.length > config.textProcessing.manyWordsThreshold) 
+				return Math.max(baseDelay * config.timing.smartDebounce.fastMultiplier, config.timing.smartDebounce.minDelayMs);
+			if (incrementalContent && incrementalContent.length > config.textProcessing.largeContentThreshold)
 				return Math.max(baseDelay * 0.9, 450); // Faster for large additions
 
 			// Factors that increase delay (make detection slower):
-			if (newWords.length <= 3) return baseDelay * 2; // Much slower for few words
-			if (newWords.every((word) => word.length <= 4)) return baseDelay * 1.5; // Slower for short words
+			if (newWords.length <= config.textProcessing.fewWordsThreshold) 
+				return baseDelay * config.timing.smartDebounce.slowMultiplier;
+			if (newWords.every((word) => word.length <= config.textProcessing.shortWordThreshold)) 
+				return baseDelay * config.timing.smartDebounce.shortWordMultiplier;
 
 			return baseDelay; // Default delay
 		};
@@ -1019,21 +920,32 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 					contextOffset: incrementalOffset || 0,
 					contextPreview:
 						incrementalText.substring(0, 100) + (incrementalText.length > 100 ? '...' : '')
-				});
+							});
 
-				const response = await maskPiiText(
-					apiKey,
-					[incrementalText],
-					knownEntities,
-					modifiers,
-					false,
+			// Track incremental API performance
+			const tracker = PiiPerformanceTracker.getInstance();
+			const apiStartTime = performance.now();
+			tracker.recordApiCall();
+			
+			const response = await maskPiiText(
+				apiKey,
+				[incrementalText],
+				knownEntities,
+				modifiers,
+				false,
 					false
 				);
 
 				// Track this API call for pause detection (use full text as baseline, not just snippet)
-				typingPauseDetector.onApiCallMade(fullText);
+							typingPauseDetector.onApiCallMade(fullText);
+			
+			// Track incremental API completion
+			const apiElapsed = performance.now() - apiStartTime;
+			if (apiElapsed > 500) {
+				console.log(`PiiDetectionExtension: Slow incremental API call: ${apiElapsed.toFixed(0)}ms, text length: ${incrementalText.length}`);
+			}
 
-				if (response.pii && response.pii[0] && response.pii[0].length > 0) {
+			if (response.pii && response.pii[0] && response.pii[0].length > 0) {
 					console.log(
 						'PiiDetectionExtension: ✅ Found PII in context snippet, processing with positioning adjustment',
 						{
@@ -1125,10 +1037,12 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 		};
 
 		// Initialize with default debounce, will be updated dynamically
-		const debouncedDetection = debounce(performPiiDetection, debounceMs || 500);
+		const config = getPiiConfig();
+		const defaultDebounce = debounceMs || config.timing.defaultDebounceMs;
+		const debouncedDetection = debounce(performPiiDetection, defaultDebounce);
 		const debouncedIncrementalDetection = debounce(
 			performIncrementalPiiDetection,
-			debounceMs || 500
+			defaultDebounce
 		);
 
 		const plugin = new Plugin<PiiDetectionState>({
@@ -1149,8 +1063,11 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 					};
 				},
 
-				apply(tr, prevState): PiiDetectionState {
-					const newState = { ...prevState };
+							apply(tr, prevState): PiiDetectionState {
+				const tracker = PiiPerformanceTracker.getInstance();
+				tracker.recordStateUpdate();
+				
+				const newState = { ...prevState };
 
 					const meta = tr.getMeta(piiDetectionPluginKey);
 					if (meta) {
@@ -1191,9 +1108,16 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 							case 'UPDATE_ENTITIES':
 								// Recompute occurrences against current document to avoid shifted offsets
 								// (e.g., when original indices were based on markdown source rather than rendered doc)
-								if (meta.entities && meta.entities.length) {
-									const mapping = newState.positionMapping || buildPositionMapping(tr.doc);
-									const remapped = remapEntitiesForCurrentDocument(meta.entities, mapping, tr.doc);
+														if (meta.entities && meta.entities.length) {
+							let mapping = newState.positionMapping;
+							if (!mapping) {
+								const endTiming = tracker.startTiming();
+								mapping = buildPositionMapping(tr.doc);
+								const elapsed = endTiming();
+								tracker.recordPositionRemap();
+								if (elapsed > 5) console.log(`PiiDetectionExtension: Position mapping (UPDATE_ENTITIES): ${elapsed.toFixed(1)}ms`);
+							}
+							const remapped = remapEntitiesForCurrentDocument(meta.entities, mapping, tr.doc);
 									newState.entities = validateAndFilterEntities(remapped, tr.doc, mapping);
 									newState.entities = resolveOverlaps(newState.entities, tr.doc);
 								} else {
@@ -1204,9 +1128,16 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 								newState.lastDecorationHash = undefined;
 								break;
 
-							case 'SYNC_WITH_SESSION_MANAGER': {
-								// Always sync from session manager to get latest state
-								const currentMapping = newState.positionMapping || buildPositionMapping(tr.doc);
+												case 'SYNC_WITH_SESSION_MANAGER': {
+						// Always sync from session manager to get latest state
+						let currentMapping = newState.positionMapping;
+						if (!currentMapping) {
+							const endTiming = tracker.startTiming();
+							currentMapping = buildPositionMapping(tr.doc);
+							const elapsed = endTiming();
+							tracker.recordPositionRemap();
+							if (elapsed > 5) console.log(`PiiDetectionExtension: Position mapping (SYNC): ${elapsed.toFixed(1)}ms`);
+						}
 								const sessionEntities = piiSessionManager.getEntitiesForDisplay(
 									options.conversationId
 								);
@@ -1553,7 +1484,7 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 											(1 - contextSnippet.content.length / newMapping.plainText.length) * 100
 										),
 										smartDelay,
-										defaultDelay: debounceMs || 500,
+										defaultDelay: debounceMs || config.timing.defaultDebounceMs,
 										contextPreview:
 											contextSnippet.content.substring(0, 100) +
 											(contextSnippet.content.length > 100 ? '...' : '')
@@ -1571,7 +1502,7 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 								// Fall back to full document detection with smart timing
 								console.log('PiiDetectionExtension: Using full detection with smart timing', {
 									smartDelay,
-									defaultDelay: debounceMs || 500,
+									defaultDelay: debounceMs || config.timing.defaultDebounceMs,
 									newWordsCount: newWords.length,
 									incrementalFailed: incrementalResult === null,
 									incrementalTooLarge:

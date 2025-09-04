@@ -92,6 +92,9 @@
 	import Sidebar from '../icons/Sidebar.svelte';
 	import { PiiSessionManager } from '$lib/utils/pii';
 	import type { ExtendedPiiEntity } from '$lib/utils/pii';
+	import PiiDebugOverlay from '$lib/components/common/PiiDebugOverlay.svelte';
+	import { handlePiiPerformanceSlashCommand, ensurePiiDebugInterface } from '$lib/components/common/RichTextInput/PiiDebugInterface';
+	import { testPiiDebugInterface } from '$lib/components/common/RichTextInput/PiiDebugTest';
 
 	export let chatIdProp = '';
 
@@ -154,22 +157,7 @@
 	let files = [];
 	let params = {};
 
-	// PII debug view state
-	let piiKnownEntitiesDebug: ExtendedPiiEntity[] = [];
-	let piiDebugInterval: any = null;
-
-	const refreshKnownEntitiesDebug = () => {
-		try {
-			const mgr = PiiSessionManager.getInstance();
-			// Ensure we reflect the currently active conversation (including temporary state before a chat is created)
-			piiKnownEntitiesDebug = mgr.getEntitiesForDisplay($chatId) || [];
-		} catch (e) {
-			// ignore
-		}
-	};
-
-	// Recompute on active chat id changes as well
-	$: refreshKnownEntitiesDebug();
+	// PII debug view state - now handled by PiiDebugOverlay component
 
 	$: if (chatIdProp) {
 		navigateHandler();
@@ -561,9 +549,18 @@
 			}
 		} catch (e) {}
 
-		// Start PII debug auto-refresh
-		refreshKnownEntitiesDebug();
-		piiDebugInterval = setInterval(refreshKnownEntitiesDebug, 500);
+		// Initialize PII debug interface
+		ensurePiiDebugInterface();
+		
+		// Test debug interface (will auto-initialize if needed)
+		testPiiDebugInterface();
+		
+		// Also make sure it's available after DOM is ready
+		setTimeout(() => {
+			ensurePiiDebugInterface();
+		}, 500);
+		
+		// PII debug auto-refresh now handled by PiiDebugOverlay component
 	});
 
 	onDestroy(() => {
@@ -571,7 +568,7 @@
 		chatIdUnsubscriber?.();
 		window.removeEventListener('message', onMessageHandler);
 		$socket?.off('chat-events', chatEventHandler);
-		if (piiDebugInterval) clearInterval(piiDebugInterval);
+		// PII debug interval cleanup now handled by PiiDebugOverlay component
 	});
 
 	// File upload functions
@@ -1447,21 +1444,31 @@
 	const submitPrompt = async (userPrompt, { _raw = false } = {}) => {
 		console.log('submitPrompt', userPrompt, $chatId);
 
-		// Admin-only slash command to toggle PII debug overlay
+		// Admin-only PII slash commands
 		if (
 			$user?.role === 'admin' &&
 			typeof userPrompt === 'string' &&
-			userPrompt.trim().startsWith('/pii-debug')
+			(userPrompt.trim().startsWith('/pii-debug') || userPrompt.trim().startsWith('/pii-perf'))
 		) {
 			const parts = userPrompt.trim().split(/\s+/);
-			const arg = parts[1]?.toLowerCase();
-			if (arg === 'on') showPiiDebug = true;
-			else if (arg === 'off') showPiiDebug = false;
-			else showPiiDebug = !showPiiDebug; // toggle by default
-			try {
-				sessionStorage.setItem('piiDebug', showPiiDebug ? 'true' : 'false');
-			} catch (e) {}
-			toast.info(`PII Debug ${showPiiDebug ? 'enabled' : 'disabled'}`);
+			const command = parts[0];
+			const args = parts.slice(1);
+			
+			if (command === '/pii-debug') {
+				// PII debug overlay toggle
+				const arg = args[0]?.toLowerCase();
+				if (arg === 'on') showPiiDebug = true;
+				else if (arg === 'off') showPiiDebug = false;
+				else showPiiDebug = !showPiiDebug; // toggle by default
+				try {
+					sessionStorage.setItem('piiDebug', showPiiDebug ? 'true' : 'false');
+				} catch (e) {}
+				toast.info(`PII Debug ${showPiiDebug ? 'enabled' : 'disabled'}`);
+			} else if (command === '/pii-perf') {
+				// PII performance commands
+				handlePiiPerformanceSlashCommand(args);
+			}
+			
 			messageInput?.setText('');
 			return; // Do not proceed with normal submission
 		}
@@ -2514,29 +2521,5 @@
 </div>
 
 {#if $user?.role === 'admin' && showPiiDebug}
-	<!-- PII Known Entities Debug Overlay -->
-	<div
-		class="fixed bottom-2 right-2 z-50 rounded bg-black/60 text-white p-2 max-w-[60vw] max-h-40 overflow-auto text-[11px] leading-snug shadow-md"
-	>
-		<div class="font-semibold mb-1">PII Known Entities ({piiKnownEntitiesDebug.length})</div>
-		{#if piiKnownEntitiesDebug.length === 0}
-			<div class="opacity-70">None</div>
-		{:else}
-			<ul class="space-y-0.5">
-				{#each piiKnownEntitiesDebug as ent}
-					<li>
-						<span class="opacity-70">{ent.label}</span>:
-						{ent.raw_text}
-						<span
-							class="ml-2 px-1 rounded text-[10px] {ent.shouldMask
-								? 'bg-green-600/70'
-								: 'bg-red-600/70'}"
-						>
-							{ent.shouldMask ? 'masked' : 'unmasked'}
-						</span>
-					</li>
-				{/each}
-			</ul>
-		{/if}
-	</div>
+	<PiiDebugOverlay conversationId={$chatId} />
 {/if}

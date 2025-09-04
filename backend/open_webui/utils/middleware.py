@@ -651,7 +651,8 @@ async def chat_completion_files_handler(
                         request=request,
                         items=files,
                         queries=queries,
-                        embedding_function=lambda query, prefix: request.app.state.EMBEDDING_FUNCTION(
+                        embedding_function=lambda query,
+                        prefix: request.app.state.EMBEDDING_FUNCTION(
                             query, prefix=prefix, user=user
                         ),
                         k=request.app.state.config.TOP_K,
@@ -1228,6 +1229,8 @@ async def process_chat_payload(request, form_data, user, metadata, model):
             log.debug(
                 f"Message {i}: Large content ({len(content)} chars), not logging full text"
             )
+
+    # TODO: we need to return the consolidated known entities to the client
 
     # Final file metadata check
     final_files = form_data.get("metadata", {}).get("files", [])
@@ -1992,7 +1995,9 @@ async def process_chat_response(
             content = (
                 message.get("content", "")
                 if message
-                else last_assistant_message if last_assistant_message else ""
+                else last_assistant_message
+                if last_assistant_message
+                else ""
             )
 
             content_blocks = [
