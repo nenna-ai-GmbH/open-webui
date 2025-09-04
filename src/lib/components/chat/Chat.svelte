@@ -93,7 +93,10 @@
 	import { PiiSessionManager } from '$lib/utils/pii';
 	import type { ExtendedPiiEntity } from '$lib/utils/pii';
 	import PiiDebugOverlay from '$lib/components/common/PiiDebugOverlay.svelte';
-	import { handlePiiPerformanceSlashCommand, ensurePiiDebugInterface } from '$lib/components/common/RichTextInput/PiiDebugInterface';
+	import {
+		handlePiiPerformanceSlashCommand,
+		ensurePiiDebugInterface
+	} from '$lib/components/common/RichTextInput/PiiDebugInterface';
 	import { testPiiDebugInterface } from '$lib/components/common/RichTextInput/PiiDebugTest';
 
 	export let chatIdProp = '';
@@ -551,15 +554,15 @@
 
 		// Initialize PII debug interface
 		ensurePiiDebugInterface();
-		
+
 		// Test debug interface (will auto-initialize if needed)
 		testPiiDebugInterface();
-		
+
 		// Also make sure it's available after DOM is ready
 		setTimeout(() => {
 			ensurePiiDebugInterface();
 		}, 500);
-		
+
 		// PII debug auto-refresh now handled by PiiDebugOverlay component
 	});
 
@@ -1453,7 +1456,7 @@
 			const parts = userPrompt.trim().split(/\s+/);
 			const command = parts[0];
 			const args = parts.slice(1);
-			
+
 			if (command === '/pii-debug') {
 				// PII debug overlay toggle
 				const arg = args[0]?.toLowerCase();
@@ -1468,7 +1471,7 @@
 				// PII performance commands
 				handlePiiPerformanceSlashCommand(args);
 			}
-			
+
 			messageInput?.setText('');
 			return; // Do not proceed with normal submission
 		}

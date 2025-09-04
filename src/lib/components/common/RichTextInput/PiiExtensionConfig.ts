@@ -3,7 +3,7 @@
  * Contains all hard-coded values, timeouts, styling, and behavioral constants
  */
 
-	export interface PiiExtensionConfig {
+export interface PiiExtensionConfig {
 	/** Performance and Debugging */
 	performance: {
 		/** Enable performance tracking */
@@ -123,7 +123,7 @@
 	};
 }
 
-	/** Default configuration values */
+/** Default configuration values */
 export const DEFAULT_PII_CONFIG: PiiExtensionConfig = {
 	performance: {
 		enabled: true,
@@ -211,20 +211,29 @@ export const DEFAULT_PII_CONFIG: PiiExtensionConfig = {
  */
 export function getPiiConfig(overrides?: Partial<PiiExtensionConfig>): PiiExtensionConfig {
 	if (!overrides) return DEFAULT_PII_CONFIG;
-	
+
 	return {
-		performance: { 
-			...DEFAULT_PII_CONFIG.performance, 
+		performance: {
+			...DEFAULT_PII_CONFIG.performance,
 			...overrides.performance,
-			thresholds: { ...DEFAULT_PII_CONFIG.performance.thresholds, ...overrides.performance?.thresholds }
+			thresholds: {
+				...DEFAULT_PII_CONFIG.performance.thresholds,
+				...overrides.performance?.thresholds
+			}
 		},
 		timing: { ...DEFAULT_PII_CONFIG.timing, ...overrides.timing },
 		textProcessing: { ...DEFAULT_PII_CONFIG.textProcessing, ...overrides.textProcessing },
-		entityTypePriorities: { ...DEFAULT_PII_CONFIG.entityTypePriorities, ...overrides.entityTypePriorities },
-		styling: { 
-			...DEFAULT_PII_CONFIG.styling, 
+		entityTypePriorities: {
+			...DEFAULT_PII_CONFIG.entityTypePriorities,
+			...overrides.entityTypePriorities
+		},
+		styling: {
+			...DEFAULT_PII_CONFIG.styling,
 			...overrides.styling,
-			modifierColors: { ...DEFAULT_PII_CONFIG.styling.modifierColors, ...overrides.styling?.modifierColors },
+			modifierColors: {
+				...DEFAULT_PII_CONFIG.styling.modifierColors,
+				...overrides.styling?.modifierColors
+			},
 			boxShadow: { ...DEFAULT_PII_CONFIG.styling.boxShadow, ...overrides.styling?.boxShadow }
 		},
 		patterns: { ...DEFAULT_PII_CONFIG.patterns, ...overrides.patterns }

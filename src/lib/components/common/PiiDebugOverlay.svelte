@@ -112,20 +112,29 @@
 
 	const getModifierActionIcon = (action: string) => {
 		switch (action) {
-			case 'ignore': return '🚫';
-			case 'string-mask': return '🎭';
-			case 'word-mask': return '📝';
-			default: return '❓';
+			case 'ignore':
+				return '🚫';
+			case 'string-mask':
+				return '🎭';
+			case 'word-mask':
+				return '📝';
+			default:
+				return '❓';
 		}
 	};
 
 	const getSourceIcon = (source: string) => {
 		switch (source) {
-			case 'temporary': return '💬';
-			case 'conversation': return '🗄️';
-			case 'working': return '⏰';
-			case 'files': return '📄';
-			default: return '🤖';
+			case 'temporary':
+				return '💬';
+			case 'conversation':
+				return '🗄️';
+			case 'working':
+				return '⏰';
+			case 'files':
+				return '📄';
+			default:
+				return '🤖';
 		}
 	};
 
@@ -147,7 +156,9 @@
 </script>
 
 <!-- Enhanced PII Debug Overlay -->
-<div class="fixed bottom-2 right-2 z-50 bg-gray-900/95 text-white rounded-lg shadow-xl border border-gray-700 w-[480px] max-h-[70vh] flex flex-col backdrop-blur-sm">
+<div
+	class="fixed bottom-2 right-2 z-50 bg-gray-900/95 text-white rounded-lg shadow-xl border border-gray-700 w-[480px] max-h-[70vh] flex flex-col backdrop-blur-sm"
+>
 	<!-- Header with tabs -->
 	<div class="flex items-center justify-between p-3 border-b border-gray-700">
 		<div class="flex items-center gap-2">
@@ -170,36 +181,46 @@
 				{/if}
 			</div>
 		</div>
-		
+
 		<!-- Tab navigation -->
 		<div class="flex rounded-md bg-gray-800 p-0.5">
-			<button 
-				class="px-2 py-1 text-xs rounded {activeTab === 'entities' ? 'bg-blue-600 text-white' : 'text-gray-300 hover:text-white'}"
-				on:click={() => activeTab = 'entities'}
+			<button
+				class="px-2 py-1 text-xs rounded {activeTab === 'entities'
+					? 'bg-blue-600 text-white'
+					: 'text-gray-300 hover:text-white'}"
+				on:click={() => (activeTab = 'entities')}
 			>
 				Entities ({entities.length})
 			</button>
-			<button 
-				class="px-2 py-1 text-xs rounded {activeTab === 'modifiers' ? 'bg-blue-600 text-white' : 'text-gray-300 hover:text-white'}"
-				on:click={() => activeTab = 'modifiers'}
+			<button
+				class="px-2 py-1 text-xs rounded {activeTab === 'modifiers'
+					? 'bg-blue-600 text-white'
+					: 'text-gray-300 hover:text-white'}"
+				on:click={() => (activeTab = 'modifiers')}
 			>
 				Modifiers ({modifiers.length})
 			</button>
-			<button 
-				class="px-2 py-1 text-xs rounded {activeTab === 'sync' ? 'bg-blue-600 text-white' : 'text-gray-300 hover:text-white'}"
-				on:click={() => activeTab = 'sync'}
+			<button
+				class="px-2 py-1 text-xs rounded {activeTab === 'sync'
+					? 'bg-blue-600 text-white'
+					: 'text-gray-300 hover:text-white'}"
+				on:click={() => (activeTab = 'sync')}
 			>
 				Sync
 			</button>
-			<button 
-				class="px-2 py-1 text-xs rounded {activeTab === 'sources' ? 'bg-blue-600 text-white' : 'text-gray-300 hover:text-white'}"
-				on:click={() => activeTab = 'sources'}
+			<button
+				class="px-2 py-1 text-xs rounded {activeTab === 'sources'
+					? 'bg-blue-600 text-white'
+					: 'text-gray-300 hover:text-white'}"
+				on:click={() => (activeTab = 'sources')}
 			>
 				Sources
 			</button>
-			<button 
-				class="px-2 py-1 text-xs rounded {activeTab === 'system' ? 'bg-blue-600 text-white' : 'text-gray-300 hover:text-white'}"
-				on:click={() => activeTab = 'system'}
+			<button
+				class="px-2 py-1 text-xs rounded {activeTab === 'system'
+					? 'bg-blue-600 text-white'
+					: 'text-gray-300 hover:text-white'}"
+				on:click={() => (activeTab = 'system')}
 			>
 				System
 			</button>
@@ -219,11 +240,15 @@
 						<div class="bg-gray-800 rounded p-2 text-xs">
 							<div class="flex items-center justify-between mb-1">
 								<span class="font-mono text-blue-300">{entity.label}</span>
-								<span class="px-1.5 py-0.5 rounded text-[10px] {entity.shouldMask ? 'bg-green-600/70' : 'bg-red-600/70'}">
+								<span
+									class="px-1.5 py-0.5 rounded text-[10px] {entity.shouldMask
+										? 'bg-green-600/70'
+										: 'bg-red-600/70'}"
+								>
 									{entity.shouldMask ? 'masked' : 'unmasked'}
 								</span>
 							</div>
-							<div class="text-gray-300">"{entity.raw_text}"</div>
+							<div class="text-gray-300">"{entity.text}"</div>
 							<div class="flex items-center justify-between mt-1 text-[10px] text-gray-400">
 								<span>{entity.type}</span>
 								<span>{entity.occurrences?.length || 0} occurrence(s)</span>
@@ -232,7 +257,6 @@
 					{/each}
 				{/if}
 			</div>
-
 		{:else if activeTab === 'modifiers'}
 			<!-- Modifiers Tab -->
 			<div class="space-y-2">
@@ -262,23 +286,25 @@
 					{/each}
 				{/if}
 			</div>
-
 		{:else if activeTab === 'sync'}
 			<!-- Sync State Tab -->
 			<div class="space-y-3">
 				<div class="text-xs text-gray-400 mb-2">Synchronization State</div>
-				
+
 				<!-- API Connection -->
 				<div class="bg-gray-800 rounded p-2">
 					<div class="flex items-center justify-between mb-1">
 						<span class="text-xs font-medium">API Connection</span>
-						<span class="size-2 rounded-full {syncState.apiKey ? 'bg-green-500' : 'bg-red-500'}"></span>
+						<span class="size-2 rounded-full {syncState.apiKey ? 'bg-green-500' : 'bg-red-500'}"
+						></span>
 					</div>
 					<div class="text-[10px] text-gray-400">
 						Status: {syncState.apiKey ? 'Connected' : 'Disconnected'}
 					</div>
 					{#if syncState.sessionId}
-						<div class="text-[10px] text-gray-400 font-mono">Session: {syncState.sessionId.slice(0, 16)}...</div>
+						<div class="text-[10px] text-gray-400 font-mono">
+							Session: {syncState.sessionId.slice(0, 16)}...
+						</div>
 					{/if}
 				</div>
 
@@ -304,12 +330,11 @@
 					</div>
 				</div>
 			</div>
-
 		{:else if activeTab === 'sources'}
 			<!-- Sources Tab -->
 			<div class="space-y-2">
 				<div class="text-xs text-gray-400 mb-2">Data Sources</div>
-				
+
 				<!-- Temporary State -->
 				<div class="bg-gray-800 rounded p-2">
 					<div class="flex items-center justify-between mb-1">
@@ -317,7 +342,11 @@
 							<span>💬</span>
 							<span class="text-xs font-medium">Temporary</span>
 						</div>
-						<span class="size-2 rounded-full {sources.temporary.active ? 'bg-green-500' : 'bg-gray-500'}"></span>
+						<span
+							class="size-2 rounded-full {sources.temporary.active
+								? 'bg-green-500'
+								: 'bg-gray-500'}"
+						></span>
 					</div>
 					<div class="text-[10px] text-gray-400">
 						Entities: {sources.temporary.entities} | Modifiers: {sources.temporary.modifiers}
@@ -334,7 +363,11 @@
 							<span>🗄️</span>
 							<span class="text-xs font-medium">Conversation</span>
 						</div>
-						<span class="size-2 rounded-full {sources.conversation.exists ? 'bg-green-500' : 'bg-gray-500'}"></span>
+						<span
+							class="size-2 rounded-full {sources.conversation.exists
+								? 'bg-green-500'
+								: 'bg-gray-500'}"
+						></span>
 					</div>
 					<div class="text-[10px] text-gray-400">
 						Entities: {sources.conversation.entities} | Modifiers: {sources.conversation.modifiers}
@@ -353,9 +386,7 @@
 					<div class="text-[10px] text-gray-400">
 						Uncommitted: {sources.working.entities}
 					</div>
-					<div class="text-[10px] text-gray-500">
-						Entities before message send
-					</div>
+					<div class="text-[10px] text-gray-500">Entities before message send</div>
 				</div>
 
 				<!-- File Mappings -->
@@ -367,17 +398,14 @@
 					<div class="text-[10px] text-gray-400">
 						File mappings: {sources.files.mappings}
 					</div>
-					<div class="text-[10px] text-gray-500">
-						PII detected from uploads
-					</div>
+					<div class="text-[10px] text-gray-500">PII detected from uploads</div>
 				</div>
 			</div>
-
 		{:else if activeTab === 'system'}
 			<!-- System Tab -->
 			<div class="space-y-2">
 				<div class="text-xs text-gray-400 mb-2">System Overview</div>
-				
+
 				<!-- Overall Stats -->
 				<div class="bg-gray-800 rounded p-2">
 					<div class="flex items-center gap-1 mb-1">
@@ -386,16 +414,20 @@
 					</div>
 					<div class="grid grid-cols-2 gap-2 text-[10px] text-gray-400">
 						<div>
-							<span class="text-gray-300">Conversations:</span> {systemStats.totalConversations}
+							<span class="text-gray-300">Conversations:</span>
+							{systemStats.totalConversations}
 						</div>
 						<div>
-							<span class="text-gray-300">Loading:</span> {systemStats.loadingConversations}
+							<span class="text-gray-300">Loading:</span>
+							{systemStats.loadingConversations}
 						</div>
 						<div>
-							<span class="text-gray-300">Pending saves:</span> {systemStats.pendingSaves}
+							<span class="text-gray-300">Pending saves:</span>
+							{systemStats.pendingSaves}
 						</div>
 						<div>
-							<span class="text-gray-300">Error backups:</span> {systemStats.errorBackups}
+							<span class="text-gray-300">Error backups:</span>
+							{systemStats.errorBackups}
 						</div>
 					</div>
 				</div>
@@ -404,7 +436,9 @@
 				<div class="bg-gray-800 rounded p-2">
 					<div class="flex items-center justify-between mb-1">
 						<span class="text-xs font-medium">API Client</span>
-						<span class="size-2 rounded-full {systemStats.hasApiClient ? 'bg-green-500' : 'bg-red-500'}"></span>
+						<span
+							class="size-2 rounded-full {systemStats.hasApiClient ? 'bg-green-500' : 'bg-red-500'}"
+						></span>
 					</div>
 					<div class="text-[10px] text-gray-400">
 						Status: {systemStats.hasApiClient ? 'Initialized' : 'Not initialized'}
@@ -415,7 +449,11 @@
 				<div class="bg-gray-800 rounded p-2">
 					<div class="flex items-center justify-between mb-1">
 						<span class="text-xs font-medium">Temporary State</span>
-						<span class="size-2 rounded-full {systemStats.temporaryStateActive ? 'bg-green-500' : 'bg-gray-500'}"></span>
+						<span
+							class="size-2 rounded-full {systemStats.temporaryStateActive
+								? 'bg-green-500'
+								: 'bg-gray-500'}"
+						></span>
 					</div>
 					<div class="text-[10px] text-gray-400">
 						Mode: {systemStats.temporaryStateActive ? 'Active (new chat)' : 'Inactive'}
@@ -427,16 +465,20 @@
 					<div class="text-xs font-medium mb-1">Current Session</div>
 					<div class="grid grid-cols-2 gap-2 text-[10px] text-gray-400">
 						<div>
-							<span class="text-blue-300">Total Entities:</span> {entities.length}
+							<span class="text-blue-300">Total Entities:</span>
+							{entities.length}
 						</div>
 						<div>
-							<span class="text-purple-300">Total Modifiers:</span> {modifiers.length}
+							<span class="text-purple-300">Total Modifiers:</span>
+							{modifiers.length}
 						</div>
 						<div>
-							<span class="text-green-300">Masked:</span> {entities.filter(e => e.shouldMask).length}
+							<span class="text-green-300">Masked:</span>
+							{entities.filter((e) => e.shouldMask).length}
 						</div>
 						<div>
-							<span class="text-red-300">Unmasked:</span> {entities.filter(e => !e.shouldMask).length}
+							<span class="text-red-300">Unmasked:</span>
+							{entities.filter((e) => !e.shouldMask).length}
 						</div>
 					</div>
 				</div>
@@ -446,9 +488,7 @@
 
 	<!-- Footer with refresh indicator -->
 	<div class="border-t border-gray-700 p-2 flex items-center justify-between">
-		<div class="text-[10px] text-gray-500">
-			Auto-refresh: 500ms
-		</div>
+		<div class="text-[10px] text-gray-500">Auto-refresh: 500ms</div>
 		<div class="size-1 bg-blue-500 rounded-full animate-pulse"></div>
 	</div>
 </div>

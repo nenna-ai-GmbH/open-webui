@@ -13,7 +13,7 @@ export const WORD_TOKENIZER_PATTERN = /[\w'-äöüÄÖÜß]+(?=\b|\.)/g;
  * Find all tokenized words touched by a text selection with broader context
  * This function expands the selection context and finds all words that
  * intersect with the given selection range.
- * 
+ *
  * @param doc ProseMirror document
  * @param selectionFrom Start position of selection
  * @param selectionTo End position of selection
@@ -72,7 +72,12 @@ export function findTokenizedWords(
 		const docEnd = positionMap[lastValidIndex] + 1; // +1 because we want end position
 
 		// Check if this word is "touched" by the selection (overlaps with selection range)
-		if (docEnd > selectionFrom && docStart < selectionTo && docStart !== undefined && docEnd !== undefined) {
+		if (
+			docEnd > selectionFrom &&
+			docStart < selectionTo &&
+			docStart !== undefined &&
+			docEnd !== undefined
+		) {
 			words.push({
 				word: match[0],
 				from: docStart,

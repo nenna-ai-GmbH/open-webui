@@ -282,41 +282,91 @@ export class PiiSessionManager {
 		return this.temporaryState.isActive;
 	}
 
+	/**
+	 * Shared helper method to merge entities by text content with proper ID assignment
+	 * @param existingEntities - Current entities to merge with
+	 * @param incomingEntities - New entities to merge in
+	 * @returns Merged entities with proper ID assignment and occurrence merging
+	 */
+	private mergeEntitiesByText(
+		existingEntities: ExtendedPiiEntity[],
+		incomingEntities: (ExtendedPiiEntity | PiiEntity)[]
+	): ExtendedPiiEntity[] {
+		const merged: ExtendedPiiEntity[] = [...existingEntities];
+		const occurrenceKey = (o: { start_idx: number; end_idx: number }) =>
+			`${o.start_idx}-${o.end_idx}`;
+
+		// Helper function to check if ID is already used
+		const isIdUsed = (id: number): boolean => {
+			return merged.some((e) => e.id === id);
+		};
+
+		// Helper function to get next available ID for a given type
+		const getNextIdForType = (type: string): number => {
+			const existingOfType = merged.filter((e) => e.type === type);
+			if (existingOfType.length === 0) return 1;
+
+			const maxId = Math.max(...existingOfType.map((e) => e.id));
+			return maxId + 1;
+		};
+
+		// Helper function to generate label from type and id
+		const generateLabel = (type: string, id: number): string => {
+			return `${type}_${id}`;
+		};
+
+		for (const incoming of incomingEntities) {
+			// Cast to ExtendedPiiEntity for consistent access
+			const incomingEntity = incoming as ExtendedPiiEntity;
+
+			// Find existing entity by text content (not label)
+			const idx = merged.findIndex((e) => e.text === incomingEntity.text);
+
+			if (idx >= 0) {
+				// Entity with same text already exists - merge occurrences
+				const current = merged[idx];
+				const currentOccKeys = new Set((current.occurrences || []).map(occurrenceKey));
+				const newOcc = (incomingEntity.occurrences || []).filter(
+					(o) => !currentOccKeys.has(occurrenceKey(o))
+				);
+
+				merged[idx] = {
+					...current,
+					// Keep existing shouldMask and other properties, just add new occurrences
+					occurrences: [...(current.occurrences || []), ...newOcc]
+				};
+			} else {
+				// New entity - preserve original ID/label if not in use, otherwise assign new ones
+				let finalId = incomingEntity.id;
+				let finalLabel = incomingEntity.label;
+
+				if (isIdUsed(incomingEntity.id)) {
+					// ID is already used, assign next available ID and generate label
+					finalId = getNextIdForType(incomingEntity.type);
+					finalLabel = generateLabel(incomingEntity.type, finalId);
+				}
+
+				merged.push({
+					...incomingEntity,
+					id: finalId,
+					label: finalLabel,
+					shouldMask: incomingEntity.shouldMask ?? true
+				});
+			}
+		}
+
+		return merged;
+	}
+
 	setTemporaryStateEntities(entities: ExtendedPiiEntity[]) {
 		if (!this.temporaryState.isActive) {
 			console.warn('PiiSessionManager: Attempted to set temporary state when not active');
 			return;
 		}
 
-		// Merge new entities into temporary state without losing existing ones
+		// Merge new entities into temporary state using shared helper
 		const existing = this.temporaryState.entities || [];
-		const merged: ExtendedPiiEntity[] = [...existing];
-
-		const occurrenceKey = (o: { start_idx: number; end_idx: number }) =>
-			`${o.start_idx}-${o.end_idx}`;
-
-		for (const incoming of entities) {
-			const idx = merged.findIndex((e) => e.label === incoming.label); // TODO: This should be by text instead of label
-			if (idx >= 0) {
-				const current = merged[idx];
-				// Preserve shouldMask, update other fields
-				const currentOccKeys = new Set((current.occurrences || []).map(occurrenceKey));
-				const newOcc = (incoming.occurrences || []).filter(
-					(o) => !currentOccKeys.has(occurrenceKey(o))
-				);
-				merged[idx] = {
-					...current,
-					// keep existing shouldMask, prefer non-empty raw_text
-					raw_text: current.raw_text || incoming.raw_text,
-					type: incoming.type || current.type,
-					occurrences: [...(current.occurrences || []), ...newOcc]
-				};
-			} else {
-				merged.push({ ...incoming, shouldMask: incoming.shouldMask ?? true });
-			}
-		}
-
-		this.temporaryState.entities = merged;
+		this.temporaryState.entities = this.mergeEntitiesByText(existing, entities);
 	}
 
 	getTemporaryStateEntities(): ExtendedPiiEntity[] {
@@ -424,7 +474,7 @@ export class PiiSessionManager {
 		// Track performance
 		const tracker = PiiPerformanceTracker.getInstance();
 		const startTime = performance.now();
-		
+
 		// Prevent loading the same conversation multiple times simultaneously
 		if (this.loadingConversations.has(conversationId)) {
 			return;
@@ -471,7 +521,7 @@ export class PiiSessionManager {
 		return entities.map((entity) => ({
 			id: entity.id,
 			label: entity.label,
-			name: entity.raw_text
+			name: entity.text || entity.raw_text.toLowerCase()
 		}));
 	}
 
@@ -682,30 +732,8 @@ export class PiiSessionManager {
 		const existingState = this.conversationStates.get(conversationId);
 		const existingEntities = existingState?.entities || [];
 
-		// Merge strategy: by label, preserve shouldMask, append unique occurrences
-		const merged: ExtendedPiiEntity[] = [...existingEntities];
-		const occurrenceKey = (o: { start_idx: number; end_idx: number }) =>
-			`${o.start_idx}-${o.end_idx}`;
-
-		for (const incoming of entities) {
-			const idx = merged.findIndex((e) => e.label === incoming.label); // TODO: This should be by text instead of label
-			if (idx >= 0) {
-				const current = merged[idx];
-				const currentOccKeys = new Set((current.occurrences || []).map(occurrenceKey));
-				const newOcc = (incoming.occurrences || []).filter(
-					(o) => !currentOccKeys.has(occurrenceKey(o))
-				);
-				merged[idx] = {
-					...current,
-					// keep existing shouldMask, prefer non-empty raw_text
-					raw_text: current.raw_text || (incoming as any).raw_text,
-					type: (incoming as any).type || current.type,
-					occurrences: [...(current.occurrences || []), ...newOcc]
-				};
-			} else {
-				merged.push({ ...(incoming as any), shouldMask: true });
-			}
-		}
+		// Merge entities using shared helper
+		const merged = this.mergeEntitiesByText(existingEntities, entities);
 
 		const newState: ConversationPiiState = {
 			entities: merged,
@@ -779,6 +807,7 @@ export class PiiSessionManager {
 						// Prefer existing shouldMask; otherwise adopt incoming
 						shouldMask: current.shouldMask ?? incoming.shouldMask,
 						// Prefer non-empty raw_text/type
+						text: current.text || incoming.text,
 						raw_text: current.raw_text || incoming.raw_text,
 						type: current.type || incoming.type,
 						occurrences: [...(current.occurrences || []), ...newOcc]
@@ -948,7 +977,7 @@ export class PiiSessionManager {
 	 */
 	getDebugSyncState(conversationId?: string) {
 		const conversationState = conversationId ? this.conversationStates.get(conversationId) : null;
-		
+
 		return {
 			lastUpdated: conversationState?.lastUpdated || null,
 			sessionId: conversationState?.sessionId || this.sessionId || null,
@@ -963,8 +992,10 @@ export class PiiSessionManager {
 	 */
 	getDebugSources(conversationId?: string) {
 		const conversationState = conversationId ? this.conversationStates.get(conversationId) : null;
-		const workingEntities = conversationId ? this.workingEntitiesForConversations.get(conversationId) : null;
-		
+		const workingEntities = conversationId
+			? this.workingEntitiesForConversations.get(conversationId)
+			: null;
+
 		return {
 			temporary: {
 				entities: this.temporaryState.entities?.length || 0,
