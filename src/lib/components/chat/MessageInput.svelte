@@ -431,7 +431,7 @@
 			// Try to get PII state from Knowledge Base context
 			const kbConvoId = `${knowledgeBaseId || 'kb'}:${fileId}`;
 			const kbState = piiSessionManager.getConversationState(kbConvoId);
-			
+
 			if (kbState && kbState.entities && kbState.entities.length > 0) {
 				console.log('MessageInput: Found KB PII state, transferring to chat context:', {
 					kbConvoId,
@@ -442,12 +442,19 @@
 				// Transfer entities to chat context
 				const chatConvoId = chatId || 'temp';
 				if (chatId && chatId.trim() !== '') {
-					piiSessionManager.setConversationEntitiesFromLatestDetection(chatConvoId, kbState.entities);
-					
+					piiSessionManager.setConversationEntitiesFromLatestDetection(
+						chatConvoId,
+						kbState.entities
+					);
+
 					// Apply masking states
 					try {
 						kbState.entities.forEach((ent: any) =>
-							piiSessionManager.setEntityMaskingState(chatConvoId, ent.label, ent.shouldMask ?? true)
+							piiSessionManager.setEntityMaskingState(
+								chatConvoId,
+								ent.label,
+								ent.shouldMask ?? true
+							)
 						);
 					} catch (_) {}
 
@@ -477,7 +484,7 @@
 						piiSessionManager.activateTemporaryState();
 					}
 					piiSessionManager.setTemporaryStateEntities(kbState.entities);
-					
+
 					if (kbState.modifiers && kbState.modifiers.length > 0) {
 						try {
 							const existing = piiSessionManager.getModifiersForDisplay(undefined) || [];
@@ -507,7 +514,11 @@
 	}
 
 	// Sync PII detections found on files to the current conversation's PII session
-	function syncPiiDetectionsFromFileData(fileData: any, isKnowledgeBaseFile: boolean = false, knowledgeBaseId: string | null = null) {
+	function syncPiiDetectionsFromFileData(
+		fileData: any,
+		isKnowledgeBaseFile: boolean = false,
+		knowledgeBaseId: string | null = null
+	) {
 		// Only process PII data if detection is enabled
 		if (!enablePiiDetection) {
 			console.log('MessageInput: Skipping PII sync - detection disabled');
@@ -1418,64 +1429,64 @@
 						show={showCommands}
 						{command}
 						insertTextHandler={insertTextAtCursor}
-											onUpload={(e) => {
-						const { type, data } = e;
+						onUpload={(e) => {
+							const { type, data } = e;
 
-						if (type === 'file') {
-							if (files.find((f) => f.id === data.id)) {
-								return;
+							if (type === 'file') {
+								if (files.find((f) => f.id === data.id)) {
+									return;
+								}
+
+								// Check if this is a Knowledge Base file
+								const isKnowledgeBaseFile = data.knowledge === true;
+								const knowledgeBaseId = data.collection?.id || null;
+
+								// For Knowledge Base files, apply filename masking
+								let fileToAdd = { ...data, status: 'processed' };
+								if (isKnowledgeBaseFile && enablePiiDetection) {
+									console.log('MessageInput: Processing Knowledge Base file with PII masking:', {
+										fileId: data.id,
+										originalName: data.name,
+										knowledgeBaseId: knowledgeBaseId
+									});
+
+									// Apply filename masking - use file ID as display name and store original
+									fileToAdd = {
+										...fileToAdd,
+										name: data.id, // Use file ID as masked name
+										meta: { ...fileToAdd.meta, name: data.name } // Store original name in meta
+									};
+
+									// Add filename mapping for this file
+									piiSessionManager.addFilenameMapping(chatId || undefined, data.id, data.name);
+								} else if (enablePiiDetection && data.id && data.name) {
+									// Regular file - add filename mapping if PII detection is enabled
+									console.log('MessageInput: Adding filename mapping for command-selected file:', {
+										fileId: data.id,
+										originalName: data.name
+									});
+									piiSessionManager.addFilenameMapping(chatId || undefined, data.id, data.name);
+								}
+
+								files = [...files, fileToAdd];
+
+								// Fetch full file details to seed PII entities into the current conversation
+								// Only do this if PII detection is enabled
+								if (enablePiiDetection) {
+									(async () => {
+										try {
+											const json = await getFileById(localStorage.token, data.id);
+											if (json) {
+												// Pass Knowledge Base context information for proper PII state transfer
+												syncPiiDetectionsFromFileData(json, isKnowledgeBaseFile, knowledgeBaseId);
+											}
+										} catch (e) {}
+									})();
+								}
+							} else {
+								dispatch('upload', e);
 							}
-
-							// Check if this is a Knowledge Base file
-							const isKnowledgeBaseFile = data.knowledge === true;
-							const knowledgeBaseId = data.collection?.id || null;
-
-							// For Knowledge Base files, apply filename masking
-							let fileToAdd = { ...data, status: 'processed' };
-							if (isKnowledgeBaseFile && enablePiiDetection) {
-								console.log('MessageInput: Processing Knowledge Base file with PII masking:', {
-									fileId: data.id,
-									originalName: data.name,
-									knowledgeBaseId: knowledgeBaseId
-								});
-
-								// Apply filename masking - use file ID as display name and store original
-								fileToAdd = {
-									...fileToAdd,
-									name: data.id, // Use file ID as masked name
-									meta: { ...fileToAdd.meta, name: data.name } // Store original name in meta
-								};
-
-								// Add filename mapping for this file
-								piiSessionManager.addFilenameMapping(chatId || undefined, data.id, data.name);
-							} else if (enablePiiDetection && data.id && data.name) {
-								// Regular file - add filename mapping if PII detection is enabled
-								console.log('MessageInput: Adding filename mapping for command-selected file:', {
-									fileId: data.id,
-									originalName: data.name
-								});
-								piiSessionManager.addFilenameMapping(chatId || undefined, data.id, data.name);
-							}
-
-							files = [...files, fileToAdd];
-
-							// Fetch full file details to seed PII entities into the current conversation
-							// Only do this if PII detection is enabled
-							if (enablePiiDetection) {
-								(async () => {
-									try {
-										const json = await getFileById(localStorage.token, data.id);
-										if (json) {
-											// Pass Knowledge Base context information for proper PII state transfer
-											syncPiiDetectionsFromFileData(json, isKnowledgeBaseFile, knowledgeBaseId);
-										}
-									} catch (e) {}
-								})();
-							}
-						} else {
-							dispatch('upload', e);
-						}
-					}}
+						}}
 						onSelect={(e) => {
 							const { type, data } = e;
 

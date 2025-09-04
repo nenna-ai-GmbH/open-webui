@@ -298,15 +298,15 @@ export class PiiSessionManager {
 
 		// Helper function to check if ID is already used
 		const isIdUsed = (id: number): boolean => {
-			return merged.some(e => e.id === id);
+			return merged.some((e) => e.id === id);
 		};
 
 		// Helper function to get next available ID for a given type
 		const getNextIdForType = (type: string): number => {
-			const existingOfType = merged.filter(e => e.type === type);
+			const existingOfType = merged.filter((e) => e.type === type);
 			if (existingOfType.length === 0) return 1;
-			
-			const maxId = Math.max(...existingOfType.map(e => e.id));
+
+			const maxId = Math.max(...existingOfType.map((e) => e.id));
 			return maxId + 1;
 		};
 
@@ -318,10 +318,10 @@ export class PiiSessionManager {
 		for (const incoming of incomingEntities) {
 			// Cast to ExtendedPiiEntity for consistent access
 			const incomingEntity = incoming as ExtendedPiiEntity;
-			
+
 			// Find existing entity by text content (not label)
 			const idx = merged.findIndex((e) => e.text === incomingEntity.text);
-			
+
 			if (idx >= 0) {
 				// Entity with same text already exists - merge occurrences
 				const current = merged[idx];
@@ -329,7 +329,7 @@ export class PiiSessionManager {
 				const newOcc = (incomingEntity.occurrences || []).filter(
 					(o) => !currentOccKeys.has(occurrenceKey(o))
 				);
-				
+
 				merged[idx] = {
 					...current,
 					// Keep existing shouldMask and other properties, just add new occurrences
@@ -339,18 +339,18 @@ export class PiiSessionManager {
 				// New entity - preserve original ID/label if not in use, otherwise assign new ones
 				let finalId = incomingEntity.id;
 				let finalLabel = incomingEntity.label;
-				
+
 				if (isIdUsed(incomingEntity.id)) {
 					// ID is already used, assign next available ID and generate label
 					finalId = getNextIdForType(incomingEntity.type);
 					finalLabel = generateLabel(incomingEntity.type, finalId);
 				}
-				
-				merged.push({ 
-					...incomingEntity, 
+
+				merged.push({
+					...incomingEntity,
 					id: finalId,
 					label: finalLabel,
-					shouldMask: incomingEntity.shouldMask ?? true 
+					shouldMask: incomingEntity.shouldMask ?? true
 				});
 			}
 		}
@@ -474,7 +474,7 @@ export class PiiSessionManager {
 		// Track performance
 		const tracker = PiiPerformanceTracker.getInstance();
 		const startTime = performance.now();
-		
+
 		// Prevent loading the same conversation multiple times simultaneously
 		if (this.loadingConversations.has(conversationId)) {
 			return;
@@ -977,7 +977,7 @@ export class PiiSessionManager {
 	 */
 	getDebugSyncState(conversationId?: string) {
 		const conversationState = conversationId ? this.conversationStates.get(conversationId) : null;
-		
+
 		return {
 			lastUpdated: conversationState?.lastUpdated || null,
 			sessionId: conversationState?.sessionId || this.sessionId || null,
@@ -992,8 +992,10 @@ export class PiiSessionManager {
 	 */
 	getDebugSources(conversationId?: string) {
 		const conversationState = conversationId ? this.conversationStates.get(conversationId) : null;
-		const workingEntities = conversationId ? this.workingEntitiesForConversations.get(conversationId) : null;
-		
+		const workingEntities = conversationId
+			? this.workingEntitiesForConversations.get(conversationId)
+			: null;
+
 		return {
 			temporary: {
 				entities: this.temporaryState.entities?.length || 0,

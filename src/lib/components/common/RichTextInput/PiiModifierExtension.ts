@@ -115,16 +115,19 @@ function findExistingEntityAtPosition(
 		if (piiText.length >= config.textProcessing.minTextLengthForMatching) {
 			try {
 				const piiDetectionPluginKey = new PluginKey('piiDetection');
-			interface PiiDetectionState {
-				entities?: Array<{ label: string; occurrences: Array<{ start_idx: number; end_idx: number }> }>;
-			}
-			const piiState = piiDetectionPluginKey.getState(view.state) as PiiDetectionState;
-						const matchingEntity = piiState?.entities?.find((entity) => entity.label === piiLabel);
-			if (matchingEntity?.occurrences?.length && matchingEntity.occurrences.length > 0) {
+				interface PiiDetectionState {
+					entities?: Array<{
+						label: string;
+						occurrences: Array<{ start_idx: number; end_idx: number }>;
+					}>;
+				}
+				const piiState = piiDetectionPluginKey.getState(view.state) as PiiDetectionState;
+				const matchingEntity = piiState?.entities?.find((entity) => entity.label === piiLabel);
+				if (matchingEntity?.occurrences?.length && matchingEntity.occurrences.length > 0) {
 					const occurrence = matchingEntity.occurrences[0];
 					return { from: occurrence.start_idx, to: occurrence.end_idx, text: piiText, type: 'pii' };
 				}
-					} catch {
+			} catch {
 				// Fall through to position-based approach
 			}
 
@@ -222,13 +225,13 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 				apply(tr, prevState): PiiModifierState {
 					const tracker = PiiPerformanceTracker.getInstance();
 					tracker.recordStateUpdate();
-					
+
 					let newState = { ...prevState };
 
 					const meta = tr.getMeta(piiModifierExtensionKey);
 					if (meta) {
 						switch (meta.type) {
-													case 'RELOAD_CONVERSATION_MODIFIERS': {
+							case 'RELOAD_CONVERSATION_MODIFIERS': {
 								tracker.recordSyncOperation();
 								const piiSessionManagerReload = PiiSessionManager.getInstance();
 								const reloadConversationId = meta.conversationId;
@@ -250,16 +253,16 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 									onModifiersChanged(reloadedModifiers);
 								}
 								break;
-						}
+							}
 
-													case 'ADD_MODIFIER': {
+							case 'ADD_MODIFIER': {
 								// Align selection to the provided entity within the selected range (fix concatenations across nodes)
 								let selFrom = typeof meta.from === 'number' ? meta.from : 0;
 								let selTo = typeof meta.to === 'number' ? meta.to : 0;
 								if (selFrom > selTo) {
 									[selFrom, selTo] = [selTo, selFrom];
 								}
-							const doc = tr.doc as ProseMirrorNode;
+								const doc = tr.doc as ProseMirrorNode;
 								const docSize = doc.content.size;
 								selFrom = Math.max(0, Math.min(selFrom, docSize));
 								selTo = Math.max(0, Math.min(selTo, docSize));
@@ -301,7 +304,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 													text: string;
 													hasAlpha: boolean;
 												}> = [];
-										const re = config.patterns.tokenizationFallback;
+												const re = config.patterns.tokenizationFallback;
 												let m: RegExpExecArray | null;
 												re.lastIndex = 0;
 												while ((m = re.exec(slice)) !== null) {
@@ -333,12 +336,11 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 												}
 											}
 										}
-																					} catch {
-													// Continue with default entity
-												}
+									} catch {
+										// Continue with default entity
+									}
 								}
 
-								
 								const newModifier: PiiModifier = {
 									id: generateModifierId(),
 									action: meta.modifierAction,
@@ -372,10 +374,10 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 									onModifiersChanged(updatedModifiers);
 								}
 								break;
-						}
+							}
 
-													case 'REMOVE_MODIFIER': {
-							// TODO: remove the known entity if modifier is removed
+							case 'REMOVE_MODIFIER': {
+								// TODO: remove the known entity if modifier is removed
 								const remainingModifiers = newState.modifiers.filter(
 									(m) => m.id !== meta.modifierId
 								);
@@ -399,9 +401,9 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 									onModifiersChanged(remainingModifiers);
 								}
 								break;
-						}
+							}
 
-													case 'CLEAR_MODIFIERS': {
+							case 'CLEAR_MODIFIERS': {
 								newState = {
 									...newState,
 									modifiers: []
@@ -419,7 +421,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 									onModifiersChanged([]);
 								}
 								break;
-						}
+							}
 						}
 					}
 
@@ -430,7 +432,12 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 			props: {
 				handleClick(view, _pos, event) {
 					// Check if clicking on a text element with a mask modifier
-					const existingEntity = findExistingEntityAtPosition(view, event.clientX, event.clientY, config);
+					const existingEntity = findExistingEntityAtPosition(
+						view,
+						event.clientX,
+						event.clientY,
+						config
+					);
 
 					if (existingEntity) {
 						// Get current conversation ID from plugin state
@@ -527,8 +534,8 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 							const existingEntity = findExistingEntityAtPosition(
 								view,
 								event.clientX,
-					event.clientY,
-					config
+								event.clientY,
+								config
 							);
 
 							if (!existingEntity) {
@@ -728,7 +735,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 												options.hidePiiHoverMenu();
 												isHoverMenuShowing = false;
 											}
-								}, config.timing.menuCloseTimeoutMs);
+										}, config.timing.menuCloseTimeoutMs);
 									}
 								};
 
@@ -736,13 +743,13 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 								isHoverMenuShowing = true;
 							}
 
-											// Set a fallback timeout to close menu after inactivity
+							// Set a fallback timeout to close menu after inactivity
 							timeoutManager.setFallback(() => {
 								if (isHoverMenuShowing && options.hidePiiHoverMenu) {
 									options.hidePiiHoverMenu();
 									isHoverMenuShowing = false;
 								}
-				}, config.timing.menuFallbackTimeoutMs);
+							}, config.timing.menuFallbackTimeoutMs);
 						}, config.timing.hoverTimeoutMs);
 					},
 

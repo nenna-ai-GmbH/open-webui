@@ -652,8 +652,7 @@ async def chat_completion_files_handler(
                         request=request,
                         items=files,
                         queries=queries,
-                        embedding_function=lambda query,
-                        prefix: request.app.state.EMBEDDING_FUNCTION(
+                        embedding_function=lambda query, prefix: request.app.state.EMBEDDING_FUNCTION(
                             query, prefix=prefix, user=user
                         ),
                         k=request.app.state.config.TOP_K,
@@ -1054,7 +1053,9 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                             log.warning(f"Failed to parse PII dict: {e}")
                     file_entities_dict.update(pii_dict)
 
-        file_entities_dict = set_file_entity_ids(file_entities_dict, metadata["known_entities"])
+        file_entities_dict = set_file_entity_ids(
+            file_entities_dict, metadata["known_entities"]
+        )
 
         # Log the known entities dictionary for debugging
         log.debug(f"Known entities dictionary: {file_entities_dict}")
@@ -1072,7 +1073,9 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                             log.warning(f"Failed to parse PII dict: {e}")
                     file_entities_dict.update(pii_dict)
 
-        file_entities_dict = set_file_entity_ids(file_entities_dict, metadata["known_entities"])
+        file_entities_dict = set_file_entity_ids(
+            file_entities_dict, metadata["known_entities"]
+        )
 
         # Log the known entities dictionary for debugging
         log.debug(f"Known entities dictionary: {file_entities_dict}")
@@ -1133,7 +1136,9 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                             log.warning(f"Failed to parse PII data: {e}")
                             pii_data = []
 
-                    consolidated_pii = consolidate_pii_data(pii_data, file_entities_dict)
+                    consolidated_pii = consolidate_pii_data(
+                        pii_data, file_entities_dict
+                    )
                     # Mask PII in the document text using metadata from the vector DB
                     masked_text = text_masking(document_text, consolidated_pii, [])
 
@@ -2012,9 +2017,7 @@ async def process_chat_response(
             content = (
                 message.get("content", "")
                 if message
-                else last_assistant_message
-                if last_assistant_message
-                else ""
+                else last_assistant_message if last_assistant_message else ""
             )
 
             content_blocks = [
