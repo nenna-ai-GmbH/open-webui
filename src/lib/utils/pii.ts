@@ -295,25 +295,48 @@ export class PiiSessionManager {
 		const occurrenceKey = (o: { start_idx: number; end_idx: number }) =>
 			`${o.start_idx}-${o.end_idx}`;
 
+		// Helper function to get next available ID for a given type
+		const getNextIdForType = (type: string): number => {
+			const existingOfType = merged.filter(e => e.type === type);
+			if (existingOfType.length === 0) return 1;
+			
+			const maxId = Math.max(...existingOfType.map(e => e.id));
+			return maxId + 1;
+		};
+
+		// Helper function to generate label from type and id
+		const generateLabel = (type: string, id: number): string => {
+			return `${type}_${id}`;
+		};
+
 		for (const incoming of entities) {
-			const idx = merged.findIndex((e) => e.label === incoming.label); // TODO: This should be by text instead of label
+			// Find existing entity by text content (not label)
+			const idx = merged.findIndex((e) => e.text === incoming.text);
+			
 			if (idx >= 0) {
+				// Entity with same text already exists - merge occurrences
 				const current = merged[idx];
-				// Preserve shouldMask, update other fields
 				const currentOccKeys = new Set((current.occurrences || []).map(occurrenceKey));
 				const newOcc = (incoming.occurrences || []).filter(
 					(o) => !currentOccKeys.has(occurrenceKey(o))
 				);
+				
 				merged[idx] = {
 					...current,
-					// keep existing shouldMask, prefer non-empty raw_text
-					text: current.text || incoming.text,
-					raw_text: current.raw_text || incoming.raw_text,
-					type: incoming.type || current.type,
+					// Keep existing shouldMask and other properties, just add new occurrences
 					occurrences: [...(current.occurrences || []), ...newOcc]
 				};
 			} else {
-				merged.push({ ...incoming, shouldMask: incoming.shouldMask ?? true });
+				// New entity - assign next available ID and generate label
+				const nextId = getNextIdForType(incoming.type);
+				const newLabel = generateLabel(incoming.type, nextId);
+				
+				merged.push({ 
+					...incoming, 
+					id: nextId,
+					label: newLabel,
+					shouldMask: incoming.shouldMask ?? true 
+				});
 			}
 		}
 
@@ -683,29 +706,53 @@ export class PiiSessionManager {
 		const existingState = this.conversationStates.get(conversationId);
 		const existingEntities = existingState?.entities || [];
 
-		// Merge strategy: by label, preserve shouldMask, append unique occurrences
+		// Merge strategy: by text content, preserve shouldMask, append unique occurrences
 		const merged: ExtendedPiiEntity[] = [...existingEntities];
 		const occurrenceKey = (o: { start_idx: number; end_idx: number }) =>
 			`${o.start_idx}-${o.end_idx}`;
 
+		// Helper function to get next available ID for a given type
+		const getNextIdForType = (type: string): number => {
+			const existingOfType = merged.filter(e => e.type === type);
+			if (existingOfType.length === 0) return 1;
+			
+			const maxId = Math.max(...existingOfType.map(e => e.id));
+			return maxId + 1;
+		};
+
+		// Helper function to generate label from type and id
+		const generateLabel = (type: string, id: number): string => {
+			return `${type}_${id}`;
+		};
+
 		for (const incoming of entities) {
-			const idx = merged.findIndex((e) => e.label === incoming.label); // TODO: This should be by text instead of label
+			// Find existing entity by text content (not label)
+			const idx = merged.findIndex((e) => e.text === (incoming as any).text);
+			
 			if (idx >= 0) {
+				// Entity with same text already exists - merge occurrences
 				const current = merged[idx];
 				const currentOccKeys = new Set((current.occurrences || []).map(occurrenceKey));
 				const newOcc = (incoming.occurrences || []).filter(
 					(o) => !currentOccKeys.has(occurrenceKey(o))
 				);
+				
 				merged[idx] = {
 					...current,
-					// keep existing shouldMask, prefer non-empty raw_text
-					text: current.text || (incoming as any).text,
-					raw_text: current.raw_text || (incoming as any).raw_text,
-					type: (incoming as any).type || current.type,
+					// Keep existing shouldMask and other properties, just add new occurrences
 					occurrences: [...(current.occurrences || []), ...newOcc]
 				};
 			} else {
-				merged.push({ ...(incoming as any), shouldMask: true });
+				// New entity - assign next available ID and generate label
+				const nextId = getNextIdForType((incoming as any).type);
+				const newLabel = generateLabel((incoming as any).type, nextId);
+				
+				merged.push({ 
+					...(incoming as any), 
+					id: nextId,
+					label: newLabel,
+					shouldMask: true 
+				});
 			}
 		}
 
