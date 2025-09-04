@@ -9,6 +9,7 @@ import {
 	PiiApiTimeoutError,
 	PiiApiNetworkError
 } from '$lib/apis/pii/client';
+import { PiiPerformanceTracker } from '$lib/components/common/RichTextInput/PiiPerformanceOptimizer';
 
 // Extended PII entity with masking state
 export interface ExtendedPiiEntity extends PiiEntity {
@@ -420,6 +421,10 @@ export class PiiSessionManager {
 
 	// Load conversation state (now called from loadFromChatData)
 	loadConversationState(conversationId: string, piiState?: ConversationPiiState) {
+		// Track performance
+		const tracker = PiiPerformanceTracker.getInstance();
+		const startTime = performance.now();
+		
 		// Prevent loading the same conversation multiple times simultaneously
 		if (this.loadingConversations.has(conversationId)) {
 			return;
@@ -442,6 +447,11 @@ export class PiiSessionManager {
 				this.conversationStates.set(conversationId, normalizedState);
 			}
 		} finally {
+			// Track loading completion
+			const elapsed = performance.now() - startTime;
+			if (elapsed > 50) {
+				console.log(`PiiSessionManager: Slow conversation load: ${elapsed.toFixed(1)}ms`);
+			}
 			this.loadingConversations.delete(conversationId);
 		}
 	}
@@ -930,6 +940,63 @@ export class PiiSessionManager {
 		if (this.apiClient) {
 			this.apiClient.updateConfig(config);
 		}
+	}
+
+	// DEBUG METHODS - For PII debug interface
+	/**
+	 * Get debug information about sync state for a conversation
+	 */
+	getDebugSyncState(conversationId?: string) {
+		const conversationState = conversationId ? this.conversationStates.get(conversationId) : null;
+		
+		return {
+			lastUpdated: conversationState?.lastUpdated || null,
+			sessionId: conversationState?.sessionId || this.sessionId || null,
+			apiKey: !!(conversationState?.apiKey || this.apiKey),
+			isLoading: conversationId ? this.loadingConversations.has(conversationId) : false,
+			hasPendingSave: conversationId ? this.pendingSaves.has(conversationId) : false
+		};
+	}
+
+	/**
+	 * Get debug information about data sources
+	 */
+	getDebugSources(conversationId?: string) {
+		const conversationState = conversationId ? this.conversationStates.get(conversationId) : null;
+		const workingEntities = conversationId ? this.workingEntitiesForConversations.get(conversationId) : null;
+		
+		return {
+			temporary: {
+				entities: this.temporaryState.entities?.length || 0,
+				modifiers: this.temporaryState.modifiers?.length || 0,
+				active: this.temporaryState.isActive || false
+			},
+			conversation: {
+				entities: conversationState?.entities?.length || 0,
+				modifiers: conversationState?.modifiers?.length || 0,
+				exists: !!conversationState
+			},
+			working: {
+				entities: workingEntities?.length || 0
+			},
+			files: {
+				mappings: this.temporaryState.filenameMappings?.length || 0
+			}
+		};
+	}
+
+	/**
+	 * Get debug information about internal state
+	 */
+	getDebugStats() {
+		return {
+			totalConversations: this.conversationStates.size,
+			loadingConversations: this.loadingConversations.size,
+			pendingSaves: this.pendingSaves.size,
+			errorBackups: this.errorBackup.size,
+			hasApiClient: !!this.apiClient,
+			temporaryStateActive: this.temporaryState.isActive
+		};
 	}
 }
 

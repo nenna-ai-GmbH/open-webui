@@ -4,6 +4,10 @@ import type { Node as ProseMirrorNode } from 'prosemirror-model';
 import type { EditorView } from 'prosemirror-view';
 import type { EditorState, Transaction } from 'prosemirror-state';
 import { PiiSessionManager } from '$lib/utils/pii';
+import { generateModifierId } from './PiiTextUtils';
+import { findTokenizedWords } from './PiiTokenization';
+import { getPiiConfig, type PiiExtensionConfig } from './PiiExtensionConfig';
+import { PiiPerformanceTracker } from './PiiPerformanceOptimizer';
 
 // TypeScript interfaces for TipTap command context
 interface CommandContext {
@@ -77,92 +81,18 @@ const piiModifierExtensionKey = new PluginKey<PiiModifierState>('piiModifier');
 // Export the plugin key so other extensions can access the state
 export { piiModifierExtensionKey };
 
-// Generate unique ID for modifiers
-function generateModifierId(): string {
-	return `modifier_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-}
+// generateModifierId function moved to PiiTextUtils.ts
 
-// Tokenizer pattern for broader context word detection
-const WORD_TOKENIZER_PATTERN = /[\w'-äöüÄÖÜß]+(?=\b|\.)/g;
+// WORD_TOKENIZER_PATTERN moved to PiiTokenization.ts
 
-// Find all tokenized words touched by a text selection with broader context
-function findTokenizedWords(
-	doc: ProseMirrorNode,
-	selectionFrom: number,
-	selectionTo: number
-): Array<{ word: string; from: number; to: number }> {
-	const words: Array<{ word: string; from: number; to: number }> = [];
-
-	// Expand context to include words that might be partially selected
-	const contextStart = Math.max(0, selectionFrom - 100); // 100 chars before
-	const contextEnd = Math.min(doc.content.size, selectionTo + 100); // 100 chars after
-
-	let contextText = '';
-
-	// Build context text with position mapping
-	const positionMap: number[] = []; // Maps context text index to document position
-
-	doc.nodesBetween(contextStart, contextEnd, (node, nodePos) => {
-		if (node.isText && node.text) {
-			const nodeStart = nodePos;
-			const nodeEnd = nodePos + node.text.length;
-			const effectiveStart = Math.max(nodeStart, contextStart);
-			const effectiveEnd = Math.min(nodeEnd, contextEnd);
-
-			if (effectiveStart < effectiveEnd) {
-				const startOffset = effectiveStart - nodeStart;
-				const endOffset = effectiveEnd - nodeStart;
-				const textSlice = node.text.substring(startOffset, endOffset);
-
-				// Map each character position
-				for (let i = 0; i < textSlice.length; i++) {
-					positionMap.push(effectiveStart + i);
-				}
-
-				contextText += textSlice;
-			}
-		}
-	});
-
-	// Find all words using tokenizer
-	let match;
-	WORD_TOKENIZER_PATTERN.lastIndex = 0; // Reset regex
-
-	while ((match = WORD_TOKENIZER_PATTERN.exec(contextText)) !== null) {
-		const wordStart = match.index;
-		const wordEnd = match.index + match[0].length;
-
-		// Map back to document positions
-		const docStart = positionMap[wordStart];
-		// Fix: Ensure we don't access invalid array index
-		const lastValidIndex = Math.min(wordEnd - 1, positionMap.length - 1);
-		const docEnd = positionMap[lastValidIndex] + 1; // +1 because we want end position
-
-		// Check if this word is "touched" by the selection (overlaps with selection range)
-		if (docEnd > selectionFrom && docStart < selectionTo && docStart !== undefined && docEnd !== undefined) {
-			words.push({
-				word: match[0],
-				from: docStart,
-				to: docEnd
-			});
-		}
-	}
-
-	// Remove duplicates and sort by position
-	const uniqueWords = words
-		.filter(
-			(word, index, arr) => arr.findIndex((w) => w.from === word.from && w.to === word.to) === index
-		)
-		.sort((a, b) => a.from - b.from);
-
-	return uniqueWords;
-}
+// findTokenizedWords function moved to PiiTokenization.ts
 
 // Find existing PII or modifier element under mouse cursor
 function findExistingEntityAtPosition(
 	view: EditorView,
 	clientX: number,
-	clientY: number
+	clientY: number,
+	config: PiiExtensionConfig
 ): { from: number; to: number; text: string; type: 'pii' | 'modifier' } | null {
 	const target = document.elementFromPoint(clientX, clientY) as HTMLElement;
 	if (!target) return null;
@@ -182,21 +112,21 @@ function findExistingEntityAtPosition(
 	if (piiElement) {
 		const piiText = piiElement.getAttribute('data-pii-text') || piiElement.textContent || '';
 		const piiLabel = piiElement.getAttribute('data-pii-label') || '';
-		if (piiText.length >= 2) {
+		if (piiText.length >= config.textProcessing.minTextLengthForMatching) {
 			try {
-							const piiDetectionPluginKey = new PluginKey('piiDetection');
+				const piiDetectionPluginKey = new PluginKey('piiDetection');
 			interface PiiDetectionState {
 				entities?: Array<{ label: string; occurrences: Array<{ start_idx: number; end_idx: number }> }>;
 			}
 			const piiState = piiDetectionPluginKey.getState(view.state) as PiiDetectionState;
 						const matchingEntity = piiState?.entities?.find((entity) => entity.label === piiLabel);
 			if (matchingEntity?.occurrences?.length && matchingEntity.occurrences.length > 0) {
-				const occurrence = matchingEntity.occurrences[0];
-				return { from: occurrence.start_idx, to: occurrence.end_idx, text: piiText, type: 'pii' };
-			}
+					const occurrence = matchingEntity.occurrences[0];
+					return { from: occurrence.start_idx, to: occurrence.end_idx, text: piiText, type: 'pii' };
+				}
 					} catch {
-			// Fall through to position-based approach
-		}
+				// Fall through to position-based approach
+			}
 
 			const position = getPositionFromCoords(piiText);
 			if (position) return { ...position, text: piiText, type: 'pii' };
@@ -208,7 +138,7 @@ function findExistingEntityAtPosition(
 	if (modifierElement) {
 		const modifierText =
 			modifierElement.getAttribute('data-modifier-entity') || modifierElement.textContent || '';
-		if (modifierText.length >= 2) {
+		if (modifierText.length >= config.textProcessing.minTextLengthForMatching) {
 			const position = getPositionFromCoords(modifierText);
 			if (position) return { ...position, text: modifierText, type: 'modifier' };
 		}
@@ -256,6 +186,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 	addProseMirrorPlugins() {
 		const options = this.options;
 		const { enabled, conversationId, onModifiersChanged } = options;
+		const config = getPiiConfig();
 
 		if (!enabled) {
 			return [];
@@ -289,50 +220,54 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 				},
 
 				apply(tr, prevState): PiiModifierState {
+					const tracker = PiiPerformanceTracker.getInstance();
+					tracker.recordStateUpdate();
+					
 					let newState = { ...prevState };
 
 					const meta = tr.getMeta(piiModifierExtensionKey);
 					if (meta) {
-											switch (meta.type) {
-						case 'RELOAD_CONVERSATION_MODIFIERS': {
-							const piiSessionManagerReload = PiiSessionManager.getInstance();
-							const reloadConversationId = meta.conversationId;
+						switch (meta.type) {
+													case 'RELOAD_CONVERSATION_MODIFIERS': {
+								tracker.recordSyncOperation();
+								const piiSessionManagerReload = PiiSessionManager.getInstance();
+								const reloadConversationId = meta.conversationId;
 
-							if (reloadConversationId) {
-								piiSessionManagerReload.loadConversationState(reloadConversationId);
-							}
+								if (reloadConversationId) {
+									piiSessionManagerReload.loadConversationState(reloadConversationId);
+								}
 
-							const reloadedModifiers =
-								piiSessionManagerReload.getModifiersForDisplay(reloadConversationId);
+								const reloadedModifiers =
+									piiSessionManagerReload.getModifiersForDisplay(reloadConversationId);
 
-							newState = {
-								...newState,
-								modifiers: reloadedModifiers,
-								currentConversationId: reloadConversationId
-							};
+								newState = {
+									...newState,
+									modifiers: reloadedModifiers,
+									currentConversationId: reloadConversationId
+								};
 
-							if (onModifiersChanged) {
-								onModifiersChanged(reloadedModifiers);
-							}
-							break;
+								if (onModifiersChanged) {
+									onModifiersChanged(reloadedModifiers);
+								}
+								break;
 						}
 
 													case 'ADD_MODIFIER': {
-							// Align selection to the provided entity within the selected range (fix concatenations across nodes)
-							let selFrom = typeof meta.from === 'number' ? meta.from : 0;
-							let selTo = typeof meta.to === 'number' ? meta.to : 0;
-							if (selFrom > selTo) {
-								[selFrom, selTo] = [selTo, selFrom];
-							}
+								// Align selection to the provided entity within the selected range (fix concatenations across nodes)
+								let selFrom = typeof meta.from === 'number' ? meta.from : 0;
+								let selTo = typeof meta.to === 'number' ? meta.to : 0;
+								if (selFrom > selTo) {
+									[selFrom, selTo] = [selTo, selFrom];
+								}
 							const doc = tr.doc as ProseMirrorNode;
-							const docSize = doc.content.size;
-							selFrom = Math.max(0, Math.min(selFrom, docSize));
-							selTo = Math.max(0, Math.min(selTo, docSize));
+								const docSize = doc.content.size;
+								selFrom = Math.max(0, Math.min(selFrom, docSize));
+								selTo = Math.max(0, Math.min(selTo, docSize));
 
-							const rawEntity = (meta.entity || '').normalize('NFKC').trim();
-							let finalFrom = selFrom;
-							let finalTo = selTo;
-							let finalEntity = rawEntity;
+								const rawEntity = (meta.entity || '').normalize('NFKC').trim();
+								let finalFrom = selFrom;
+								let finalTo = selTo;
+								let finalEntity = rawEntity;
 
 								// If this is from an existing PII highlight, trust the entity text and don't tokenize
 								if (meta.isExistingPii && rawEntity) {
@@ -366,7 +301,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 													text: string;
 													hasAlpha: boolean;
 												}> = [];
-												const re = /[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9_-]*|[0-9]+(?:[.,][0-9]+)*/gu;
+										const re = config.patterns.tokenizationFallback;
 												let m: RegExpExecArray | null;
 												re.lastIndex = 0;
 												while ((m = re.exec(slice)) !== null) {
@@ -401,89 +336,89 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 																					} catch {
 													// Continue with default entity
 												}
-											}
+								}
 
-											
-											const newModifier: PiiModifier = {
-												id: generateModifierId(),
-												action: meta.modifierAction,
-												entity: finalEntity,
-												type: meta.piiType,
-												from: finalFrom,
-												to: finalTo
-											};
+								
+								const newModifier: PiiModifier = {
+									id: generateModifierId(),
+									action: meta.modifierAction,
+									entity: finalEntity,
+									type: meta.piiType,
+									from: finalFrom,
+									to: finalTo
+								};
 
-											// Replace any existing modifier for the same entity text (case-insensitive)
-											const filteredModifiers = newState.modifiers.filter(
-												(modifier) => modifier.entity.toLowerCase() !== finalEntity.toLowerCase()
-											);
+								// Replace any existing modifier for the same entity text (case-insensitive)
+								const filteredModifiers = newState.modifiers.filter(
+									(modifier) => modifier.entity.toLowerCase() !== finalEntity.toLowerCase()
+								);
 
-											const updatedModifiers = [...filteredModifiers, newModifier];
+								const updatedModifiers = [...filteredModifiers, newModifier];
 
-											newState = {
-												...newState,
-												modifiers: updatedModifiers
-											};
+								newState = {
+									...newState,
+									modifiers: updatedModifiers
+								};
 
-											const piiSessionManager = PiiSessionManager.getInstance();
-											const addConversationId = newState.currentConversationId;
-											if (addConversationId) {
-												piiSessionManager.setConversationModifiers(addConversationId, updatedModifiers);
-											} else {
-												piiSessionManager.setTemporaryModifiers(updatedModifiers);
-											}
+								const piiSessionManager = PiiSessionManager.getInstance();
+								const addConversationId = newState.currentConversationId;
+								if (addConversationId) {
+									piiSessionManager.setConversationModifiers(addConversationId, updatedModifiers);
+								} else {
+									piiSessionManager.setTemporaryModifiers(updatedModifiers);
+								}
 
-											if (onModifiersChanged) {
-												onModifiersChanged(updatedModifiers);
-											}
-											break;
+								if (onModifiersChanged) {
+									onModifiersChanged(updatedModifiers);
+								}
+								break;
 						}
 
 													case 'REMOVE_MODIFIER': {
 							// TODO: remove the known entity if modifier is removed
-							const remainingModifiers = newState.modifiers.filter(
-								(m) => m.id !== meta.modifierId
-							);
-							newState = {
-								...newState,
-								modifiers: remainingModifiers
-							};
-
-							const piiSessionManagerRemove = PiiSessionManager.getInstance();
-							const removeConversationId = newState.currentConversationId;
-							if (removeConversationId) {
-								piiSessionManagerRemove.setConversationModifiers(
-									removeConversationId,
-									remainingModifiers
+								const remainingModifiers = newState.modifiers.filter(
+									(m) => m.id !== meta.modifierId
 								);
-							} else {
-								piiSessionManagerRemove.setTemporaryModifiers(remainingModifiers);
-							}
+								newState = {
+									...newState,
+									modifiers: remainingModifiers
+								};
 
-							if (onModifiersChanged) {
-								onModifiersChanged(remainingModifiers);
-							}
-							break;
+								const piiSessionManagerRemove = PiiSessionManager.getInstance();
+								const removeConversationId = newState.currentConversationId;
+								if (removeConversationId) {
+									piiSessionManagerRemove.setConversationModifiers(
+										removeConversationId,
+										remainingModifiers
+									);
+								} else {
+									piiSessionManagerRemove.setTemporaryModifiers(remainingModifiers);
+								}
+
+								if (onModifiersChanged) {
+									onModifiersChanged(remainingModifiers);
+								}
+								break;
 						}
 
 													case 'CLEAR_MODIFIERS': {
-							newState = {
-								...newState,
-								modifiers: []
-							};
+								newState = {
+									...newState,
+									modifiers: []
+								};
 
-							const piiSessionManagerClear = PiiSessionManager.getInstance();
-							const clearConversationId = newState.currentConversationId;
-							if (clearConversationId) {
-								piiSessionManagerClear.setConversationModifiers(clearConversationId, []);
-							} else {
-								piiSessionManagerClear.setTemporaryModifiers([]);
-							}
+								const piiSessionManagerClear = PiiSessionManager.getInstance();
+								const clearConversationId = newState.currentConversationId;
+								if (clearConversationId) {
+									piiSessionManagerClear.setConversationModifiers(clearConversationId, []);
+								} else {
+									piiSessionManagerClear.setTemporaryModifiers([]);
+								}
 
-							if (onModifiersChanged) {
-								onModifiersChanged([]);
-							}
-							break;
+								if (onModifiersChanged) {
+									onModifiersChanged([]);
+								}
+								break;
 						}
 						}
 					}
@@ -495,7 +430,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 			props: {
 				handleClick(view, _pos, event) {
 					// Check if clicking on a text element with a mask modifier
-					const existingEntity = findExistingEntityAtPosition(view, event.clientX, event.clientY);
+					const existingEntity = findExistingEntityAtPosition(view, event.clientX, event.clientY, config);
 
 					if (existingEntity) {
 						// Get current conversation ID from plugin state
@@ -592,7 +527,8 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 							const existingEntity = findExistingEntityAtPosition(
 								view,
 								event.clientX,
-								event.clientY
+					event.clientY,
+					config
 							);
 
 							if (!existingEntity) {
@@ -792,7 +728,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 												options.hidePiiHoverMenu();
 												isHoverMenuShowing = false;
 											}
-										}, 500);
+								}, config.timing.menuCloseTimeoutMs);
 									}
 								};
 
@@ -800,14 +736,14 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 								isHoverMenuShowing = true;
 							}
 
-							// Set a fallback timeout to close menu after 10 seconds of inactivity
+											// Set a fallback timeout to close menu after inactivity
 							timeoutManager.setFallback(() => {
 								if (isHoverMenuShowing && options.hidePiiHoverMenu) {
 									options.hidePiiHoverMenu();
 									isHoverMenuShowing = false;
 								}
-							}, 10000);
-						}, 300);
+				}, config.timing.menuFallbackTimeoutMs);
+						}, config.timing.hoverTimeoutMs);
 					},
 
 					// Note: selection menu creation is disabled; BubbleMenu handles selection actions now
@@ -923,9 +859,10 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 						if (!entity || (selText && selText.indexOf(entity) === -1)) {
 							// Try to pick a token from selection
 							const slice = selText || '';
+							const tokenConfig = getPiiConfig();
 							const tokens: Array<{ start: number; end: number; text: string; hasAlpha: boolean }> =
 								[];
-							const re = /[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9_-]*|[0-9]+(?:[.,][0-9]+)*/gu;
+							const re = tokenConfig.patterns.tokenizationFallback;
 							let m: RegExpExecArray | null;
 							re.lastIndex = 0;
 							while ((m = re.exec(slice)) !== null) {
@@ -1073,15 +1010,16 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 						}
 					});
 
-									return true;
-			}
+					return true;
+				}
 		} as any;
 	}
 });
 
 // Utility function to add CSS styles for modifier system
-export function addPiiModifierStyles() {
-	const styleId = 'pii-modifier-styles';
+export function addPiiModifierStyles(config?: PiiExtensionConfig) {
+	const piiConfig = config || getPiiConfig();
+	const styleId = piiConfig.styling.styleElementId;
 
 	// Check if styles already exist
 	if (document.getElementById(styleId)) {
@@ -1094,59 +1032,59 @@ export function addPiiModifierStyles() {
 		/* Modifier highlighting - takes precedence over PII detection */
 		.pii-modifier-highlight {
 			position: relative;
-			border-radius: 3px;
-			padding: 1px 2px;
+			border-radius: ${piiConfig.styling.borderRadius};
+			padding: ${piiConfig.styling.highlightPadding};
 			cursor: pointer;
-			transition: all 0.2s ease;
-			z-index: 10; /* Higher than PII highlights */
+			transition: all ${piiConfig.styling.transitionDuration} ease;
+			z-index: ${piiConfig.styling.zIndex.modifierHighlight}; /* Higher than PII highlights */
 		}
 
 		.pii-modifier-highlight:hover {
-			box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+			box-shadow: ${piiConfig.styling.boxShadow.hover};
 		}
 
 		/* Mask modifier styling - orange text with green background/border */
 		.pii-modifier-highlight.pii-modifier-mask {
-			color: #ca8a04 !important; /* Orange text - takes precedence */
-			background-color: rgba(34, 197, 94, 0.2) !important; /* Green background */
-			border-bottom: 1px dashed #15803d !important; /* Green dashed underline */
+			color: ${piiConfig.styling.modifierColors.textColor} !important;
+			background-color: ${piiConfig.styling.modifierColors.maskBackgroundColor} !important;
+			border-bottom: 1px dashed ${piiConfig.styling.modifierColors.maskBorderColor} !important;
 		}
 
 		.pii-modifier-highlight.pii-modifier-mask:hover {
-			color: #a16207 !important;
-			background-color: rgba(34, 197, 94, 0.3) !important;
-			border-bottom: 2px dashed #15803d !important;
+			color: ${piiConfig.styling.modifierColors.textHoverColor} !important;
+			background-color: ${piiConfig.styling.modifierColors.maskBackgroundHoverColor} !important;
+			border-bottom: 2px dashed ${piiConfig.styling.modifierColors.maskBorderColor} !important;
 		}
 
 		/* Ignore modifier styling - orange text, no background */
 		.pii-modifier-highlight.pii-modifier-ignore {
-			color: #ca8a04 !important; /* Orange text - takes precedence */
-			text-decoration: line-through !important; /* Strike through */
-			opacity: 0.7 !important;
+			color: ${piiConfig.styling.modifierColors.textColor} !important;
+			text-decoration: line-through !important;
+			opacity: ${piiConfig.styling.modifierColors.ignoreOpacity} !important;
 		}
 
 		.pii-modifier-highlight.pii-modifier-ignore:hover {
-			color: #a16207 !important;
-			opacity: 0.9 !important;
+			color: ${piiConfig.styling.modifierColors.textHoverColor} !important;
+			opacity: ${piiConfig.styling.modifierColors.ignoreHoverOpacity} !important;
 		}
 
 		/* Ensure modifier styles take precedence over PII styles */
 		.pii-highlight.pii-modifier-highlight {
-			color: #ca8a04 !important;
+			color: ${piiConfig.styling.modifierColors.textColor} !important;
 		}
 
 		.pii-highlight.pii-modifier-highlight.pii-modifier-mask {
-			color: #ca8a04 !important;
-			background-color: rgba(34, 197, 94, 0.2) !important;
-			border-bottom: 1px dashed #15803d !important;
+			color: ${piiConfig.styling.modifierColors.textColor} !important;
+			background-color: ${piiConfig.styling.modifierColors.maskBackgroundColor} !important;
+			border-bottom: 1px dashed ${piiConfig.styling.modifierColors.maskBorderColor} !important;
 		}
 
 		.pii-highlight.pii-modifier-highlight.pii-modifier-ignore {
-			color: #ca8a04 !important;
+			color: ${piiConfig.styling.modifierColors.textColor} !important;
 			background-color: transparent !important;
 			border-bottom: none !important;
 			text-decoration: line-through !important;
-			opacity: 0.7 !important;
+			opacity: ${piiConfig.styling.modifierColors.ignoreOpacity} !important;
 		}
 	`;
 
