@@ -84,8 +84,12 @@ from open_webui.utils.filter import (
 )
 from open_webui.utils.code_interpreter import execute_code_jupyter
 from open_webui.utils.payload import apply_model_system_prompt_to_body
-from open_webui.utils.pii import text_masking, consolidate_pii_data, set_file_entity_ids
-from open_webui.utils.pii import text_masking, consolidate_pii_data, set_file_entity_ids
+from open_webui.utils.pii import (
+    text_masking,
+    consolidate_pii_data,
+    set_file_entity_ids,
+    apply_pii_masking_to_content,
+)
 
 from open_webui.tasks import create_task
 
@@ -642,6 +646,55 @@ async def chat_completion_files_handler(
         if len(queries) == 0:
             queries = [get_last_user_message(body["messages"])]
 
+        # Build file_entities_dict for consistent PII labeling across all files
+        known_entities = body.get("metadata", {}).get("known_entities", [])
+        file_entities_dict = {}
+
+        # Extract PII entities from files metadata to build initial dictionary
+        for file_item in files:
+            # Path 1: file.data.pii (most common for uploaded files)
+            if file_item.get("file", {}).get("data", {}).get("pii"):
+                try:
+                    pii_data = file_item["file"]["data"]["pii"]
+                    if isinstance(pii_data, str):
+                        pii_dict = json.loads(pii_data)
+                    elif isinstance(pii_data, dict):
+                        pii_dict = pii_data
+                    else:
+                        pii_dict = {}
+                    file_entities_dict.update(pii_dict)
+                except (json.JSONDecodeError, TypeError, KeyError) as e:
+                    log.warning(f"Failed to parse PII dict from file.data.pii: {e}")
+
+            # Path 2: Load from database if not in file data
+            elif file_item.get("id"):
+                try:
+                    from open_webui.models.files import Files
+
+                    file_object = Files.get_file_by_id(file_item["id"])
+                    if file_object and file_object.data.get("pii"):
+                        pii_data = file_object.data.get("pii")
+                        if isinstance(pii_data, str):
+                            pii_dict = json.loads(pii_data)
+                        elif isinstance(pii_data, dict):
+                            pii_dict = pii_data
+                        else:
+                            pii_dict = {}
+                        file_entities_dict.update(pii_dict)
+                except Exception as e:
+                    log.warning(
+                        f"Failed to load PII from database for file {file_item.get('id')}: {e}"
+                    )
+
+        # Set consistent entity IDs based on known entities
+        if file_entities_dict and known_entities:
+            file_entities_dict = set_file_entity_ids(file_entities_dict, known_entities)
+
+        # Store file_entities_dict in metadata for PII masking functions to access
+        if not body.get("metadata"):
+            body["metadata"] = {}
+        body["metadata"]["file_entities_dict"] = file_entities_dict
+
         try:
             # Offload get_sources_from_items to a separate thread
             loop = asyncio.get_running_loop()
@@ -652,7 +705,8 @@ async def chat_completion_files_handler(
                         request=request,
                         items=files,
                         queries=queries,
-                        embedding_function=lambda query, prefix: request.app.state.EMBEDDING_FUNCTION(
+                        embedding_function=lambda query,
+                        prefix: request.app.state.EMBEDDING_FUNCTION(
                             query, prefix=prefix, user=user
                         ),
                         k=request.app.state.config.TOP_K,
@@ -1039,29 +1093,9 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     if len(sources) > 0:
         context_string = ""
         citation_idx_map = {}
-        # Create a dictionary to store known entities with text as key
+
+        # Build file_entities_dict from the sources for consistent PII masking
         file_entities_dict = {}
-
-        for file_source in sources:
-            if "document" in file_source and not file_source.get("tool_result", False):
-                for file_metadata in file_source["metadata"]:
-                    pii_dict = {}
-                    if "pii" in file_metadata:
-                        try:
-                            pii_dict = json.loads(file_metadata["pii"])
-                        except (json.JSONDecodeError, TypeError) as e:
-                            log.warning(f"Failed to parse PII dict: {e}")
-                    file_entities_dict.update(pii_dict)
-
-        file_entities_dict = set_file_entity_ids(
-            file_entities_dict, metadata["known_entities"]
-        )
-
-        # Log the known entities dictionary for debugging
-        log.debug(f"Known entities dictionary: {file_entities_dict}")
-        # Create a dictionary to store known entities with text as key
-        file_entities_dict = {}
-
         for file_source in sources:
             if "document" in file_source and not file_source.get("tool_result", False):
                 for file_metadata in file_source["metadata"]:
@@ -1125,22 +1159,16 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                         f"Processing PII for document: {document_metadata.get('source', 'unknown')}"
                     )
 
-                    # Parse PII data from metadata - it's stored as a JSON string
-                    pii_data = []
-                    if "pii" in document_metadata:
-                        try:
-                            pii_dict = json.loads(document_metadata["pii"])
-                            # Convert dict values to list for text_masking function
-                            pii_data = list(pii_dict.values())
-                        except (json.JSONDecodeError, TypeError) as e:
-                            log.warning(f"Failed to parse PII data: {e}")
-                            pii_data = []
+                    # Add file_entities_dict to document metadata for PII masking
+                    document_metadata_with_entities = {
+                        **document_metadata,
+                        "file_entities_dict": file_entities_dict,
+                    }
 
-                    consolidated_pii = consolidate_pii_data(
-                        pii_data, file_entities_dict
+                    # Apply PII masking using the shared function
+                    masked_text = apply_pii_masking_to_content(
+                        document_text, document_metadata_with_entities
                     )
-                    # Mask PII in the document text using metadata from the vector DB
-                    masked_text = text_masking(document_text, consolidated_pii, [])
 
                     context_string += (
                         f'<source id="{citation_idx_map[source_id]}"'
@@ -2017,7 +2045,9 @@ async def process_chat_response(
             content = (
                 message.get("content", "")
                 if message
-                else last_assistant_message if last_assistant_message else ""
+                else last_assistant_message
+                if last_assistant_message
+                else ""
             )
 
             content_blocks = [
