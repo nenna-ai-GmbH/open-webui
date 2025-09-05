@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Tuple
 
 
+import json
 import logging
 import sys
 
@@ -213,17 +214,79 @@ def text_masking(
     return text
 
 
+def apply_pii_masking_to_content(content: str, metadata: dict) -> str:
+    """
+    Apply PII masking to content using metadata PII data.
+    This is the shared function used by both middleware and retrieval for consistent PII masking.
+
+    Args:
+        content: The text content to mask
+        metadata: Metadata dictionary that may contain PII data
+        file_entities_dict: Known entities dictionary for consistent labeling
+
+    Returns:
+        The content with PII masked using labels like [{PERSON_1}]
+    """
+    if not content or not metadata:
+        return content
+
+    # Parse PII data from metadata - it's stored as a JSON string
+    pii_data = []
+    if "pii" in metadata:
+        try:
+            pii_dict = (
+                json.loads(metadata["pii"])
+                if isinstance(metadata["pii"], str)
+                else metadata["pii"]
+            )
+            # Convert dict values to list for text_masking function
+            pii_data = list(pii_dict.values()) if isinstance(pii_dict, dict) else []
+        except (json.JSONDecodeError, TypeError) as e:
+            log.warning(f"Failed to parse PII data: {e}")
+            pii_data = []
+
+    if not pii_data:
+        return content
+
+    try:
+        # Extract file_entities_dict from metadata for consistent labeling across files
+        file_entities_dict = metadata.get("file_entities_dict", {})
+        consolidated_pii = consolidate_pii_data(pii_data, file_entities_dict)
+
+        # Apply PII masking to content
+        masked_text = text_masking(content, consolidated_pii, [])
+        return masked_text
+    except Exception as e:
+        log.warning(f"Failed to apply PII masking: {e}")
+        return content
+
+
 def consolidate_pii_data(pii_data: list[dict], file_entities_dict: dict) -> dict:
     """
     Consolidate PII data by using id from known entities.
+    If file_entities_dict is empty, return pii_data as-is with existing labels.
     """
-    # update ids
+    if not file_entities_dict:
+        return pii_data
+
+    # Update entity IDs and labels using known entities for consistency
     for file_pii in pii_data:
-        file_pii["id"] = file_entities_dict[file_pii["text"].lower()]["id"]
-        file_pii["type"] = file_entities_dict[file_pii["text"].lower()]["type"]
-        file_pii["label"] = (
-            f"{file_entities_dict[file_pii['text'].lower()]['type']}_{file_entities_dict[file_pii['text'].lower()]['id']}"
-        )
+        text_key = file_pii.get("text", "").lower()
+
+        if text_key and text_key in file_entities_dict:
+            # Use consolidated entity mapping
+            file_pii["id"] = file_entities_dict[text_key]["id"]
+            file_pii["type"] = file_entities_dict[text_key]["type"]
+            file_pii["label"] = (
+                f"{file_entities_dict[text_key]['type']}_{file_entities_dict[text_key]['id']}"
+            )
+
+        # Ensure label exists for text_masking function
+        if "label" not in file_pii or not file_pii["label"]:
+            pii_type = file_pii.get("type", "PII")
+            pii_id = file_pii.get("id", 1)
+            file_pii["label"] = f"{pii_type}_{pii_id}"
+
     return pii_data
 
 
@@ -245,14 +308,14 @@ def set_file_entity_ids(file_entities_dict: dict, known_entities: list[dict]) ->
             file_entities_dict[pii]["type"] = known_entities_dict[pii]["label"].split(
                 "_"
             )[0]
-            file_entities_dict[pii][
-                "label"
-            ] = f"{file_entities_dict[pii]['type']}_{file_entities_dict[pii]['id']}"
+            file_entities_dict[pii]["label"] = (
+                f"{file_entities_dict[pii]['type']}_{file_entities_dict[pii]['id']}"
+            )
         else:
             max_id_known_entities += 1
             file_entities_dict[pii]["id"] = max_id_known_entities
-            file_entities_dict[pii][
-                "label"
-            ] = f"{file_entities_dict[pii]['type']}_{file_entities_dict[pii]['id']}"
+            file_entities_dict[pii]["label"] = (
+                f"{file_entities_dict[pii]['type']}_{file_entities_dict[pii]['id']}"
+            )
 
     return file_entities_dict

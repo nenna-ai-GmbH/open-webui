@@ -271,6 +271,10 @@ type Config = {
 		pending_user_overlay_title?: string;
 		pending_user_overlay_description?: string;
 	};
+	pii?: {
+		api_key?: string;
+		api_base_url?: string;
+	};
 };
 
 type PromptSuggestion = {
