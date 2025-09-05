@@ -672,22 +672,24 @@
 											</div>
 										</div>
 									{:else}
-										<FileItem
-											item={file}
-											name={file.name}
-											type={file.type}
-											size={file?.size}
-											loading={file.status === 'uploading'}
-											dismissible={true}
-											edit={true}
-											on:dismiss={() => {
-												files.splice(fileIdx, 1);
-												files = files;
-											}}
-											on:click={() => {
-												console.log(file);
-											}}
-										/>
+																			<FileItem
+										item={file}
+										name={file.name}
+										type={file.type}
+										size={file?.size}
+										loading={file.status === 'uploading'}
+										dismissible={true}
+										edit={true}
+										enablePiiDetection={$config?.features?.enable_pii_detection ?? false}
+										conversationId={id}
+										on:dismiss={() => {
+											files.splice(fileIdx, 1);
+											files = files;
+										}}
+										on:click={() => {
+											console.log(file);
+										}}
+									/>
 									{/if}
 								{/each}
 							</div>
