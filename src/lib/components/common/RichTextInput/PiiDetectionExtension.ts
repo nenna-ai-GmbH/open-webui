@@ -568,6 +568,8 @@ function createPiiDecorations(
 					const decorationClass =
 						modifier.action === 'string-mask'
 							? 'pii-modifier-highlight pii-modifier-mask'
+							: modifier.action === 'word-mask'
+							? 'pii-modifier-highlight pii-modifier-word-mask'
 							: 'pii-modifier-highlight pii-modifier-ignore';
 
 					decorations.push(
@@ -644,6 +646,8 @@ function createPiiDecorations(
 				const decorationClass =
 					modifier.action === 'string-mask'
 						? 'pii-modifier-highlight pii-modifier-mask'
+						: modifier.action === 'word-mask'
+						? 'pii-modifier-highlight pii-modifier-word-mask'
 						: 'pii-modifier-highlight pii-modifier-ignore';
 
 				decorations.push(
