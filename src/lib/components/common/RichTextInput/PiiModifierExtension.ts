@@ -4,7 +4,7 @@ import type { Node as ProseMirrorNode } from 'prosemirror-model';
 import type { EditorView } from 'prosemirror-view';
 import type { EditorState, Transaction } from 'prosemirror-state';
 import { PiiSessionManager } from '$lib/utils/pii';
-import { generateModifierId } from './PiiTextUtils';
+import { generateModifierId, findCompleteWordsRobust } from './PiiTextUtils';
 import { findTokenizedWords } from './PiiTokenization';
 import { getPiiConfig, type PiiExtensionConfig } from './PiiExtensionConfig';
 import { PiiPerformanceTracker } from './PiiPerformanceOptimizer';
@@ -272,7 +272,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 								let finalTo = selTo;
 								let finalEntity = rawEntity;
 
-								// If this is from an existing PII highlight, trust the entity text and don't tokenize
+								// Simplified ADD_MODIFIER logic - use provided entity text directly
 								if (meta.isExistingPii && rawEntity) {
 									// Use the entity text and positions as provided - no tokenization needed
 									// This prevents "und" being selected from "wachsenden Entwickler- und Projektteams"
@@ -280,65 +280,15 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 									finalFrom = selFrom;
 									finalTo = selTo;
 								} else {
-									// Original tokenization logic for new text selections
-									try {
-										const selectedText = doc.textBetween(selFrom, selTo, '\n', '\0');
-										const slice = (selectedText || '').normalize('NFKC');
-										if (slice) {
-											// First, try exact rawEntity alignment within the slice
-											if (rawEntity) {
-												const idx = slice.indexOf(rawEntity);
-												if (idx >= 0) {
-													finalFrom = selFrom + idx;
-													finalTo = finalFrom + rawEntity.length;
-													finalEntity = rawEntity;
-												}
-											}
-
-											// If not aligned yet, derive the best token from the slice
-											if (finalFrom === selFrom && finalTo === selTo) {
-												// Tokenize slice and prefer alphabetic tokens
-												const tokens: Array<{
-													start: number;
-													end: number;
-													text: string;
-													hasAlpha: boolean;
-												}> = [];
-												const re = config.patterns.tokenizationFallback;
-												let m: RegExpExecArray | null;
-												re.lastIndex = 0;
-												while ((m = re.exec(slice)) !== null) {
-													const t = m[0];
-													tokens.push({
-														start: m.index,
-														end: m.index + t.length,
-														text: t,
-														hasAlpha: /[A-Za-zÀ-ÿ]/.test(t)
-													});
-												}
-
-												if (tokens.length > 0) {
-													// Prefer the last alphabetic token; else the last token
-													const alphaTokens = tokens.filter((t) => t.hasAlpha);
-													const pick =
-														alphaTokens.length > 0
-															? alphaTokens[alphaTokens.length - 1]
-															: tokens[tokens.length - 1];
-													finalFrom = selFrom + pick.start;
-													finalTo = selFrom + pick.end;
-													finalEntity = pick.text;
-												} else {
-													// Fallback: trimmed slice
-													const trimmed = slice.replace(/\s+/g, ' ').trim();
-													if (trimmed) {
-														finalEntity = trimmed;
-													}
-												}
-											}
-										}
-									} catch {
-										// Continue with default entity
-									}
+									// For new text selections, use provided entity text directly - no complex tokenization
+									finalEntity = rawEntity || doc.textBetween(selFrom, selTo, '\n', '\0').trim();
+									finalFrom = selFrom;
+									finalTo = selTo;
+								}
+								
+								// Skip if no valid entity text
+								if (!finalEntity) {
+									break;
 								}
 
 								const newModifier: PiiModifier = {
@@ -454,10 +404,10 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 							piiSessionManager.getModifiersForDisplay(currentConversationId);
 						const entityText = existingEntity.text;
 
-						// Find mask modifier for this entity
+						// Find mask modifier for this entity (both string-mask and word-mask)
 						const maskModifier = sessionModifiers.find(
 							(modifier) =>
-								modifier.action === 'string-mask' &&
+								(modifier.action === 'string-mask' || modifier.action === 'word-mask') &&
 								modifier.entity.toLowerCase() === entityText.toLowerCase()
 						);
 
@@ -833,6 +783,38 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 					return true;
 				},
 
+			// NEW: Add word-mask modifier for complete words in selection
+			addWordMaskModifier:
+				() =>
+				({ state, dispatch }: CommandContext) => {
+					const { from, to } = state.selection;
+					if (from === to) return false; // No selection
+
+					// Use robust tokenization with broader context (inspired by old findTokenizedWords)
+					const completeWordsText = findCompleteWordsRobust(state.doc, from, to);
+					if (!completeWordsText.trim()) {
+						console.log('PiiModifierExtension: No complete words found in selection');
+						return false; // No complete words found
+					}
+					
+					console.log('PiiModifierExtension: Found complete words:', completeWordsText);
+
+					const tr = state.tr.setMeta(piiModifierExtensionKey, {
+						type: 'ADD_MODIFIER',
+						modifierAction: 'word-mask' as ModifierAction,
+						entity: completeWordsText,
+						piiType: 'CUSTOM',
+						from,
+						to
+					});
+
+					if (dispatch) {
+						dispatch(tr);
+					}
+
+					return true;
+				},
+
 			// Add a modifier programmatically
 			addModifier:
 				(options: {
@@ -914,7 +896,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 					return true;
 				},
 
-			// Add modifiers for all tokenized words in selection
+			// DEPRECATED: Use addWordMaskModifier instead - this creates multiple modifiers
 			addTokenizedMask:
 				() =>
 				({ state, dispatch }: CommandContext) => {
@@ -1097,3 +1079,5 @@ export function addPiiModifierStyles(config?: PiiExtensionConfig) {
 
 	document.head.appendChild(styleElement);
 }
+
+

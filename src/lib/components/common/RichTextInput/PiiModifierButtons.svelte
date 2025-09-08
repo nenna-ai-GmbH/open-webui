@@ -65,10 +65,10 @@
 		}
 	}
 
-	const addTokenizedMask = () => {
+	const addWordMask = () => {
 		if (!isValidSelection()) return;
-		// Use the new addTokenizedMask command that applies findTokenizedWords
-		editor?.commands?.addTokenizedMask?.();
+		// Use the new addWordMaskModifier command that finds complete words in selection
+		editor?.commands?.addWordMaskModifier?.();
 	};
 </script>
 
@@ -79,10 +79,10 @@
 		<button
 			type="button"
 			class="hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg p-1.5 transition-all text-xs font-medium flex items-center gap-1"
-			on:click={addTokenizedMask}
-			title="PII Modifier: Mask selected text"
+			on:click={addWordMask}
+			title="PII Modifier: Mask complete words in selection"
 		>
-			🛡️ Mask
+			🛡️ Mask Words
 		</button>
 	</div>
 {/if}
