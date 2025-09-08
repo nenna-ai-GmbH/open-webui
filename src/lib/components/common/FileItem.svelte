@@ -64,6 +64,44 @@
 			return { displayName: name, isFilenameMasked: false };
 		}
 
+		// Special handling for collections from PII-enabled knowledge bases
+		if (type === 'collection') {
+			// Check if this collection has PII detection enabled
+			// Collections from the knowledge store retain their enable_pii_detection property
+			const collectionHasPiiEnabled = item?.enable_pii_detection === true;
+			
+			if (collectionHasPiiEnabled) {
+				// For collections, check if the name has been altered or if there's metadata indicating masking
+				const hasOriginalNameInMeta = item?.meta?.name && item.meta.name !== name;
+				
+				// Also check PII session manager for any collection-related mappings
+				const piiSessionManager = PiiSessionManager.getInstance();
+				let mapping = null;
+
+				if (conversationId) {
+					const mappings = piiSessionManager.getFilenameMappingsForDisplay(conversationId);
+					mapping = mappings.find((m) => m.fileId === name || m.maskedFilename === name);
+				}
+
+				if (!mapping) {
+					const tempMappings = piiSessionManager.getTemporaryFilenameMappings();
+					mapping = tempMappings.find((m) => m.fileId === name || m.maskedFilename === name);
+				}
+
+				if (hasOriginalNameInMeta) {
+					return { displayName: item.meta.name, isFilenameMasked: true };
+				}
+
+				if (mapping && mapping.originalFilename) {
+					return { displayName: mapping.originalFilename, isFilenameMasked: true };
+				}
+
+				// For PII-enabled collections, show PII badge to indicate they come from a PII-enabled source
+				return { displayName: name, isFilenameMasked: true };
+			}
+		}
+
+		// Original logic for files
 		// Check if name looks like a UUID or file ID (indicating it's masked)
 		const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 		const shortIdPattern = /^[a-zA-Z0-9_-]{8,32}$/;
@@ -180,7 +218,12 @@
 					{decodeString(displayName)}
 				</div>
 				{#if isFilenameMasked}
-					<Tooltip content={$i18n.t('Filename masked for privacy')} placement="top">
+					<Tooltip 
+						content={type === 'collection' 
+							? $i18n.t('From PII-enabled knowledge base') 
+							: $i18n.t('Filename masked for privacy')} 
+						placement="top"
+					>
 						<div
 							class="flex items-center justify-center size-4 bg-sky-50 dark:bg-sky-200/10 text-sky-600 dark:text-sky-400 rounded-full"
 						>
@@ -229,7 +272,12 @@
 					{/if}
 					<div class="font-medium line-clamp-1 flex-1">{decodeString(displayName)}</div>
 					{#if isFilenameMasked}
-						<Tooltip content={$i18n.t('Filename masked for privacy')} placement="top">
+						<Tooltip 
+							content={type === 'collection' 
+								? $i18n.t('From PII-enabled knowledge base') 
+								: $i18n.t('Filename masked for privacy')} 
+							placement="top"
+						>
 							<div
 								class="flex items-center justify-center size-4 bg-sky-50 dark:bg-sky-200/10 text-sky-600 dark:text-sky-400 rounded-full mx-1 flex-shrink-0"
 							>
