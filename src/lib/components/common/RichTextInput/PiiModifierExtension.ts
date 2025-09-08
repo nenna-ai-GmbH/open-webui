@@ -285,7 +285,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 									finalFrom = selFrom;
 									finalTo = selTo;
 								}
-								
+
 								// Skip if no valid entity text
 								if (!finalEntity) {
 									break;
@@ -796,7 +796,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 						console.log('PiiModifierExtension: No complete words found in selection');
 						return false; // No complete words found
 					}
-					
+
 					console.log('PiiModifierExtension: Found complete words:', completeWordsText);
 
 					const tr = state.tr.setMeta(piiModifierExtensionKey, {
@@ -1079,5 +1079,3 @@ export function addPiiModifierStyles(config?: PiiExtensionConfig) {
 
 	document.head.appendChild(styleElement);
 }
-
-

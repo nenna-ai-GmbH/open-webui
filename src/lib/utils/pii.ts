@@ -219,7 +219,7 @@ export class PiiSessionManager {
 	};
 
 	private workingEntitiesForConversations: Map<string, ExtendedPiiEntity[]> = new Map();
-	
+
 	// Store current PII masking state
 	private currentPiiMaskingEnabled: boolean = true;
 

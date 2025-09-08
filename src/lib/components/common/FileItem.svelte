@@ -69,11 +69,11 @@
 			// Check if this collection has PII detection enabled
 			// Collections from the knowledge store retain their enable_pii_detection property
 			const collectionHasPiiEnabled = item?.enable_pii_detection === true;
-			
+
 			if (collectionHasPiiEnabled) {
 				// For collections, check if the name has been altered or if there's metadata indicating masking
 				const hasOriginalNameInMeta = item?.meta?.name && item.meta.name !== name;
-				
+
 				// Also check PII session manager for any collection-related mappings
 				const piiSessionManager = PiiSessionManager.getInstance();
 				let mapping = null;
@@ -218,10 +218,10 @@
 					{decodeString(displayName)}
 				</div>
 				{#if isFilenameMasked}
-					<Tooltip 
-						content={type === 'collection' 
-							? $i18n.t('From PII-enabled knowledge base') 
-							: $i18n.t('Filename masked for privacy')} 
+					<Tooltip
+						content={type === 'collection'
+							? $i18n.t('From PII-enabled knowledge base')
+							: $i18n.t('Filename masked for privacy')}
 						placement="top"
 					>
 						<div
@@ -272,10 +272,10 @@
 					{/if}
 					<div class="font-medium line-clamp-1 flex-1">{decodeString(displayName)}</div>
 					{#if isFilenameMasked}
-						<Tooltip 
-							content={type === 'collection' 
-								? $i18n.t('From PII-enabled knowledge base') 
-								: $i18n.t('Filename masked for privacy')} 
+						<Tooltip
+							content={type === 'collection'
+								? $i18n.t('From PII-enabled knowledge base')
+								: $i18n.t('Filename masked for privacy')}
 							placement="top"
 						>
 							<div

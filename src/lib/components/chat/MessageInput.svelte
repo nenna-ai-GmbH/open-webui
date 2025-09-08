@@ -649,7 +649,12 @@
 	$: if (enablePiiDetection && files && files.length > 0) {
 		// Check for files that have IDs but haven't had their PII entities loaded yet
 		files.forEach(async (file) => {
-			if (file.id && !loadedFileIds.has(file.id) && file.status !== 'uploading' && file.status !== 'processing') {
+			if (
+				file.id &&
+				!loadedFileIds.has(file.id) &&
+				file.status !== 'uploading' &&
+				file.status !== 'processing'
+			) {
 				console.log('MessageInput: Loading PII entities for existing file:', {
 					fileId: file.id,
 					fileName: file.name,
@@ -662,7 +667,10 @@
 
 					// Skip PII loading for collections - they don't have individual file data
 					if (file.type === 'collection') {
-						console.log('MessageInput: Skipping PII loading for collection (collections are knowledge base containers, not files):', file.id);
+						console.log(
+							'MessageInput: Skipping PII loading for collection (collections are knowledge base containers, not files):',
+							file.id
+						);
 						return;
 					}
 
@@ -676,7 +684,10 @@
 						// Sync PII detections from the file data
 						syncPiiDetectionsFromFileData(freshFileData, isKnowledgeBaseFile, knowledgeBaseId);
 
-						console.log('MessageInput: Successfully loaded PII entities for existing file:', file.id);
+						console.log(
+							'MessageInput: Successfully loaded PII entities for existing file:',
+							file.id
+						);
 					}
 				} catch (e) {
 					console.log('MessageInput: Error loading PII entities for existing file:', file.id, e);
@@ -781,7 +792,7 @@
 
 		// Toggle the masking state
 		piiMaskingEnabled = !piiMaskingEnabled;
-		
+
 		// Store the state in session manager
 		piiSessionManager.setCurrentPiiMaskingEnabled(piiMaskingEnabled);
 
@@ -1057,15 +1068,15 @@
 								try {
 									fileItem.file = json;
 								} catch (e) {}
-															// NEW: sync any PII detections from this file into the session manager
-							// Only if PII detection is enabled
-							if (enablePiiDetection) {
-								syncPiiDetectionsFromFileData(json, false, null);
-								// Mark this file as having its PII entities loaded
-								if (uploadedFile.id) {
-									loadedFileIds.add(uploadedFile.id);
+								// NEW: sync any PII detections from this file into the session manager
+								// Only if PII detection is enabled
+								if (enablePiiDetection) {
+									syncPiiDetectionsFromFileData(json, false, null);
+									// Mark this file as having its PII entities loaded
+									if (uploadedFile.id) {
+										loadedFileIds.add(uploadedFile.id);
+									}
 								}
-							}
 								const processing = json?.meta?.processing;
 								if (processing) {
 									console.log('Processing progress:', processing);
@@ -1547,8 +1558,8 @@
 												// Pass Knowledge Base context information for proper PII state transfer
 												syncPiiDetectionsFromFileData(json, isKnowledgeBaseFile, knowledgeBaseId);
 												// Mark this file as having its PII entities loaded
-											loadedFileIds.add(data.id);
-										}
+												loadedFileIds.add(data.id);
+											}
 										} catch (e) {}
 									})();
 								}

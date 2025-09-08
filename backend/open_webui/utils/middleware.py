@@ -705,8 +705,7 @@ async def chat_completion_files_handler(
                         request=request,
                         items=files,
                         queries=queries,
-                        embedding_function=lambda query,
-                        prefix: request.app.state.EMBEDDING_FUNCTION(
+                        embedding_function=lambda query, prefix: request.app.state.EMBEDDING_FUNCTION(
                             query, prefix=prefix, user=user
                         ),
                         k=request.app.state.config.TOP_K,
@@ -1091,7 +1090,7 @@ async def process_chat_payload(request, form_data, user, metadata, model):
 
     # Initialize consolidated entities list and file entities dict
     file_entities_dict = {}
-    
+
     # If context is not empty, insert it into the messages
     if len(sources) > 0:
         context_string = ""
@@ -1217,21 +1216,25 @@ async def process_chat_payload(request, form_data, user, metadata, model):
 
     if len(sources) > 0:
         events.append({"sources": sources})
-    
+
     # Add consolidated PII entities to events for frontend
     if file_entities_dict:
         # Convert file_entities_dict to array format expected by frontend
         consolidated_entities = []
         for entity_data in file_entities_dict.values():
-            consolidated_entities.append({
-                "id": entity_data.get("id", 1),
-                "label": entity_data.get("label", "PII_1"),
-                "name": entity_data.get("text", ""),
-                "type": entity_data.get("type", "PII"),
-                "raw_text": entity_data.get("raw_text", ""),
-            })
+            consolidated_entities.append(
+                {
+                    "id": entity_data.get("id", 1),
+                    "label": entity_data.get("label", "PII_1"),
+                    "name": entity_data.get("text", ""),
+                    "type": entity_data.get("type", "PII"),
+                    "raw_text": entity_data.get("raw_text", ""),
+                }
+            )
         events.append({"consolidated_known_entities": consolidated_entities})
-        log.info(f"🔒 PII CONSOLIDATION: Returning {len(consolidated_entities)} consolidated entities to client")
+        log.info(
+            f"🔒 PII CONSOLIDATION: Returning {len(consolidated_entities)} consolidated entities to client"
+        )
 
     if model_knowledge:
         await event_emitter(
@@ -2060,9 +2063,7 @@ async def process_chat_response(
             content = (
                 message.get("content", "")
                 if message
-                else last_assistant_message
-                if last_assistant_message
-                else ""
+                else last_assistant_message if last_assistant_message else ""
             )
 
             content_blocks = [

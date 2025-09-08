@@ -569,8 +569,8 @@ function createPiiDecorations(
 						modifier.action === 'string-mask'
 							? 'pii-modifier-highlight pii-modifier-mask'
 							: modifier.action === 'word-mask'
-							? 'pii-modifier-highlight pii-modifier-word-mask'
-							: 'pii-modifier-highlight pii-modifier-ignore';
+								? 'pii-modifier-highlight pii-modifier-word-mask'
+								: 'pii-modifier-highlight pii-modifier-ignore';
 
 					decorations.push(
 						Decoration.inline(occurrence.start_idx, occurrence.end_idx, {
@@ -647,8 +647,8 @@ function createPiiDecorations(
 					modifier.action === 'string-mask'
 						? 'pii-modifier-highlight pii-modifier-mask'
 						: modifier.action === 'word-mask'
-						? 'pii-modifier-highlight pii-modifier-word-mask'
-						: 'pii-modifier-highlight pii-modifier-ignore';
+							? 'pii-modifier-highlight pii-modifier-word-mask'
+							: 'pii-modifier-highlight pii-modifier-ignore';
 
 				decorations.push(
 					Decoration.inline(from, to, {
