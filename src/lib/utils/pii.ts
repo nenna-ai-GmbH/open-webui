@@ -219,6 +219,9 @@ export class PiiSessionManager {
 	};
 
 	private workingEntitiesForConversations: Map<string, ExtendedPiiEntity[]> = new Map();
+	
+	// Store current PII masking state
+	private currentPiiMaskingEnabled: boolean = true;
 
 	static getInstance(): PiiSessionManager {
 		if (!PiiSessionManager.instance) {
@@ -395,6 +398,15 @@ export class PiiSessionManager {
 
 		// Trigger save for the new conversation
 		this.triggerChatSave(conversationId);
+	}
+
+	// Simple methods to store and retrieve PII masking state
+	setCurrentPiiMaskingEnabled(enabled: boolean) {
+		this.currentPiiMaskingEnabled = enabled;
+	}
+
+	getCurrentPiiMaskingEnabled(): boolean {
+		return this.currentPiiMaskingEnabled;
 	}
 
 	clearTemporaryState() {

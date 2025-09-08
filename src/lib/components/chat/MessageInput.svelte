@@ -638,6 +638,13 @@
 	$: enablePiiDetection = piiConfigEnabled && piiMaskingEnabled;
 	$: piiApiKey = $config?.pii?.api_key ?? '';
 
+	// Load PII masking state from session manager when chatId changes
+	let previousChatId = '';
+	$: if (chatId !== previousChatId) {
+		previousChatId = chatId;
+		piiMaskingEnabled = piiSessionManager.getCurrentPiiMaskingEnabled();
+	}
+
 	// Load PII entities for existing files on page load or when PII detection is enabled
 	$: if (enablePiiDetection && files && files.length > 0) {
 		// Check for files that have IDs but haven't had their PII entities loaded yet
@@ -774,6 +781,9 @@
 
 		// Toggle the masking state
 		piiMaskingEnabled = !piiMaskingEnabled;
+		
+		// Store the state in session manager
+		piiSessionManager.setCurrentPiiMaskingEnabled(piiMaskingEnabled);
 
 		console.log('MessageInput: PII masking toggled to:', piiMaskingEnabled);
 
