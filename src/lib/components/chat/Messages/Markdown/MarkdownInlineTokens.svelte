@@ -74,7 +74,7 @@
 			/></em
 		>
 	{:else if token.type === 'codespan'}
-		<CodespanToken {token} {done} />
+		<CodespanToken {token} {done} {conversationId} id={`${id}-codespan`} />
 	{:else if token.type === 'br'}
 		<br />
 	{:else if token.type === 'del'}
