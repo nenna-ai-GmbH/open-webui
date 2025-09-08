@@ -1288,7 +1288,7 @@
 	};
 
 	const chatCompletionEventHandler = async (data, message, chatId) => {
-		const { id, done, choices, content, sources, selected_model_id, error, usage } = data;
+		const { id, done, choices, content, sources, selected_model_id, error, usage, consolidated_known_entities } = data;
 
 		if (error) {
 			await handleOpenAIError(error, message);
@@ -1296,6 +1296,28 @@
 
 		if (sources && !message?.sources) {
 			message.sources = sources;
+		}
+
+		// Handle consolidated PII entities from RAG chunks
+		if (consolidated_known_entities && consolidated_known_entities.length > 0) {
+			console.log('Chat: Received consolidated PII entities from RAG chunks:', consolidated_known_entities.length);
+			
+			// Convert to PiiEntity format for session manager
+			const piiEntities = consolidated_known_entities.map(entity => ({
+				id: entity.id,
+				label: entity.label,
+				type: entity.type || 'PII',
+				text: entity.name,
+				occurrences: [], // RAG entities don't have specific occurrences in the response
+				raw_text: entity.raw_text,
+			}));
+
+			// Use the existing method to consolidate with conversation state
+			if (chatId) {
+				const piiSessionManager = PiiSessionManager.getInstance();
+				piiSessionManager.setConversationEntitiesFromLatestDetection(chatId, piiEntities);
+				console.log('Chat: Consolidated RAG PII entities with conversation state');
+			}
 		}
 
 		if (choices) {
