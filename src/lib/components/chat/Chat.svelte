@@ -63,6 +63,7 @@
 		getTagsById,
 		updateChatById
 	} from '$lib/apis/chats';
+	import { getFileById } from '$lib/apis/files';
 	import { generateOpenAIChatCompletion } from '$lib/apis/openai';
 	import { processWeb, processWebSearch, processYoutubeVideo } from '$lib/apis/retrieval';
 	import { createOpenAITextStream } from '$lib/apis/streaming';
@@ -165,6 +166,76 @@
 	$: if (chatIdProp) {
 		navigateHandler();
 	}
+
+	// Helper function to load PII entities from files (both uploaded and collection files)
+	const loadPiiEntitiesFromFiles = async (files: any[], piiManager: any) => {
+		for (const file of files) {
+			if (file.id) {
+				try {
+					// For uploaded files, check if PII data is already available
+					if (file.file?.data?.pii) {
+						const piiData = file.file.data.pii;
+						// Convert the pii object to an array of entities
+						const entities = Object.values(piiData).map((entity: any) => ({
+							id: entity.id,
+							label: entity.label,
+							type: entity.type,
+							raw_text: entity.raw_text,
+							text: entity.text,
+							occurrences: entity.occurrences,
+							shouldMask: true // Default to masked
+						}));
+						
+						if (entities.length > 0) {
+							piiManager.setTemporaryStateEntities(entities);
+							console.log('Loaded PII entities from uploaded file:', file.id, entities.length);
+						}
+					} else if (file.type === 'collection' || file.knowledge === true) {
+						// For collection files, fetch the full file data to get PII information
+						console.log('Loading PII entities from collection file:', file.id);
+						const fileData = await getFileById(localStorage.token, file.id);
+						
+						if (fileData?.data?.pii) {
+							const piiData = fileData.data.pii;
+							// Convert the pii object to an array of entities
+							const entities = Object.values(piiData).map((entity: any) => ({
+								id: entity.id,
+								label: entity.label,
+								type: entity.type,
+								raw_text: entity.raw_text,
+								text: entity.text,
+								occurrences: entity.occurrences,
+								shouldMask: true // Default to masked
+							}));
+							
+							if (entities.length > 0) {
+								piiManager.setTemporaryStateEntities(entities);
+								console.log('Loaded PII entities from collection file:', file.id, entities.length);
+							}
+						} else if (fileData?.data?.piiState?.entities) {
+							// Handle new piiState format
+							const entities = fileData.data.piiState.entities.map((entity: any) => ({
+								id: entity.id,
+								label: entity.label,
+								type: entity.type || entity.entity_type || 'PII',
+								raw_text: entity.raw_text || entity.text || entity.name || '',
+								text: entity.text || entity.raw_text || entity.name || '',
+								occurrences: entity.occurrences || [],
+								shouldMask: entity.shouldMask ?? true
+							}));
+							
+							if (entities.length > 0) {
+								piiManager.setTemporaryStateEntities(entities);
+								console.log('Loaded PII entities from collection file (piiState):', file.id, entities.length);
+							}
+						}
+					}
+				} catch (error) {
+					console.warn('Failed to load PII entities from file:', file.id, error);
+				}
+			}
+		}
+	};
 
 	const navigateHandler = async () => {
 		loading = true;
@@ -929,6 +1000,11 @@
 
 		const chatInput = document.getElementById('chat-input');
 		setTimeout(() => chatInput?.focus(), 0);
+
+		// Load PII entities from files into temporary state
+		if (files && files.length > 0) {
+			loadPiiEntitiesFromFiles(files, piiManager);
+		}
 	};
 
 	const loadChat = async () => {
@@ -990,6 +1066,11 @@
 
 				params = chatContent?.params ?? {};
 				chatFiles = chatContent?.files ?? [];
+
+				// Load PII entities from collection files for existing chats
+				if (chatFiles && chatFiles.length > 0) {
+					loadPiiEntitiesFromFiles(chatFiles, piiManager);
+				}
 
 				autoScroll = true;
 				await tick();
