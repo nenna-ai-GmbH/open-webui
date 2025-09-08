@@ -1089,13 +1089,15 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     except Exception as e:
         log.exception(e)
 
+    # Initialize consolidated entities list and file entities dict
+    file_entities_dict = {}
+    
     # If context is not empty, insert it into the messages
     if len(sources) > 0:
         context_string = ""
         citation_idx_map = {}
 
         # Build file_entities_dict from the sources for consistent PII masking
-        file_entities_dict = {}
         for file_source in sources:
             if "document" in file_source and not file_source.get("tool_result", False):
                 for file_metadata in file_source["metadata"]:
@@ -1215,6 +1217,21 @@ async def process_chat_payload(request, form_data, user, metadata, model):
 
     if len(sources) > 0:
         events.append({"sources": sources})
+    
+    # Add consolidated PII entities to events for frontend
+    if file_entities_dict:
+        # Convert file_entities_dict to array format expected by frontend
+        consolidated_entities = []
+        for entity_data in file_entities_dict.values():
+            consolidated_entities.append({
+                "id": entity_data.get("id", 1),
+                "label": entity_data.get("label", "PII_1"),
+                "name": entity_data.get("text", ""),
+                "type": entity_data.get("type", "PII"),
+                "raw_text": entity_data.get("raw_text", ""),
+            })
+        events.append({"consolidated_known_entities": consolidated_entities})
+        log.info(f"🔒 PII CONSOLIDATION: Returning {len(consolidated_entities)} consolidated entities to client")
 
     if model_knowledge:
         await event_emitter(
@@ -1279,8 +1296,6 @@ async def process_chat_payload(request, form_data, user, metadata, model):
             log.debug(
                 f"Message {i}: Large content ({len(content)} chars), not logging full text"
             )
-
-    # TODO: we need to return the consolidated known entities to the client
 
     # Final file metadata check
     final_files = form_data.get("metadata", {}).get("files", [])
