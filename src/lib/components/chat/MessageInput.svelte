@@ -653,11 +653,17 @@
 					// Add to loaded set immediately to prevent duplicate loading
 					loadedFileIds.add(file.id);
 
+					// Skip PII loading for collections - they don't have individual file data
+					if (file.type === 'collection') {
+						console.log('MessageInput: Skipping PII loading for collection (collections are knowledge base containers, not files):', file.id);
+						return;
+					}
+
 					// Fetch fresh file data to ensure PII state is available
 					const freshFileData = await getFileById(localStorage.token, file.id);
 					if (freshFileData) {
-						// Determine if this is a Knowledge Base file
-						const isKnowledgeBaseFile = file.knowledge === true || file.type === 'collection';
+						// Determine if this is a Knowledge Base file (but not a collection)
+						const isKnowledgeBaseFile = file.knowledge === true;
 						const knowledgeBaseId = file.collection?.id || null;
 
 						// Sync PII detections from the file data
@@ -1476,18 +1482,19 @@
 						onUpload={(e) => {
 							const { type, data } = e;
 
-							if (type === 'file') {
+							if (type === 'file' || type === 'collection') {
 								if (files.find((f) => f.id === data.id)) {
 									return;
 								}
 
-								// Check if this is a Knowledge Base file
+								// Check if this is a Knowledge Base file or collection
 								const isKnowledgeBaseFile = data.knowledge === true;
-								const knowledgeBaseId = data.collection?.id || null;
+								const isCollection = type === 'collection';
+								const knowledgeBaseId = data.collection?.id || data.id; // For collections, use their own ID
 
-								// For Knowledge Base files, apply filename masking
+								// For Knowledge Base files, apply filename masking (but not for collections)
 								let fileToAdd = { ...data, status: 'processed' };
-								if (isKnowledgeBaseFile && enablePiiDetection) {
+								if (isKnowledgeBaseFile && enablePiiDetection && !isCollection) {
 									console.log('MessageInput: Processing Knowledge Base file with PII masking:', {
 										fileId: data.id,
 										originalName: data.name,
@@ -1503,20 +1510,26 @@
 
 									// Add filename mapping for this file
 									piiSessionManager.addFilenameMapping(chatId || undefined, data.id, data.name);
-								} else if (enablePiiDetection && data.id && data.name) {
-									// Regular file - add filename mapping if PII detection is enabled
+								} else if (enablePiiDetection && data.id && data.name && !isCollection) {
+									// Regular file - add filename mapping if PII detection is enabled (skip collections)
 									console.log('MessageInput: Adding filename mapping for command-selected file:', {
 										fileId: data.id,
 										originalName: data.name
 									});
 									piiSessionManager.addFilenameMapping(chatId || undefined, data.id, data.name);
+								} else if (isCollection) {
+									console.log('MessageInput: Adding collection (no filename masking):', {
+										collectionId: data.id,
+										collectionName: data.name,
+										hasPiiEnabled: data.enable_pii_detection
+									});
 								}
 
 								files = [...files, fileToAdd];
 
 								// Fetch full file details to seed PII entities into the current conversation
-								// Only do this if PII detection is enabled
-								if (enablePiiDetection) {
+								// Only do this if PII detection is enabled and it's not a collection
+								if (enablePiiDetection && data.type !== 'collection') {
 									(async () => {
 										try {
 											const json = await getFileById(localStorage.token, data.id);
