@@ -929,6 +929,30 @@
 
 		const chatInput = document.getElementById('chat-input');
 		setTimeout(() => chatInput?.focus(), 0);
+
+		// Load PII entities from files into temporary state
+		if (files && files.length > 0) {
+			for (const file of files) {
+				if (file.id && file.file?.data?.pii) {
+					const piiData = file.file.data.pii;
+					// Convert the pii object to an array of entities
+					const entities = Object.values(piiData).map((entity: any) => ({
+						id: entity.id,
+						label: entity.label,
+						type: entity.type,
+						raw_text: entity.raw_text,
+						text: entity.text,
+						occurrences: entity.occurrences,
+						shouldMask: true // Default to masked
+					}));
+					
+					if (entities.length > 0) {
+						piiManager.setTemporaryStateEntities(entities);
+						console.log('Loaded PII entities from file:', file.id, entities.length);
+					}
+				}
+			}
+		}
 	};
 
 	const loadChat = async () => {
