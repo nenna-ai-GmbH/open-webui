@@ -705,7 +705,8 @@ async def chat_completion_files_handler(
                         request=request,
                         items=files,
                         queries=queries,
-                        embedding_function=lambda query, prefix: request.app.state.EMBEDDING_FUNCTION(
+                        embedding_function=lambda query,
+                        prefix: request.app.state.EMBEDDING_FUNCTION(
                             query, prefix=prefix, user=user
                         ),
                         k=request.app.state.config.TOP_K,
@@ -1168,7 +1169,9 @@ async def process_chat_payload(request, form_data, user, metadata, model):
 
                     # Apply PII masking using the shared function
                     masked_text = apply_pii_masking_to_content(
-                        document_text, document_metadata_with_entities
+                        document_text,
+                        document_metadata_with_entities,
+                        metadata.get("known_entities", []),
                     )
 
                     context_string += (
@@ -2063,7 +2066,9 @@ async def process_chat_response(
             content = (
                 message.get("content", "")
                 if message
-                else last_assistant_message if last_assistant_message else ""
+                else last_assistant_message
+                if last_assistant_message
+                else ""
             )
 
             content_blocks = [

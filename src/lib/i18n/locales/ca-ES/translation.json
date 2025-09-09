@@ -698,6 +698,7 @@
 	"Format the lines in the output. Defaults to False. If set to True, the lines will be formatted to detect inline math and styles.": "Formata les línies a la sortida. Per defecte, és Fals. Si es defineix com a Cert, les línies es formataran per detectar matemàtiques i estils en línia.",
 	"Format your variables using brackets like this:": "Formata les teves variables utilitzant claudàtors així:",
 	"Forwards system user session credentials to authenticate": "Envia les credencials de l'usuari del sistema per autenticar",
+	"From PII-enabled knowledge base": "",
 	"Full Context Mode": "Mode de context complert",
 	"Function": "Funció",
 	"Function Calling": "Crida a funcions",

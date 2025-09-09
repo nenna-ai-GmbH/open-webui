@@ -528,12 +528,13 @@ export class PiiSessionManager {
 	// Convert conversation entities to known entities format for API
 	getKnownEntitiesForApi(
 		conversationId?: string
-	): Array<{ id: number; label: string; name: string }> {
+	): Array<{ id: number; label: string; name: string; shouldMask?: boolean }> {
 		const entities = this.getEntitiesForDisplay(conversationId);
 		return entities.map((entity) => ({
 			id: entity.id,
 			label: entity.label,
-			name: entity.text || entity.raw_text.toLowerCase()
+			name: entity.text || entity.raw_text.toLowerCase(),
+			shouldMask: entity.shouldMask
 		}));
 	}
 

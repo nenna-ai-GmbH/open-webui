@@ -51,6 +51,7 @@ interface PiiDetectionState {
 	cachedDecorations?: DecorationSet; // Cache decorations to prevent rebuilding on every keystroke
 	lastDecorationHash?: string; // Hash to detect when decorations need updating
 	dynamicallyEnabled?: boolean; // Track if PII detection is dynamically enabled/disabled
+	temporarilyHiddenEntities: Set<string>; // Track entities temporarily hidden when modifiers are removed
 }
 
 export interface PiiDetectionOptions {
@@ -671,6 +672,9 @@ function createPiiDecorations(
 
 const piiDetectionPluginKey = new PluginKey<PiiDetectionState>('piiDetection');
 
+// Export the plugin key so other extensions can communicate with this extension
+export { piiDetectionPluginKey };
+
 export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 	name: 'piiDetection',
 
@@ -839,7 +843,8 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 
 					const tr = editorView.state.tr.setMeta(piiDetectionPluginKey, {
 						type: 'UPDATE_ENTITIES',
-						entities: mappedEntities
+						entities: mappedEntities,
+						clearTemporarilyHidden: true // Clear hidden entities when new detection results come in from user activity
 					});
 
 					editorView.dispatch(tr);
@@ -1008,7 +1013,8 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 
 								const tr = editorView.state.tr.setMeta(piiDetectionPluginKey, {
 									type: 'UPDATE_ENTITIES',
-									entities: mappedEntities
+									entities: mappedEntities,
+									clearTemporarilyHidden: true // Clear hidden entities when new detection results come in from user activity
 								});
 								editorView.dispatch(tr);
 
@@ -1072,7 +1078,8 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 						userEdited: false,
 						textNodes: [],
 						lastWordCount: 0,
-						dynamicallyEnabled: options.enabled // Initialize with the static enabled option
+						dynamicallyEnabled: options.enabled, // Initialize with the static enabled option
+						temporarilyHiddenEntities: new Set()
 					};
 				},
 
@@ -1085,8 +1092,8 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 					const meta = tr.getMeta(piiDetectionPluginKey);
 					if (meta) {
 						// Reduce verbose meta action logging - only log important actions
-						if (meta.type === 'TRIGGER_DETECTION' || meta.type === 'FORCE_DETECTION') {
-							console.log('PiiDetectionExtension: meta action', meta.type);
+						if (meta.type === 'TRIGGER_DETECTION' || meta.type === 'FORCE_DETECTION' || meta.type === 'TEMPORARILY_HIDE_ENTITY') {
+							console.log('PiiDetectionExtension: meta action', meta.type, meta);
 						}
 						switch (meta.type) {
 							case 'SET_USER_EDITED':
@@ -1110,6 +1117,22 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 							case 'CLEAR_PII_HIGHLIGHTS':
 								newState.entities = []; // Clear all entities but keep detection enabled
 								break;
+
+							case 'TEMPORARILY_HIDE_ENTITY': {
+								// Temporarily hide entity when modifier is removed
+								const entityToHide = meta.entityText;
+								if (entityToHide) {
+									newState.temporarilyHiddenEntities = new Set(newState.temporarilyHiddenEntities);
+									newState.temporarilyHiddenEntities.add(entityToHide.toLowerCase());
+									// Clear decoration cache to force recreation without hidden entity
+									newState.cachedDecorations = undefined;
+									newState.lastDecorationHash = undefined;
+									console.log('PiiDetectionExtension: Temporarily hiding entity:', entityToHide);
+									console.log('PiiDetectionExtension: Current entities:', newState.entities.map(e => e.raw_text));
+									console.log('PiiDetectionExtension: Hidden entities set:', Array.from(newState.temporarilyHiddenEntities));
+								}
+								break;
+							}
 							case 'SET_DETECTING':
 								newState.isDetecting = meta.isDetecting;
 								// Call the callback to notify parent component
@@ -1138,6 +1161,15 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 									newState.entities = resolveOverlaps(newState.entities, tr.doc);
 								} else {
 									newState.entities = [];
+								}
+								// Only clear temporarily hidden entities if explicitly requested
+								// This allows entities to stay hidden after modifier removal until user makes another edit
+								if (meta.clearTemporarilyHidden === true) {
+									console.log('PiiDetectionExtension: Clearing temporarily hidden entities on API update');
+									newState.temporarilyHiddenEntities = new Set();
+								} else {
+									console.log('PiiDetectionExtension: Keeping temporarily hidden entities through API update');
+									// Keep the existing temporarily hidden entities
 								}
 								// Clear decoration cache when entities are updated
 								newState.cachedDecorations = undefined;
@@ -1365,6 +1397,13 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 								previousWordCount: prevState.lastWordCount
 							});
 							newState.userEdited = true;
+							// Clear temporarily hidden entities on genuine user edits
+							if (newState.temporarilyHiddenEntities.size > 0) {
+								console.log('PiiDetectionExtension: Clearing temporarily hidden entities due to user edit');
+								newState.temporarilyHiddenEntities = new Set();
+								newState.cachedDecorations = undefined;
+								newState.lastDecorationHash = undefined;
+							}
 							// Mark user activity for typing pause detection
 							typingPauseDetector.onUserKeystroke();
 						} else if (tr.docChanged && !isPiiPluginTransaction) {
@@ -1662,6 +1701,27 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 						}
 					}
 
+					// Filter out temporarily hidden entities
+					const temporarilyHidden = pluginState.temporarilyHiddenEntities || new Set();
+					if (temporarilyHidden.size > 0) {
+						entities = entities.filter(entity => {
+							const entityText = (entity.raw_text || '').toLowerCase();
+							// Check for exact match first
+							if (temporarilyHidden.has(entityText)) {
+								console.log('PiiDetectionExtension: Hiding entity (exact match):', entityText);
+								return false;
+							}
+							// Check if any hidden text matches this entity
+							for (const hiddenText of temporarilyHidden) {
+								if (entityText === hiddenText || entityText.includes(hiddenText) || hiddenText.includes(entityText)) {
+									console.log('PiiDetectionExtension: Hiding entity (partial match):', entityText, 'matches hidden:', hiddenText);
+									return false;
+								}
+							}
+							return true;
+						});
+					}
+
 					if (!entities.length && !modifiers.length) {
 						return DecorationSet.empty;
 					}
@@ -1762,7 +1822,8 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 				if (dispatch) {
 					const tr = state.tr.setMeta(piiDetectionPluginKey, {
 						type: 'UPDATE_ENTITIES',
-						entities: updatedPluginEntities
+						entities: updatedPluginEntities,
+						clearTemporarilyHidden: false // Don't clear when just updating masking states
 					});
 					dispatch(tr);
 
@@ -1860,7 +1921,8 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 					// Update plugin state with remapped entities
 					const tr = state.tr.setMeta(piiDetectionPluginKey, {
 						type: 'UPDATE_ENTITIES',
-						entities: remappedEntities
+						entities: remappedEntities,
+						clearTemporarilyHidden: false // Don't clear when just remapping positions
 					});
 
 					dispatch(tr);

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
-
 
 import json
 import logging
@@ -214,7 +212,9 @@ def text_masking(
     return text
 
 
-def apply_pii_masking_to_content(content: str, metadata: dict) -> str:
+def apply_pii_masking_to_content(
+    content: str, metadata: dict, known_entities: list[dict] = None
+) -> str:
     """
     Apply PII masking to content using metadata PII data.
     This is the shared function used by both middleware and retrieval for consistent PII masking.
@@ -222,7 +222,7 @@ def apply_pii_masking_to_content(content: str, metadata: dict) -> str:
     Args:
         content: The text content to mask
         metadata: Metadata dictionary that may contain PII data
-        file_entities_dict: Known entities dictionary for consistent labeling
+        known_entities: Frontend PII state with shouldMask flags that take precedence
 
     Returns:
         The content with PII masked using labels like [{PERSON_1}]
@@ -252,6 +252,33 @@ def apply_pii_masking_to_content(content: str, metadata: dict) -> str:
         # Extract file_entities_dict from metadata for consistent labeling across files
         file_entities_dict = metadata.get("file_entities_dict", {})
         consolidated_pii = consolidate_pii_data(pii_data, file_entities_dict)
+
+        # If we have known_entities from frontend, respect their shouldMask flags
+        if known_entities:
+            # Create a mapping of entity names to their shouldMask status
+            should_mask_map = {}
+            for entity in known_entities:
+                entity_name = entity.get("name", "").lower()
+                should_mask = entity.get("shouldMask", True)  # Default to True
+                should_mask_map[entity_name] = should_mask
+                log.debug(f"Entity shouldMask mapping: {entity_name} -> {should_mask}")
+
+            # Filter PII data to only include entities that should be masked
+            filtered_pii_data = []
+            for pii in consolidated_pii:
+                # Check both text and raw_text fields for entity matching
+                entity_text = pii.get("text", pii.get("raw_text", "")).lower()
+                if should_mask_map.get(
+                    entity_text, True
+                ):  # Default to True if not found
+                    filtered_pii_data.append(pii)
+                    log.debug(f"Including entity for masking: {entity_text}")
+                else:
+                    log.debug(
+                        f"Skipping masking for entity: {entity_text} (shouldMask=False)"
+                    )
+
+            consolidated_pii = filtered_pii_data
 
         # Apply PII masking to content
         masked_text = text_masking(content, consolidated_pii, [])
@@ -312,8 +339,8 @@ def set_file_entity_ids(file_entities_dict: dict, known_entities: list[dict]) ->
         else:
             max_id_known_entities += 1
             file_entities_dict[pii]["id"] = max_id_known_entities
-            file_entities_dict[pii][
-                "label"
-            ] = f"{file_entities_dict[pii]['type']}_{file_entities_dict[pii]['id']}"
+            file_entities_dict[pii]["label"] = (
+                f"{file_entities_dict[pii]['type']}_{file_entities_dict[pii]['id']}"
+            )
 
     return file_entities_dict
