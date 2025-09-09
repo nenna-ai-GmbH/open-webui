@@ -1410,7 +1410,8 @@ def save_docs_to_vector_db(
                 if (
                     isinstance(s, int)
                     and isinstance(e, int)
-                    and 0 <= s < e <= len(doc.page_content)
+                    and start_index == 0  # first chunk
+                    and start_index <= s < e <= len(doc.page_content)
                 ):
                     updated_occurrences.append({"start_idx": s, "end_idx": e})
                 # Case 2: global within start/end -> shift to chunk-local
