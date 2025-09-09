@@ -62,11 +62,11 @@
 					id: entity.id,
 					label: entity.label,
 					type: entity.type || 'PII',
-					text: (entity.raw_text || entity.label).toLowerCase(),
+					text: (entity.text || entity.label).toLowerCase(),
 					raw_text: entity.raw_text || entity.label,
 					occurrences: (entity.occurrences || []).map((o) => ({
-						start_idx: o.start_idx,
-						end_idx: o.end_idx
+						start_idx: o.start_idx + 1,
+						end_idx: o.end_idx + 1
 					}))
 				};
 			});
