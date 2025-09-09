@@ -41,15 +41,14 @@
 				const state = PiiSessionManager.getInstance().getConversationState(conversationId || '');
 				if (state && fileId) {
 					await updateFilePiiStateById(localStorage.token, fileId, state);
-					console.log('FileItemModal: Saved PII state for uploaded file:', fileId);
 				}
 			} catch (e) {
-				console.warn('FileItemModal: Failed to save PII state:', e);
+				// silent
 			}
 		}, 400);
 	};
 
-	// Handle PII detection results and update file content
+	// Handle PII detection results - save PII entities but keep original text
 	const handlePiiDetected = async (entities: ExtendedPiiEntity[], maskedText: string) => {
 		if (!item?.id) return;
 
@@ -75,17 +74,19 @@
 			// Get current PII state
 			const state = PiiSessionManager.getInstance().getConversationState(conversationId || '');
 			
-			// Update file content with new PII results
-			await updateFileDataContentById(localStorage.token, item.id, maskedText, {
+			// Get the original unmasked text from the file
+			const originalText = item?.file?.data?.content || '';
+			
+			// Update file with PII entities but keep original text
+			await updateFileDataContentById(localStorage.token, item.id, originalText, {
 				pii: piiPayload,
 				piiState: state as Record<string, any> || undefined
 			});
-
-			console.log('FileItemModal: Updated file content with PII results:', item.id);
 		} catch (e) {
-			console.warn('FileItemModal: Failed to update file content with PII results:', e);
+			// silent
 		}
 	};
+
 
 	// Get the display name and masking status for the modal title
 	$: ({ displayName, isFilenameMasked } = (() => {
