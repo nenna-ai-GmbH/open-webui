@@ -3,7 +3,7 @@
 	import { formatFileSize, getLineCount } from '$lib/utils';
 	import { WEBUI_API_BASE_URL } from '$lib/constants';
 	import { getKnowledgeById } from '$lib/apis/knowledge';
-	import { getFileById } from '$lib/apis/files';
+	import { getFileById, updateFilePiiStateById, updateFileDataContentById } from '$lib/apis/files';
 	import {
 		createPiiHighlightStyles,
 		PiiSessionManager,
@@ -31,6 +31,61 @@
 	export let conversationId: string | undefined = undefined; // chat conversation context to store known entities/modifiers
 
 	let enableFullContent = false;
+
+	// Debounced PII state saver for uploaded files
+	let savePiiTimeout: any = null;
+	const savePiiStateDebounced = (fileId: string) => {
+		if (savePiiTimeout) clearTimeout(savePiiTimeout);
+		savePiiTimeout = setTimeout(async () => {
+			try {
+				const state = PiiSessionManager.getInstance().getConversationState(conversationId || '');
+				if (state && fileId) {
+					await updateFilePiiStateById(localStorage.token, fileId, state);
+					console.log('FileItemModal: Saved PII state for uploaded file:', fileId);
+				}
+			} catch (e) {
+				console.warn('FileItemModal: Failed to save PII state:', e);
+			}
+		}, 400);
+	};
+
+	// Handle PII detection results and update file content
+	const handlePiiDetected = async (entities: ExtendedPiiEntity[], maskedText: string) => {
+		if (!item?.id) return;
+
+		try {
+			// Prepare PII payload in the format expected by the backend
+			const piiPayload: Record<string, any> = {};
+			entities.forEach((entity) => {
+				const key = entity.raw_text || entity.label;
+				if (!key) return;
+				piiPayload[key] = {
+					id: entity.id,
+					label: entity.label,
+					type: entity.type || 'PII',
+					text: (entity.raw_text || entity.label).toLowerCase(),
+					raw_text: entity.raw_text || entity.label,
+					occurrences: (entity.occurrences || []).map((o) => ({
+						start_idx: o.start_idx,
+						end_idx: o.end_idx
+					}))
+				};
+			});
+
+			// Get current PII state
+			const state = PiiSessionManager.getInstance().getConversationState(conversationId || '');
+			
+			// Update file content with new PII results
+			await updateFileDataContentById(localStorage.token, item.id, maskedText, {
+				pii: piiPayload,
+				piiState: state as Record<string, any> || undefined
+			});
+
+			console.log('FileItemModal: Updated file content with PII results:', item.id);
+		} catch (e) {
+			console.warn('FileItemModal: Failed to update file content with PII results:', e);
+		}
+	};
 
 	// Get the display name and masking status for the modal title
 	$: ({ displayName, isFilenameMasked } = (() => {
@@ -549,6 +604,13 @@
 														}
 													});
 												}}
+												onPiiModifiersChanged={() => {
+													// Save PII modifiers to uploaded file when they change
+													if (item?.id) {
+														savePiiStateDebounced(item.id);
+													}
+												}}
+												onPiiDetected={handlePiiDetected}
 												piiModifierLabels={[
 													'PERSON',
 													'EMAIL',
