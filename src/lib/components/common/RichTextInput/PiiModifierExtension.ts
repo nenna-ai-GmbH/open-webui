@@ -8,6 +8,7 @@ import { generateModifierId, findCompleteWordsRobust } from './PiiTextUtils';
 import { findTokenizedWords } from './PiiTokenization';
 import { getPiiConfig, type PiiExtensionConfig } from './PiiExtensionConfig';
 import { PiiPerformanceTracker } from './PiiPerformanceOptimizer';
+import { piiDetectionPluginKey } from './PiiDetectionExtension';
 
 // TypeScript interfaces for TipTap command context
 interface CommandContext {
@@ -327,7 +328,6 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 							}
 
 							case 'REMOVE_MODIFIER': {
-								// TODO: remove the known entity if modifier is removed
 								const remainingModifiers = newState.modifiers.filter(
 									(m) => m.id !== meta.modifierId
 								);
@@ -412,11 +412,19 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 						);
 
 						if (maskModifier) {
-							// Remove the mask modifier directly
-							const tr = view.state.tr.setMeta(piiModifierExtensionKey, {
-								type: 'REMOVE_MODIFIER',
-								modifierId: maskModifier.id
-							});
+							console.log('PiiModifierExtension: Removing mask modifier and hiding entity:', entityText);
+							
+							// Create transaction with both meta actions
+							const tr = view.state.tr
+								.setMeta(piiModifierExtensionKey, {
+									type: 'REMOVE_MODIFIER',
+									modifierId: maskModifier.id
+								})
+								.setMeta(piiDetectionPluginKey, {
+									type: 'TEMPORARILY_HIDE_ENTITY',
+									entityText: entityText
+								});
+							
 							view.dispatch(tr);
 
 							// Prevent further event handling
@@ -618,10 +626,23 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 							};
 
 							const onRemoveModifier = (modifierId: string) => {
-								const tr = view.state.tr.setMeta(piiModifierExtensionKey, {
+								// Find the modifier to get its entity text for hiding
+								const modifierToRemove = sessionModifiers.find(m => m.id === modifierId);
+								
+								let tr = view.state.tr.setMeta(piiModifierExtensionKey, {
 									type: 'REMOVE_MODIFIER',
 									modifierId
 								});
+								
+								// If this was a mask modifier, also temporarily hide the PII entity
+								if (modifierToRemove && (modifierToRemove.action === 'string-mask' || modifierToRemove.action === 'word-mask')) {
+									console.log('PiiModifierExtension: Hover menu removing modifier and hiding entity:', modifierToRemove.entity);
+									tr = tr.setMeta(piiDetectionPluginKey, {
+										type: 'TEMPORARILY_HIDE_ENTITY',
+										entityText: modifierToRemove.entity
+									});
+								}
+								
 								view.dispatch(tr);
 
 								if (isHoverMenuShowing && options.hidePiiHoverMenu) {
@@ -933,10 +954,27 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 			removeModifier:
 				(modifierId: string) =>
 				({ state, dispatch }: CommandContext) => {
-					const tr = state.tr.setMeta(piiModifierExtensionKey, {
+					// Find the modifier to get its entity text for hiding
+					const pluginState = piiModifierExtensionKey.getState(state);
+					const modifierToRemove = pluginState?.modifiers.find(
+						(m) => m.id === modifierId
+					);
+					
+					console.log('PiiModifierExtension: removeModifier command called for:', modifierId, modifierToRemove?.entity);
+					
+					let tr = state.tr.setMeta(piiModifierExtensionKey, {
 						type: 'REMOVE_MODIFIER',
 						modifierId
 					});
+
+					// If this was a mask modifier, also temporarily hide the PII entity
+					if (modifierToRemove && (modifierToRemove.action === 'string-mask' || modifierToRemove.action === 'word-mask')) {
+						console.log('PiiModifierExtension: Also hiding PII entity:', modifierToRemove.entity);
+						tr = tr.setMeta(piiDetectionPluginKey, {
+							type: 'TEMPORARILY_HIDE_ENTITY',
+							entityText: modifierToRemove.entity
+						});
+					}
 
 					if (dispatch) {
 						dispatch(tr);
@@ -981,18 +1019,26 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 				({ state, dispatch }: CommandContext) => {
 					const pluginState = piiModifierExtensionKey.getState(state);
 					const maskModifiers =
-						pluginState?.modifiers.filter((m) => m.action === 'string-mask') || [];
+						pluginState?.modifiers.filter((m) => m.action === 'string-mask' || m.action === 'word-mask') || [];
 
 					if (maskModifiers.length === 0) {
 						return false; // No mask modifiers to clear
 					}
 
-					// Remove each mask modifier individually
+					console.log('PiiModifierExtension: clearMaskModifiers clearing:', maskModifiers.map(m => m.entity));
+
+					// For clearing multiple modifiers, we need to send separate transactions
+					// because ProseMirror transactions are immutable and we can't batch multiple REMOVE_MODIFIER actions
 					maskModifiers.forEach((modifier) => {
-						const tr = state.tr.setMeta(piiModifierExtensionKey, {
-							type: 'REMOVE_MODIFIER',
-							modifierId: modifier.id
-						});
+						const tr = state.tr
+							.setMeta(piiModifierExtensionKey, {
+								type: 'REMOVE_MODIFIER',
+								modifierId: modifier.id
+							})
+							.setMeta(piiDetectionPluginKey, {
+								type: 'TEMPORARILY_HIDE_ENTITY',
+								entityText: modifier.entity
+							});
 
 						if (dispatch) {
 							dispatch(tr);
