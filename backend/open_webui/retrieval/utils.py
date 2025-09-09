@@ -497,10 +497,10 @@ def get_sources_from_items(
                     metadata["pii"] = file_data["pii"]
 
                 # Apply PII masking if metadata contains PII data
-                masked_content = apply_pii_masking_to_content(content, metadata)
+                # masked_content = apply_pii_masking_to_content(content, metadata)
 
                 query_result = {
-                    "documents": [[masked_content]],
+                    "documents": [[content]],
                     "metadatas": [[metadata]],
                 }
             else:
@@ -548,10 +548,10 @@ def get_sources_from_items(
                         metadata["pii"] = file_data["pii"]
 
                     # Apply PII masking to full content
-                    masked_content = apply_pii_masking_to_content(content, metadata)
+                    # masked_content = apply_pii_masking_to_content(content, metadata)
 
                     query_result = {
-                        "documents": [[masked_content]],
+                        "documents": [[content]],
                         "metadatas": [[metadata]],
                     }
                 elif item.get("id"):
@@ -570,10 +570,10 @@ def get_sources_from_items(
                             metadata["pii"] = file_object.data["pii"]
 
                         # Apply PII masking to full content
-                        masked_content = apply_pii_masking_to_content(content, metadata)
+                        # masked_content = apply_pii_masking_to_content(content, metadata)
 
                         query_result = {
-                            "documents": [[masked_content]],
+                            "documents": [[content]],
                             "metadatas": [[metadata]],
                         }
             else:
@@ -616,11 +616,11 @@ def get_sources_from_items(
                                 metadata["pii"] = file_object.data["pii"]
 
                             # Apply PII masking to each file's content
-                            masked_content = apply_pii_masking_to_content(
-                                content, metadata
-                            )
+                            # masked_content = apply_pii_masking_to_content(
+                            #     content, metadata
+                            # )
 
-                            documents.append(masked_content)
+                            documents.append(content)
                             metadatas.append(metadata)
 
                     query_result = {
