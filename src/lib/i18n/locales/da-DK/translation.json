@@ -698,6 +698,7 @@
 	"Format the lines in the output. Defaults to False. If set to True, the lines will be formatted to detect inline math and styles.": "",
 	"Format your variables using brackets like this:": "Formater dine variable ved hjælp af klammer som dette:",
 	"Forwards system user session credentials to authenticate": "Videresender system bruger session credentials til autentificering",
+	"From PII-enabled knowledge base": "",
 	"Full Context Mode": "Fuld kontekst tilstand",
 	"Function": "Funktion",
 	"Function Calling": "Funktionskald",

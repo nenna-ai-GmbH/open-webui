@@ -698,6 +698,7 @@
 	"Format the lines in the output. Defaults to False. If set to True, the lines will be formatted to detect inline math and styles.": "",
 	"Format your variables using brackets like this:": "متغیرهای خود را با استفاده از براکت به این شکل قالب\u200cبندی کنید:",
 	"Forwards system user session credentials to authenticate": "اعتبارنامه\u200cهای نشست کاربر سیستم را برای احراز هویت ارسال می\u200cکند",
+	"From PII-enabled knowledge base": "",
 	"Full Context Mode": "حالت متن کامل",
 	"Function": "تابع",
 	"Function Calling": "فراخوانی تابع",

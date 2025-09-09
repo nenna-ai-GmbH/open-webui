@@ -698,6 +698,7 @@
 	"Format the lines in the output. Defaults to False. If set to True, the lines will be formatted to detect inline math and styles.": "",
 	"Format your variables using brackets like this:": "Formázd a változóidat zárójelekkel így:",
 	"Forwards system user session credentials to authenticate": "Továbbítja a rendszer felhasználói munkamenet hitelesítő adatait a hitelesítéshez",
+	"From PII-enabled knowledge base": "",
 	"Full Context Mode": "Teljes kontextus mód",
 	"Function": "Funkció",
 	"Function Calling": "Funkcióhívás",

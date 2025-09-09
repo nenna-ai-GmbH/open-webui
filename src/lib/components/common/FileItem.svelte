@@ -219,9 +219,7 @@
 				</div>
 				{#if isFilenameMasked}
 					<Tooltip
-						content={type === 'collection'
-							? $i18n.t('From PII-enabled knowledge base')
-							: $i18n.t('Filename masked for privacy')}
+						content={$i18n.t('Nenna Privacy active')}
 						placement="top"
 					>
 						<div

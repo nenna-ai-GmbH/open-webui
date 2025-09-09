@@ -698,6 +698,7 @@
 	"Format the lines in the output. Defaults to False. If set to True, the lines will be formatted to detect inline math and styles.": "",
 	"Format your variables using brackets like this:": "Formatta le tue variabili usando le parentesi quadre in questo modo:",
 	"Forwards system user session credentials to authenticate": "Inoltra le credenziali della sessione utente di sistema per autenticare",
+	"From PII-enabled knowledge base": "",
 	"Full Context Mode": "Modalità Contesto Completo",
 	"Function": "Funzione",
 	"Function Calling": "Chiamata Funzione",
