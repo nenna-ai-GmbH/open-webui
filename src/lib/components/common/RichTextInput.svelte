@@ -603,6 +603,7 @@
 	export let onPiiModifiersChanged: (modifiers: PiiModifier[]) => void = () => {};
 	export let piiModifierLabels: string[] = [];
 	export let piiDetectionOnlyAfterUserEdit: boolean | undefined = undefined; // Allow manual control of detection timing
+	export let disableModifierTriggeredDetection = false; // Disable PII detection when modifiers change (for FileItemModal)
 
 	// PII Loading state
 	let isPiiDetectionInProgress = false;
@@ -1929,7 +1930,7 @@
 	}
 
 	// Reactive statement to trigger PII detection when modifiers change
-	$: if (editor && editor.view && enablePiiDetection && enablePiiModifiers) {
+	$: if (editor && editor.view && enablePiiDetection && enablePiiModifiers && !disableModifierTriggeredDetection) {
 		const newHash = getModifiersHash(currentModifiers);
 		if (newHash !== currentModifiersHash && newHash !== '') {
 			currentModifiersHash = newHash;
@@ -1957,8 +1958,8 @@
 			// Update the tracking hash
 			currentModifiersHash = newHash;
 
-			// Trigger detection if we have an editor and text
-			if (editor && editor.view && editor.view.state.doc.textContent.trim()) {
+			// Trigger detection if we have an editor and text, and modifier-triggered detection is enabled
+			if (editor && editor.view && editor.view.state.doc.textContent.trim() && !disableModifierTriggeredDetection) {
 				setTimeout(() => {
 					editor.commands.triggerDetectionForModifiers();
 

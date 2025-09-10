@@ -597,6 +597,7 @@
 												{conversationId}
 												piiMaskingEnabled={true}
 												enablePiiModifiers={true}
+												disableModifierTriggeredDetection={true}
 												onPiiToggled={(entities) => {
 													// When PII is toggled on one page, sync all other pages
 													editors.forEach((ed, edIdx) => {
