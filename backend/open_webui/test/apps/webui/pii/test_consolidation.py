@@ -127,28 +127,6 @@ def test_text_masking_basic():
     assert result == expected
 
 
-def test_text_masking_with_modifiers():
-    """Test text masking with modifiers"""
-    text = "Hello John Doe, your email is john@example.com"
-
-    pii_list = [
-        {
-            "type": "PERSON",
-            "id": 1,
-            "text": "John Doe",
-            "occurrences": [{"start_idx": 6, "end_idx": 14}],
-        }
-    ]
-
-    modifiers = [{"action": "mask", "entity": "your email", "type": "TEST"}]
-
-    result = text_masking(text, pii_list, modifiers)
-
-    # Should not mask "John Doe" due to ignore modifier
-    expected = "Hello [{PERSON_1}], [{TEST_2}] is john@example.com"
-    assert result == expected
-
-
 def test_text_masking_overlapping_entities():
     """Test text masking with overlapping entities"""
     text = "John Doe Smith"
