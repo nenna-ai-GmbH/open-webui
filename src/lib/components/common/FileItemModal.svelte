@@ -9,6 +9,7 @@
 		PiiSessionManager,
 		type ExtendedPiiEntity
 	} from '$lib/utils/pii';
+	import type { PiiEntity } from '$lib/apis/pii';
 	import RichTextInput from '$lib/components/common/RichTextInput.svelte';
 	import { config } from '$lib/stores';
 	import type { i18n as i18nType } from 'i18next';
@@ -86,6 +87,7 @@
 			// silent
 		}
 	};
+
 
 
 	// Get the display name and masking status for the modal title
@@ -605,10 +607,77 @@
 														}
 													});
 												}}
-												onPiiModifiersChanged={() => {
-													// Save PII modifiers to uploaded file when they change
-													if (item?.id) {
-														savePiiStateDebounced(item.id);
+												onPiiModifiersChanged={async () => {
+													// When modifiers change, trigger re-detection on all pages
+													if (!item?.id || !pageContents || pageContents.length === 0) return;
+
+													try {
+														const apiKey = $config?.pii?.api_key;
+														if (!apiKey) return;
+
+														const piiSessionManager = PiiSessionManager.getInstance();
+														const knownEntities = piiSessionManager.getKnownEntitiesForApi(conversationId);
+														const modifiers = piiSessionManager.getModifiersForApi(conversationId);
+
+														// Send complete document text as one string to PII API
+														const { maskPiiText } = await import('$lib/apis/pii');
+														const completeText = pageContents.join('\n'); // Join all pages with double newlines
+														
+														const response = await maskPiiText(
+															apiKey,
+															[completeText],
+															knownEntities,
+															modifiers,
+															false,
+															false
+														);
+
+														if (response.pii && response.pii[0] && response.pii[0].length > 0) {
+															// Process entities from complete document
+															const allEntities = response.pii[0];
+
+															// Update session manager with all entities
+															if (conversationId && conversationId.trim() !== '') {
+																piiSessionManager.setConversationEntitiesFromLatestDetection(conversationId, allEntities);
+															}
+
+															// Create PII payload for complete document
+															const piiPayload = {};
+															allEntities.forEach((entity) => {
+																const key = entity.raw_text || entity.label;
+																if (!key) return;
+																piiPayload[key] = {
+																	id: entity.id,
+																	label: entity.label,
+																	type: entity.type || 'PII',
+																	text: (entity.text || entity.label).toLowerCase(),
+																	raw_text: entity.raw_text || entity.label,
+																	occurrences: (entity.occurrences || []).map((o) => ({
+																		start_idx: o.start_idx,
+																		end_idx: o.end_idx
+																	}))
+																};
+															});
+
+															// Get current PII state including modifiers
+															const state = piiSessionManager.getConversationState(conversationId || '');
+															
+															// Get the original unmasked text from the file
+															const originalText = item?.file?.data?.content || '';
+															
+															// Update file with new PII entities and modifiers
+															await updateFileDataContentById(localStorage.token, item.id, originalText, {
+																pii: piiPayload,
+																piiState: state || undefined
+															});
+
+															// Sync all editors to show the updated highlights
+															setTimeout(() => {
+																syncEditorsNow();
+															}, 100);
+														}
+													} catch (e) {
+														console.error('FileItemModal: Failed to re-detect PII with modifiers:', e);
 													}
 												}}
 												onPiiDetected={handlePiiDetected}
