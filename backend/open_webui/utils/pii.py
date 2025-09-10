@@ -332,15 +332,17 @@ def set_file_entity_ids(file_entities_dict: dict, known_entities: list[dict]) ->
     for pii in file_entities_dict:
         if pii in known_entities_dict:
             file_entities_dict[pii]["id"] = known_entities_dict[pii]["id"]
-            file_entities_dict[pii]["type"] = "_".join(known_entities_dict[pii]["label"].split("_")[:-1])
+            file_entities_dict[pii]["type"] = "_".join(
+                known_entities_dict[pii]["label"].split("_")[:-1]
+            )
             file_entities_dict[pii][
                 "label"
             ] = f"{file_entities_dict[pii]['type']}_{file_entities_dict[pii]['id']}"
         else:
             max_id_known_entities += 1
             file_entities_dict[pii]["id"] = max_id_known_entities
-            file_entities_dict[pii]["label"] = (
-                f"{file_entities_dict[pii]['type']}_{file_entities_dict[pii]['id']}"
-            )
+            file_entities_dict[pii][
+                "label"
+            ] = f"{file_entities_dict[pii]['type']}_{file_entities_dict[pii]['id']}"
 
     return file_entities_dict

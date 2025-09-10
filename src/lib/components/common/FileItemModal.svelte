@@ -74,21 +74,19 @@
 
 			// Get current PII state
 			const state = PiiSessionManager.getInstance().getConversationState(conversationId || '');
-			
+
 			// Get the original unmasked text from the file
 			const originalText = item?.file?.data?.content || '';
-			
+
 			// Update file with PII entities but keep original text
 			await updateFileDataContentById(localStorage.token, item.id, originalText, {
 				pii: piiPayload,
-				piiState: state as Record<string, any> || undefined
+				piiState: (state as Record<string, any>) || undefined
 			});
 		} catch (e) {
 			// silent
 		}
 	};
-
-
 
 	// Get the display name and masking status for the modal title
 	$: ({ displayName, isFilenameMasked } = (() => {

@@ -562,7 +562,7 @@ export class PiiSessionManager {
 		const existingState = this.conversationStates.get(conversationId);
 		const existingModifiers = existingState?.modifiers || [];
 		const mergedModifiers = this.mergeModifiers(existingModifiers, modifiers);
-		
+
 		const newState: ConversationPiiState = {
 			entities: existingState?.entities || [],
 			modifiers: mergedModifiers,
@@ -590,14 +590,15 @@ export class PiiSessionManager {
 	// Helper method to merge modifiers by entity text, avoiding duplicates
 	private mergeModifiers(existing: PiiModifier[], newModifiers: PiiModifier[]): PiiModifier[] {
 		const merged = [...existing];
-		
-		newModifiers.forEach(newModifier => {
+
+		newModifiers.forEach((newModifier) => {
 			// Check if a modifier for this entity already exists
-			const existingIndex = merged.findIndex(m => 
-				m.entity.toLowerCase() === newModifier.entity.toLowerCase() && 
-				m.action === newModifier.action
+			const existingIndex = merged.findIndex(
+				(m) =>
+					m.entity.toLowerCase() === newModifier.entity.toLowerCase() &&
+					m.action === newModifier.action
 			);
-			
+
 			if (existingIndex >= 0) {
 				// Update existing modifier
 				merged[existingIndex] = { ...newModifier };
@@ -606,7 +607,7 @@ export class PiiSessionManager {
 				merged.push({ ...newModifier });
 			}
 		});
-		
+
 		return merged;
 	}
 
@@ -615,8 +616,8 @@ export class PiiSessionManager {
 		const existingState = this.conversationStates.get(conversationId);
 		if (!existingState) return;
 
-		const remainingModifiers = existingState.modifiers.filter(m => m.id !== modifierId);
-		
+		const remainingModifiers = existingState.modifiers.filter((m) => m.id !== modifierId);
+
 		const newState: ConversationPiiState = {
 			...existingState,
 			modifiers: remainingModifiers,
@@ -634,7 +635,9 @@ export class PiiSessionManager {
 	removeTemporaryModifier(modifierId: string) {
 		if (!this.temporaryState.isActive) return;
 
-		this.temporaryState.modifiers = this.temporaryState.modifiers.filter(m => m.id !== modifierId);
+		this.temporaryState.modifiers = this.temporaryState.modifiers.filter(
+			(m) => m.id !== modifierId
+		);
 	}
 
 	// FILENAME MAPPING MANAGEMENT METHODS

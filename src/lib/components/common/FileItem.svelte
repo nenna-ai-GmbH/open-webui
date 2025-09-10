@@ -218,10 +218,7 @@
 					{decodeString(displayName)}
 				</div>
 				{#if isFilenameMasked}
-					<Tooltip
-						content={$i18n.t('Nenna Privacy active')}
-						placement="top"
-					>
+					<Tooltip content={$i18n.t('Nenna Privacy active')} placement="top">
 						<div
 							class="flex items-center justify-center size-4 bg-sky-50 dark:bg-sky-200/10 text-sky-600 dark:text-sky-400 rounded-full"
 						>

@@ -1930,7 +1930,13 @@
 	}
 
 	// Reactive statement to trigger PII detection when modifiers change
-	$: if (editor && editor.view && enablePiiDetection && enablePiiModifiers && !disableModifierTriggeredDetection) {
+	$: if (
+		editor &&
+		editor.view &&
+		enablePiiDetection &&
+		enablePiiModifiers &&
+		!disableModifierTriggeredDetection
+	) {
 		const newHash = getModifiersHash(currentModifiers);
 		if (newHash !== currentModifiersHash && newHash !== '') {
 			currentModifiersHash = newHash;
@@ -1959,7 +1965,12 @@
 			currentModifiersHash = newHash;
 
 			// Trigger detection if we have an editor and text, and modifier-triggered detection is enabled
-			if (editor && editor.view && editor.view.state.doc.textContent.trim() && !disableModifierTriggeredDetection) {
+			if (
+				editor &&
+				editor.view &&
+				editor.view.state.doc.textContent.trim() &&
+				!disableModifierTriggeredDetection
+			) {
 				setTimeout(() => {
 					editor.commands.triggerDetectionForModifiers();
 
