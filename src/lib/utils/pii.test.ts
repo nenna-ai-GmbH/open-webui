@@ -520,7 +520,8 @@ describe('PII Session Manager', () => {
 			expect(apiFormat[0]).toEqual({
 				id: 1,
 				label: 'PERSON_1',
-				name: 'john doe'
+				name: 'john doe',
+				shouldMask: true
 			});
 		});
 	});
