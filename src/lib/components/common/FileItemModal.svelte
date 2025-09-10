@@ -65,8 +65,8 @@
 					text: (entity.text || entity.label).toLowerCase(),
 					raw_text: entity.raw_text || entity.label,
 					occurrences: (entity.occurrences || []).map((o) => ({
-						start_idx: o.start_idx + 1,
-						end_idx: o.end_idx + 1
+						start_idx: o.start_idx,
+						end_idx: o.end_idx
 					}))
 				};
 			});
