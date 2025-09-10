@@ -328,6 +328,17 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 							}
 
 							case 'REMOVE_MODIFIER': {
+								const piiSessionManagerRemove = PiiSessionManager.getInstance();
+								const removeConversationId = newState.currentConversationId;
+								
+								// Use dedicated removal methods instead of merging
+								if (removeConversationId) {
+									piiSessionManagerRemove.removeConversationModifier(removeConversationId, meta.modifierId);
+								} else {
+									piiSessionManagerRemove.removeTemporaryModifier(meta.modifierId);
+								}
+
+								// Update the plugin state to reflect the removal
 								const remainingModifiers = newState.modifiers.filter(
 									(m) => m.id !== meta.modifierId
 								);
@@ -335,17 +346,6 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 									...newState,
 									modifiers: remainingModifiers
 								};
-
-								const piiSessionManagerRemove = PiiSessionManager.getInstance();
-								const removeConversationId = newState.currentConversationId;
-								if (removeConversationId) {
-									piiSessionManagerRemove.setConversationModifiers(
-										removeConversationId,
-										remainingModifiers
-									);
-								} else {
-									piiSessionManagerRemove.setTemporaryModifiers(remainingModifiers);
-								}
 
 								if (onModifiersChanged) {
 									onModifiersChanged(remainingModifiers);
