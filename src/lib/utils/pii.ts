@@ -560,9 +560,12 @@ export class PiiSessionManager {
 	// Set conversation modifiers
 	setConversationModifiers(conversationId: string, modifiers: PiiModifier[]) {
 		const existingState = this.conversationStates.get(conversationId);
+		const existingModifiers = existingState?.modifiers || [];
+		const mergedModifiers = this.mergeModifiers(existingModifiers, modifiers);
+		
 		const newState: ConversationPiiState = {
 			entities: existingState?.entities || [],
-			modifiers: modifiers,
+			modifiers: mergedModifiers,
 			filenameMappings: existingState?.filenameMappings || [],
 			sessionId: existingState?.sessionId,
 			apiKey: existingState?.apiKey || this.apiKey || undefined,
@@ -578,7 +581,60 @@ export class PiiSessionManager {
 
 	// Set global modifiers (before conversation ID exists)
 	setTemporaryModifiers(modifiers: PiiModifier[]) {
-		this.temporaryState.modifiers = modifiers;
+		// Merge new modifiers with existing ones instead of overwriting
+		const existingModifiers = this.temporaryState.modifiers || [];
+		const mergedModifiers = this.mergeModifiers(existingModifiers, modifiers);
+		this.temporaryState.modifiers = mergedModifiers;
+	}
+
+	// Helper method to merge modifiers by entity text, avoiding duplicates
+	private mergeModifiers(existing: PiiModifier[], newModifiers: PiiModifier[]): PiiModifier[] {
+		const merged = [...existing];
+		
+		newModifiers.forEach(newModifier => {
+			// Check if a modifier for this entity already exists
+			const existingIndex = merged.findIndex(m => 
+				m.entity.toLowerCase() === newModifier.entity.toLowerCase() && 
+				m.action === newModifier.action
+			);
+			
+			if (existingIndex >= 0) {
+				// Update existing modifier
+				merged[existingIndex] = { ...newModifier };
+			} else {
+				// Add new modifier
+				merged.push({ ...newModifier });
+			}
+		});
+		
+		return merged;
+	}
+
+	// Remove a specific modifier by ID from conversation state
+	removeConversationModifier(conversationId: string, modifierId: string) {
+		const existingState = this.conversationStates.get(conversationId);
+		if (!existingState) return;
+
+		const remainingModifiers = existingState.modifiers.filter(m => m.id !== modifierId);
+		
+		const newState: ConversationPiiState = {
+			...existingState,
+			modifiers: remainingModifiers,
+			lastUpdated: Date.now()
+		};
+
+		this.conversationStates.set(conversationId, newState);
+
+		// Create backup and trigger save
+		this.errorBackup.set(conversationId, { ...newState });
+		this.triggerChatSave(conversationId);
+	}
+
+	// Remove a specific modifier by ID from temporary state
+	removeTemporaryModifier(modifierId: string) {
+		if (!this.temporaryState.isActive) return;
+
+		this.temporaryState.modifiers = this.temporaryState.modifiers.filter(m => m.id !== modifierId);
 	}
 
 	// FILENAME MAPPING MANAGEMENT METHODS

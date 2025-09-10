@@ -3,12 +3,13 @@
 	import { formatFileSize, getLineCount } from '$lib/utils';
 	import { WEBUI_API_BASE_URL } from '$lib/constants';
 	import { getKnowledgeById } from '$lib/apis/knowledge';
-	import { getFileById } from '$lib/apis/files';
+	import { getFileById, updateFilePiiStateById, updateFileDataContentById } from '$lib/apis/files';
 	import {
 		createPiiHighlightStyles,
 		PiiSessionManager,
 		type ExtendedPiiEntity
 	} from '$lib/utils/pii';
+	import type { PiiEntity } from '$lib/apis/pii';
 	import RichTextInput from '$lib/components/common/RichTextInput.svelte';
 	import { config } from '$lib/stores';
 	import type { i18n as i18nType } from 'i18next';
@@ -31,6 +32,63 @@
 	export let conversationId: string | undefined = undefined; // chat conversation context to store known entities/modifiers
 
 	let enableFullContent = false;
+
+	// Debounced PII state saver for uploaded files
+	let savePiiTimeout: any = null;
+	const savePiiStateDebounced = (fileId: string) => {
+		if (savePiiTimeout) clearTimeout(savePiiTimeout);
+		savePiiTimeout = setTimeout(async () => {
+			try {
+				const state = PiiSessionManager.getInstance().getConversationState(conversationId || '');
+				if (state && fileId) {
+					await updateFilePiiStateById(localStorage.token, fileId, state);
+				}
+			} catch (e) {
+				// silent
+			}
+		}, 400);
+	};
+
+	// Handle PII detection results - save PII entities but keep original text
+	const handlePiiDetected = async (entities: ExtendedPiiEntity[], maskedText: string) => {
+		if (!item?.id) return;
+
+		try {
+			// Prepare PII payload in the format expected by the backend
+			const piiPayload: Record<string, any> = {};
+			entities.forEach((entity) => {
+				const key = entity.raw_text || entity.label;
+				if (!key) return;
+				piiPayload[key] = {
+					id: entity.id,
+					label: entity.label,
+					type: entity.type || 'PII',
+					text: (entity.text || entity.label).toLowerCase(),
+					raw_text: entity.raw_text || entity.label,
+					occurrences: (entity.occurrences || []).map((o) => ({
+						start_idx: o.start_idx,
+						end_idx: o.end_idx
+					}))
+				};
+			});
+
+			// Get current PII state
+			const state = PiiSessionManager.getInstance().getConversationState(conversationId || '');
+			
+			// Get the original unmasked text from the file
+			const originalText = item?.file?.data?.content || '';
+			
+			// Update file with PII entities but keep original text
+			await updateFileDataContentById(localStorage.token, item.id, originalText, {
+				pii: piiPayload,
+				piiState: state as Record<string, any> || undefined
+			});
+		} catch (e) {
+			// silent
+		}
+	};
+
+
 
 	// Get the display name and masking status for the modal title
 	$: ({ displayName, isFilenameMasked } = (() => {
@@ -539,6 +597,7 @@
 												{conversationId}
 												piiMaskingEnabled={true}
 												enablePiiModifiers={true}
+												disableModifierTriggeredDetection={true}
 												onPiiToggled={(entities) => {
 													// When PII is toggled on one page, sync all other pages
 													editors.forEach((ed, edIdx) => {
@@ -549,6 +608,80 @@
 														}
 													});
 												}}
+												onPiiModifiersChanged={async () => {
+													// When modifiers change, trigger re-detection on all pages
+													if (!item?.id || !pageContents || pageContents.length === 0) return;
+
+													try {
+														const apiKey = $config?.pii?.api_key;
+														if (!apiKey) return;
+
+														const piiSessionManager = PiiSessionManager.getInstance();
+														const knownEntities = piiSessionManager.getKnownEntitiesForApi(conversationId);
+														const modifiers = piiSessionManager.getModifiersForApi(conversationId);
+
+														// Send complete document text as one string to PII API
+														const { maskPiiText } = await import('$lib/apis/pii');
+														const completeText = pageContents.join('\n'); // Join all pages with double newlines
+														
+														const response = await maskPiiText(
+															apiKey,
+															[completeText],
+															knownEntities,
+															modifiers,
+															false,
+															false
+														);
+
+														if (response.pii && response.pii[0] && response.pii[0].length > 0) {
+															// Process entities from complete document
+															const allEntities = response.pii[0];
+
+															// Update session manager with all entities
+															if (conversationId && conversationId.trim() !== '') {
+																piiSessionManager.setConversationEntitiesFromLatestDetection(conversationId, allEntities);
+															}
+
+															// Create PII payload for complete document
+															const piiPayload = {};
+															allEntities.forEach((entity) => {
+																const key = entity.raw_text || entity.label;
+																if (!key) return;
+																piiPayload[key] = {
+																	id: entity.id,
+																	label: entity.label,
+																	type: entity.type || 'PII',
+																	text: (entity.text || entity.label).toLowerCase(),
+																	raw_text: entity.raw_text || entity.label,
+																	occurrences: (entity.occurrences || []).map((o) => ({
+																		start_idx: o.start_idx,
+																		end_idx: o.end_idx
+																	}))
+																};
+															});
+
+															// Get current PII state including modifiers
+															const state = piiSessionManager.getConversationState(conversationId || '');
+															
+															// Get the original unmasked text from the file
+															const originalText = item?.file?.data?.content || '';
+															
+															// Update file with new PII entities and modifiers
+															await updateFileDataContentById(localStorage.token, item.id, originalText, {
+																pii: piiPayload,
+																piiState: state || undefined
+															});
+
+															// Sync all editors to show the updated highlights
+															setTimeout(() => {
+																syncEditorsNow();
+															}, 100);
+														}
+													} catch (e) {
+														console.error('FileItemModal: Failed to re-detect PII with modifiers:', e);
+													}
+												}}
+												onPiiDetected={handlePiiDetected}
 												piiModifierLabels={[
 													'PERSON',
 													'EMAIL',

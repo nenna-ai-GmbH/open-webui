@@ -232,14 +232,14 @@ function mapPiiEntitiesToProseMirror(
 				const plainTextEnd = occurrence.end_idx;
 
 				const proseMirrorStart =
-					mapping.plainTextToProseMirror.get(plainTextStart) ?? plainTextStart + 1;
+					mapping.plainTextToProseMirror.get(plainTextStart) ?? plainTextStart;
 				const proseMirrorEnd =
-					mapping.plainTextToProseMirror.get(plainTextEnd - 1) ?? plainTextEnd - 1 + 1;
+					mapping.plainTextToProseMirror.get(plainTextEnd - 1) ?? plainTextEnd;
 
 				return {
 					...occurrence,
 					start_idx: proseMirrorStart,
-					end_idx: proseMirrorEnd + 1
+					end_idx: proseMirrorEnd
 				};
 			})
 		};
@@ -843,14 +843,14 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 
 					const tr = editorView.state.tr.setMeta(piiDetectionPluginKey, {
 						type: 'UPDATE_ENTITIES',
-						entities: mappedEntities,
+						entities: response.pii[0],
 						clearTemporarilyHidden: true // Clear hidden entities when new detection results come in from user activity
 					});
 
 					editorView.dispatch(tr);
 
 					if (onPiiDetected) {
-						onPiiDetected(mappedEntities, response.text[0]);
+						onPiiDetected(response.pii[0], response.text[0]);
 					}
 				}
 			} catch (error) {
