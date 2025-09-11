@@ -336,6 +336,9 @@
 	// Keep per-page editor refs to sync PII entities from session
 	let editors: any[] = [];
 	let hasInitialSynced = false;
+	
+	// PII detection loading state
+	let isPiiDetectionInProgress = false;
 
 	function syncEditorsNow() {
 		editors.forEach((ed) => {
@@ -390,7 +393,7 @@
 </script>
 
 <Modal bind:show size="lg">
-	<div class="font-primary px-6 py-5 w-full flex flex-col justify-center dark:text-gray-400">
+	<div class="font-primary px-6 py-5 w-full flex flex-col justify-center dark:text-gray-400 relative">
 		<div class=" pb-2">
 			<div class="flex items-start justify-between">
 				<div class="flex-1 min-w-0">
@@ -526,6 +529,16 @@
 			</div>
 		</div>
 
+		<!-- PII Detection Loading Indicator -->
+		{#if isPiiDetectionInProgress}
+			<div
+				class="absolute top-2 right-2 flex items-center gap-1 bg-gray-50 dark:bg-gray-850 px-2 py-1 rounded-md shadow-sm border border-gray-200 dark:border-gray-700 z-10"
+			>
+				<Spinner className="size-3" />
+				<span class="text-xs text-gray-600 dark:text-gray-400">Scanning for PII...</span>
+			</div>
+		{/if}
+
 		<div class="max-h-[75vh] overflow-auto" bind:this={scrollContainerEl} on:scroll={handleScroll}>
 			{#if !loading}
 				{#if item?.type === 'collection'}
@@ -614,6 +627,9 @@
 														const apiKey = $config?.pii?.api_key;
 														if (!apiKey) return;
 
+														// Set loading state
+														isPiiDetectionInProgress = true;
+
 														const piiSessionManager = PiiSessionManager.getInstance();
 														const knownEntities = piiSessionManager.getKnownEntitiesForApi(conversationId);
 														const modifiers = piiSessionManager.getModifiersForApi(conversationId);
@@ -640,6 +656,7 @@
 															allEntities.forEach((entity) => {
 																const key = entity.raw_text || entity.label;
 																if (!key) return;
+																// @ts-ignore - Dynamic object key assignment
 																piiPayload[key] = {
 																	id: entity.id,
 																	label: entity.label,
@@ -679,6 +696,9 @@
 														}
 													} catch (e) {
 														console.error('FileItemModal: Failed to re-detect PII with modifiers:', e);
+													} finally {
+														// Clear loading state
+														isPiiDetectionInProgress = false;
 													}
 												}}
 												onPiiDetected={handlePiiDetected}
@@ -724,11 +744,6 @@
 </Modal>
 
 <style>
-	.break-words {
-		word-break: break-word;
-		overflow-wrap: anywhere;
-	}
-
 	/* Ensure text selection is enabled and visible in read-only PII editors */
 	:global(.pii-selectable .tiptap) {
 		user-select: text !important;
