@@ -635,11 +635,6 @@
 															// Process entities from complete document
 															const allEntities = response.pii[0];
 
-															// Update session manager with all entities
-															if (conversationId && conversationId.trim() !== '') {
-																piiSessionManager.setConversationEntitiesFromLatestDetection(conversationId, allEntities);
-															}
-
 															// Create PII payload for complete document
 															const piiPayload = {};
 															allEntities.forEach((entity) => {
@@ -661,6 +656,14 @@
 															// Get current PII state including modifiers
 															const state = piiSessionManager.getConversationState(conversationId || '');
 															
+														// Update session manager with all entities
+														if (conversationId && conversationId.trim() !== '') {
+															piiSessionManager.setConversationEntitiesFromLatestDetection(conversationId, allEntities);
+														} else {
+															// For new chats without conversationId, update temporary state
+															piiSessionManager.setTemporaryStateEntities(allEntities);
+														}
+															
 															// Get the original unmasked text from the file
 															const originalText = item?.file?.data?.content || '';
 															
@@ -671,9 +674,8 @@
 															});
 
 															// Sync all editors to show the updated highlights
-															setTimeout(() => {
-																syncEditorsNow();
-															}, 100);
+															syncEditorsNow();
+															
 														}
 													} catch (e) {
 														console.error('FileItemModal: Failed to re-detect PII with modifiers:', e);
