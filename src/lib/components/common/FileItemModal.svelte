@@ -422,6 +422,12 @@
 									</div>
 								</Tooltip>
 							{/if}
+							{#if isPiiDetectionInProgress}
+								<div class="flex items-center gap-1 bg-gray-50 dark:bg-gray-850 px-2 py-1 rounded-md shadow-sm border border-gray-200 dark:border-gray-700 ml-2">
+									<Spinner className="size-3" />
+									<span class="text-xs text-gray-600 dark:text-gray-400">Scanning for PII...</span>
+								</div>
+							{/if}
 						</a>
 					</div>
 				</div>
@@ -531,15 +537,6 @@
 			</div>
 		</div>
 
-		<!-- PII Detection Loading Indicator -->
-		{#if isPiiDetectionInProgress}
-			<div
-				class="absolute top-2 right-2 flex items-center gap-1 bg-gray-50 dark:bg-gray-850 px-2 py-1 rounded-md shadow-sm border border-gray-200 dark:border-gray-700 z-10"
-			>
-				<Spinner className="size-3" />
-				<span class="text-xs text-gray-600 dark:text-gray-400">Scanning for PII...</span>
-			</div>
-		{/if}
 
 		<div class="max-h-[75vh] overflow-auto" bind:this={scrollContainerEl} on:scroll={handleScroll}>
 			{#if !loading}
