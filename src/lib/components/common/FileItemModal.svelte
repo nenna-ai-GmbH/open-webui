@@ -336,7 +336,7 @@
 	// Keep per-page editor refs to sync PII entities from session
 	let editors: any[] = [];
 	let hasInitialSynced = false;
-	
+
 	// PII detection loading state
 	let isPiiDetectionInProgress = false;
 
@@ -393,7 +393,9 @@
 </script>
 
 <Modal bind:show size="lg">
-	<div class="font-primary px-6 py-5 w-full flex flex-col justify-center dark:text-gray-400 relative">
+	<div
+		class="font-primary px-6 py-5 w-full flex flex-col justify-center dark:text-gray-400 relative"
+	>
 		<div class=" pb-2">
 			<div class="flex items-start justify-between">
 				<div class="flex-1 min-w-0">
