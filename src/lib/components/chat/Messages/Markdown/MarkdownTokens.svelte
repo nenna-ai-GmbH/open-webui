@@ -9,6 +9,8 @@
 	import { marked, type Token } from 'marked';
 	import { unescapeHtml } from '$lib/utils';
 
+	import PiiAwareText from './PiiAwareText.svelte';
+
 	import { WEBUI_BASE_URL } from '$lib/constants';
 
 	import CodeBlock from '$lib/components/chat/Messages/CodeBlock.svelte';
@@ -27,6 +29,7 @@
 	export let tokens: Token[];
 	export let top = true;
 	export let attributes = {};
+	export let conversationId: string = '';
 
 	export let done = true;
 
@@ -95,6 +98,7 @@
 				tokens={token.tokens}
 				{done}
 				{onSourceClick}
+				{conversationId}
 			/>
 		</svelte:element>
 	{:else if token.type === 'code'}
@@ -146,6 +150,7 @@
 												tokens={header.tokens}
 												{done}
 												{onSourceClick}
+												{conversationId}
 											/>
 										</div>
 									</div>
@@ -167,6 +172,7 @@
 												tokens={cell.tokens}
 												{done}
 												{onSourceClick}
+												{conversationId}
 											/>
 										</div>
 									</td>
@@ -204,6 +210,7 @@
 					{editCodeBlock}
 					{onTaskClick}
 					{onSourceClick}
+					{conversationId}
 				/>
 			</blockquote>
 		{/if}
@@ -238,6 +245,7 @@
 							{editCodeBlock}
 							{onTaskClick}
 							{onSourceClick}
+							{conversationId}
 						/>
 					</li>
 				{/each}
@@ -272,6 +280,7 @@
 									{editCodeBlock}
 									{onTaskClick}
 									{onSourceClick}
+									{conversationId}
 								/>
 							</div>
 						{:else}
@@ -283,6 +292,7 @@
 								{editCodeBlock}
 								{onTaskClick}
 								{onSourceClick}
+								{conversationId}
 							/>
 						{/if}
 					</li>
@@ -306,6 +316,7 @@
 					{editCodeBlock}
 					{onTaskClick}
 					{onSourceClick}
+					{conversationId}
 				/>
 			</div>
 		</Collapsible>
@@ -326,6 +337,7 @@
 				tokens={token.tokens ?? []}
 				{done}
 				{onSourceClick}
+				{conversationId}
 			/>
 		</p>
 	{:else if token.type === 'text'}
@@ -337,9 +349,15 @@
 						tokens={token.tokens}
 						{done}
 						{onSourceClick}
+						{conversationId}
 					/>
 				{:else}
-					{unescapeHtml(token.text)}
+					<PiiAwareText
+						text={unescapeHtml(token.text)}
+						id={`${id}-${tokenIdx}-text`}
+						{conversationId}
+						{done}
+					/>
 				{/if}
 			</p>
 		{:else if token.tokens}
@@ -348,9 +366,15 @@
 				tokens={token.tokens ?? []}
 				{done}
 				{onSourceClick}
+				{conversationId}
 			/>
 		{:else}
-			{unescapeHtml(token.text)}
+			<PiiAwareText
+				text={unescapeHtml(token.text)}
+				id={`${id}-${tokenIdx}-text-inline`}
+				{conversationId}
+				{done}
+			/>
 		{/if}
 	{:else if token.type === 'inlineKatex'}
 		{#if token.text}

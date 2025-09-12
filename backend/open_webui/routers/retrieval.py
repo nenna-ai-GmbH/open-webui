@@ -4,6 +4,8 @@ import mimetypes
 import os
 import shutil
 import asyncio
+import time
+
 
 import uuid
 from datetime import datetime
@@ -79,6 +81,16 @@ from open_webui.retrieval.utils import (
 from open_webui.utils.misc import (
     calculate_sha256_string,
 )
+
+# NENNA PII client (generated)
+from open_webui.clients.nenna_pii_client import AuthenticatedClient
+from open_webui.clients.nenna_pii_client.api.ephemeral_operations import (
+    mask_text_text_mask_post,
+)
+from open_webui.clients.nenna_pii_client.models.text_mask_request import (
+    TextMaskRequest,
+)
+from open_webui.clients.nenna_pii_client.models.pii_labels import PiiLabels
 from open_webui.utils.auth import get_admin_user, get_verified_user
 
 from open_webui.config import (
@@ -106,6 +118,64 @@ from open_webui.constants import ERROR_MESSAGES
 
 log = logging.getLogger(__name__)
 log.setLevel(SRC_LOG_LEVELS["RAG"])
+
+
+def classify_extraction_error(error_str: str) -> dict:
+    """
+    Classify extraction errors into user-friendly categories.
+
+    Returns:
+        dict: Contains 'category', 'simplified_message', and 'original_error'
+    """
+    error_lower = error_str.lower()
+
+    # Check for connection/service errors
+    if any(
+        keyword in error_lower
+        for keyword in [
+            "connection refused",
+            "connection error",
+            "newconnectionerror",
+            "max retries exceeded",
+            "failed to establish",
+            "connection timeout",
+            "name or service not known",
+            "no route to host",
+            "network is unreachable",
+        ]
+    ):
+        return {
+            "category": "service_unavailable",
+            "simplified_message": "Docling extraction service is not available",
+            "original_error": error_str,
+        }
+
+    # Check for timeout errors
+    elif any(
+        keyword in error_lower
+        for keyword in [
+            "timeout",
+            "timed out",
+            "request timeout",
+            "read timeout",
+            "connection timeout",
+            "socket timeout",
+        ]
+    ):
+        return {
+            "category": "timeout",
+            "simplified_message": "Docling extraction took too long and timed out",
+            "original_error": error_str,
+        }
+
+    # Unknown/other errors
+    else:
+        return {
+            "category": "unknown",
+            "simplified_message": "Docling extraction failed with an unexpected error",
+            "original_error": error_str,
+        }
+
 
 ##########################################
 #
@@ -437,6 +507,7 @@ async def get_rag_config(request: Request, user=Depends(get_admin_user)):
         "DOCLING_PICTURE_DESCRIPTION_MODE": request.app.state.config.DOCLING_PICTURE_DESCRIPTION_MODE,
         "DOCLING_PICTURE_DESCRIPTION_LOCAL": request.app.state.config.DOCLING_PICTURE_DESCRIPTION_LOCAL,
         "DOCLING_PICTURE_DESCRIPTION_API": request.app.state.config.DOCLING_PICTURE_DESCRIPTION_API,
+        "DOCLING_MD_PAGE_BREAK_PLACEHOLDER": request.app.state.config.DOCLING_MD_PAGE_BREAK_PLACEHOLDER,
         "DOCUMENT_INTELLIGENCE_ENDPOINT": request.app.state.config.DOCUMENT_INTELLIGENCE_ENDPOINT,
         "DOCUMENT_INTELLIGENCE_KEY": request.app.state.config.DOCUMENT_INTELLIGENCE_KEY,
         "MISTRAL_OCR_API_KEY": request.app.state.config.MISTRAL_OCR_API_KEY,
@@ -612,6 +683,7 @@ class ConfigForm(BaseModel):
     DOCLING_PICTURE_DESCRIPTION_MODE: Optional[str] = None
     DOCLING_PICTURE_DESCRIPTION_LOCAL: Optional[dict] = None
     DOCLING_PICTURE_DESCRIPTION_API: Optional[dict] = None
+    DOCLING_MD_PAGE_BREAK_PLACEHOLDER: Optional[str] = None
     DOCUMENT_INTELLIGENCE_ENDPOINT: Optional[str] = None
     DOCUMENT_INTELLIGENCE_KEY: Optional[str] = None
     MISTRAL_OCR_API_KEY: Optional[str] = None
@@ -832,6 +904,13 @@ async def update_rag_config(
         form_data.DOCLING_PICTURE_DESCRIPTION_API
         if form_data.DOCLING_PICTURE_DESCRIPTION_API is not None
         else request.app.state.config.DOCLING_PICTURE_DESCRIPTION_API
+    )
+
+    # Docling page-break placeholder string
+    request.app.state.config.DOCLING_MD_PAGE_BREAK_PLACEHOLDER = (
+        form_data.DOCLING_MD_PAGE_BREAK_PLACEHOLDER
+        if form_data.DOCLING_MD_PAGE_BREAK_PLACEHOLDER is not None
+        else request.app.state.config.DOCLING_MD_PAGE_BREAK_PLACEHOLDER
     )
 
     request.app.state.config.DOCUMENT_INTELLIGENCE_ENDPOINT = (
@@ -1192,6 +1271,30 @@ async def update_rag_config(
 ####################################
 
 
+def _set_processing(
+    file_id: str, status: str, stage: str, progress: int, error: Optional[str] = None
+) -> None:
+    """Best-effort helper to persist processing state to file.meta.processing.
+
+    This is intentionally tolerant to failures and will not raise.
+    """
+    try:
+        payload = {
+            "processing": {
+                "status": status,
+                "stage": stage,
+                "progress": progress,
+                "updated_at": int(datetime.now().timestamp() * 1000),
+            }
+        }
+        if error is not None:
+            payload["processing"]["error"] = error
+        Files.update_file_metadata_by_id(file_id, payload)
+    except Exception:
+        # Swallow errors – progress reporting must not break processing
+        pass
+
+
 def save_docs_to_vector_db(
     request: Request,
     docs,
@@ -1308,6 +1411,103 @@ def save_docs_to_vector_db(
     if len(docs) == 0:
         raise ValueError(ERROR_MESSAGES.EMPTY_CONTENT)
 
+    # Adjust PII entity positions for chunk
+    for doc in docs:
+        # Normalize/parse PII metadata which may arrive as a JSON string or list
+        try:
+            pii_meta = doc.metadata.get("pii")
+            if isinstance(pii_meta, str):
+                # Attempt to parse JSON string into dict
+                try:
+                    parsed = json.loads(pii_meta)
+                    if isinstance(parsed, dict):
+                        doc.metadata["pii"] = parsed
+                    elif isinstance(parsed, list):
+                        # Convert list of entities to dict keyed by label/text
+                        converted = {}
+                        for entity in parsed:
+                            if not isinstance(entity, dict):
+                                continue
+                            key = (
+                                entity.get("text")
+                                or entity.get("label")
+                                or entity.get("raw_text")
+                            )
+                            if key:
+                                converted[key] = entity
+                        doc.metadata["pii"] = converted
+                    else:
+                        # Unrecognized structure; drop to avoid crashes
+                        doc.metadata["pii"] = {}
+                except Exception:
+                    # If parsing fails, drop PII to avoid breaking ingestion
+                    doc.metadata["pii"] = {}
+            elif isinstance(pii_meta, list):
+                # Convert list of entities to dict keyed by label/text
+                converted = {}
+                for entity in pii_meta:
+                    if not isinstance(entity, dict):
+                        continue
+                    key = (
+                        entity.get("text")
+                        or entity.get("label")
+                        or entity.get("raw_text")
+                    )
+                    if key:
+                        converted[key] = entity
+                doc.metadata["pii"] = converted
+            elif pii_meta is None:
+                doc.metadata["pii"] = {}
+        except Exception:
+            # Never let PII normalization break ingestion
+            doc.metadata["pii"] = {}
+
+        # Guard: skip normalization if already marked as normalized
+        if doc.metadata.get("pii_positions_normalized"):
+            continue
+
+        start_index = doc.metadata.get("start_index", 0)
+        end_index = len(doc.page_content) + start_index
+        pii_to_remove = []
+        for pii_entity in doc.metadata.get("pii") or {}:
+            updated_occurrences = []
+            for occurrence in (
+                doc.metadata["pii"].get(pii_entity, {}).get("occurrences", [])
+            ):
+                s = occurrence.get("start_idx")
+                e = occurrence.get("end_idx")
+                # Case 1: already chunk-local (0..len(content)) -> keep as-is
+                if (
+                    isinstance(s, int)
+                    and isinstance(e, int)
+                    and start_index == 0  # first chunk
+                    and start_index <= s < e <= len(doc.page_content)
+                ):
+                    updated_occurrences.append({"start_idx": s, "end_idx": e})
+                # Case 2: global within start/end -> shift to chunk-local
+                elif (
+                    isinstance(s, int)
+                    and isinstance(e, int)
+                    and s >= start_index
+                    and e <= end_index
+                ):
+                    updated_occurrences.append(
+                        {"start_idx": s - start_index, "end_idx": e - start_index}
+                    )
+                # Else: out of range -> drop this occurrence
+            if updated_occurrences:
+                if pii_entity in doc.metadata["pii"]:
+                    doc.metadata["pii"][pii_entity]["occurrences"] = updated_occurrences
+            else:
+                pii_to_remove.append(pii_entity)
+
+        for pii_entity in pii_to_remove:
+            del doc.metadata["pii"][pii_entity]
+
+        # Mark as normalized to avoid future double-normalization
+        doc.metadata["pii_positions_normalized"] = True
+
+    log.debug(f"docs: {docs}")
     texts = [doc.page_content for doc in docs]
     metadatas = [
         {
@@ -1396,6 +1596,10 @@ class ProcessFileForm(BaseModel):
     file_id: str
     content: Optional[str] = None
     collection_name: Optional[str] = None
+    # Optional PII and UI state provided by client to avoid re-detection
+    pii: Optional[dict | list] = None
+    pii_state: Optional[dict] = None
+    enable_pii_detection: Optional[bool] = True
 
 
 @router.post("/process/file")
@@ -1411,6 +1615,14 @@ def process_file(
 
         if collection_name is None:
             collection_name = f"file-{file.id}"
+
+        # Initialize processing metadata so clients can poll
+        _set_processing(file.id, status="processing", stage="starting", progress=5)
+
+        # Initialize extraction variables to avoid UnboundLocalError
+        extraction_method = request.app.state.config.CONTENT_EXTRACTION_ENGINE
+        fallback_used = False
+        extraction_error = None
 
         if form_data.content:
             # Update the content in the file
@@ -1436,7 +1648,57 @@ def process_file(
                 )
             ]
 
+            # Pre-mark extracting so clients see progress immediately
+            _set_processing(file.id, "processing", "extracting", 10)
+            # Persist content immediately so UI can display it without waiting
             text_content = form_data.content
+            try:
+                Files.update_file_data_by_id(
+                    file.id,
+                    {
+                        "content": text_content,
+                        "page_content": [text_content],
+                    },
+                )
+            except Exception:
+                pass
+            # Content provided directly; extraction stage completed
+            _set_processing(file.id, "processing", "extracting", 20)
+
+            # Store extraction information for direct content
+            try:
+                Files.update_file_data_by_id(
+                    file.id,
+                    {
+                        "extraction": {
+                            "method": "direct_content",
+                            "fallback_used": False,
+                            "error": None,
+                        }
+                    },
+                )
+            except Exception:
+                pass
+
+            # If client provided PII, attach it to doc metadata and persist to file data
+            try:
+                if form_data.pii is not None:
+                    try:
+                        if docs and len(docs) > 0:
+                            # Attach as-is; downstream normalization handles chunk-local mapping
+                            docs[0].metadata["pii"] = form_data.pii
+                        Files.update_file_data_by_id(file.id, {"pii": form_data.pii})
+                    except Exception:
+                        pass
+                if form_data.pii_state is not None:
+                    try:
+                        Files.update_file_data_by_id(
+                            file.id, {"piiState": form_data.pii_state}
+                        )
+                    except Exception:
+                        pass
+            except Exception as e:
+                log.debug(f"process_file: skipping client-provided PII attach: {e}")
         elif form_data.collection_name:
             # Check if the file has already been processed and save the content
             # Usage: /knowledge/{id}/file/add, /knowledge/{id}/file/update
@@ -1466,52 +1728,141 @@ def process_file(
                         },
                     )
                 ]
+                # If PII is already stored with the file (from a prior content update),
+                # attach it so downstream chunking can normalize positions into each split.
+                try:
+                    pii_from_file = (file.data or {}).get("pii")
+                    if pii_from_file and isinstance(docs, list) and docs:
+                        docs[0].metadata["pii"] = pii_from_file
+                except Exception:
+                    pass
 
+            # Pre-mark extracting so clients see progress immediately
+            _set_processing(file.id, "processing", "extracting", 10)
             text_content = file.data.get("content", "")
+            _set_processing(file.id, "processing", "extracting", 20)
         else:
             # Process the file and save the content
             # Usage: /files/
             file_path = file.path
+            extraction_method = request.app.state.config.CONTENT_EXTRACTION_ENGINE
+            extraction_error = None
+            fallback_used = False
+
             if file_path:
+                _set_processing(file.id, "processing", "extracting", 10)
                 file_path = Storage.get_file(file_path)
-                loader = Loader(
-                    engine=request.app.state.config.CONTENT_EXTRACTION_ENGINE,
-                    DATALAB_MARKER_API_KEY=request.app.state.config.DATALAB_MARKER_API_KEY,
-                    DATALAB_MARKER_API_BASE_URL=request.app.state.config.DATALAB_MARKER_API_BASE_URL,
-                    DATALAB_MARKER_ADDITIONAL_CONFIG=request.app.state.config.DATALAB_MARKER_ADDITIONAL_CONFIG,
-                    DATALAB_MARKER_SKIP_CACHE=request.app.state.config.DATALAB_MARKER_SKIP_CACHE,
-                    DATALAB_MARKER_FORCE_OCR=request.app.state.config.DATALAB_MARKER_FORCE_OCR,
-                    DATALAB_MARKER_PAGINATE=request.app.state.config.DATALAB_MARKER_PAGINATE,
-                    DATALAB_MARKER_STRIP_EXISTING_OCR=request.app.state.config.DATALAB_MARKER_STRIP_EXISTING_OCR,
-                    DATALAB_MARKER_DISABLE_IMAGE_EXTRACTION=request.app.state.config.DATALAB_MARKER_DISABLE_IMAGE_EXTRACTION,
-                    DATALAB_MARKER_FORMAT_LINES=request.app.state.config.DATALAB_MARKER_FORMAT_LINES,
-                    DATALAB_MARKER_USE_LLM=request.app.state.config.DATALAB_MARKER_USE_LLM,
-                    DATALAB_MARKER_OUTPUT_FORMAT=request.app.state.config.DATALAB_MARKER_OUTPUT_FORMAT,
-                    EXTERNAL_DOCUMENT_LOADER_URL=request.app.state.config.EXTERNAL_DOCUMENT_LOADER_URL,
-                    EXTERNAL_DOCUMENT_LOADER_API_KEY=request.app.state.config.EXTERNAL_DOCUMENT_LOADER_API_KEY,
-                    TIKA_SERVER_URL=request.app.state.config.TIKA_SERVER_URL,
-                    DOCLING_SERVER_URL=request.app.state.config.DOCLING_SERVER_URL,
-                    DOCLING_PARAMS={
-                        "do_ocr": request.app.state.config.DOCLING_DO_OCR,
-                        "force_ocr": request.app.state.config.DOCLING_FORCE_OCR,
-                        "ocr_engine": request.app.state.config.DOCLING_OCR_ENGINE,
-                        "ocr_lang": request.app.state.config.DOCLING_OCR_LANG,
-                        "pdf_backend": request.app.state.config.DOCLING_PDF_BACKEND,
-                        "table_mode": request.app.state.config.DOCLING_TABLE_MODE,
-                        "pipeline": request.app.state.config.DOCLING_PIPELINE,
-                        "do_picture_description": request.app.state.config.DOCLING_DO_PICTURE_DESCRIPTION,
-                        "picture_description_mode": request.app.state.config.DOCLING_PICTURE_DESCRIPTION_MODE,
-                        "picture_description_local": request.app.state.config.DOCLING_PICTURE_DESCRIPTION_LOCAL,
-                        "picture_description_api": request.app.state.config.DOCLING_PICTURE_DESCRIPTION_API,
-                    },
-                    PDF_EXTRACT_IMAGES=request.app.state.config.PDF_EXTRACT_IMAGES,
-                    DOCUMENT_INTELLIGENCE_ENDPOINT=request.app.state.config.DOCUMENT_INTELLIGENCE_ENDPOINT,
-                    DOCUMENT_INTELLIGENCE_KEY=request.app.state.config.DOCUMENT_INTELLIGENCE_KEY,
-                    MISTRAL_OCR_API_KEY=request.app.state.config.MISTRAL_OCR_API_KEY,
-                )
-                docs = loader.load(
-                    file.filename, file.meta.get("content_type"), file_path
-                )
+
+                # Try primary extraction method (e.g., docling)
+                try:
+                    loader = Loader(
+                        engine=request.app.state.config.CONTENT_EXTRACTION_ENGINE,
+                        DATALAB_MARKER_API_KEY=request.app.state.config.DATALAB_MARKER_API_KEY,
+                        DATALAB_MARKER_API_BASE_URL=request.app.state.config.DATALAB_MARKER_API_BASE_URL,
+                        DATALAB_MARKER_ADDITIONAL_CONFIG=request.app.state.config.DATALAB_MARKER_ADDITIONAL_CONFIG,
+                        DATALAB_MARKER_SKIP_CACHE=request.app.state.config.DATALAB_MARKER_SKIP_CACHE,
+                        DATALAB_MARKER_FORCE_OCR=request.app.state.config.DATALAB_MARKER_FORCE_OCR,
+                        DATALAB_MARKER_PAGINATE=request.app.state.config.DATALAB_MARKER_PAGINATE,
+                        DATALAB_MARKER_STRIP_EXISTING_OCR=request.app.state.config.DATALAB_MARKER_STRIP_EXISTING_OCR,
+                        DATALAB_MARKER_DISABLE_IMAGE_EXTRACTION=request.app.state.config.DATALAB_MARKER_DISABLE_IMAGE_EXTRACTION,
+                        DATALAB_MARKER_FORMAT_LINES=request.app.state.config.DATALAB_MARKER_FORMAT_LINES,
+                        DATALAB_MARKER_USE_LLM=request.app.state.config.DATALAB_MARKER_USE_LLM,
+                        DATALAB_MARKER_OUTPUT_FORMAT=request.app.state.config.DATALAB_MARKER_OUTPUT_FORMAT,
+                        EXTERNAL_DOCUMENT_LOADER_URL=request.app.state.config.EXTERNAL_DOCUMENT_LOADER_URL,
+                        EXTERNAL_DOCUMENT_LOADER_API_KEY=request.app.state.config.EXTERNAL_DOCUMENT_LOADER_API_KEY,
+                        TIKA_SERVER_URL=request.app.state.config.TIKA_SERVER_URL,
+                        DOCLING_SERVER_URL=request.app.state.config.DOCLING_SERVER_URL,
+                        DOCLING_PARAMS={
+                            "do_ocr": request.app.state.config.DOCLING_DO_OCR,
+                            "force_ocr": request.app.state.config.DOCLING_FORCE_OCR,
+                            "ocr_engine": request.app.state.config.DOCLING_OCR_ENGINE,
+                            "ocr_lang": request.app.state.config.DOCLING_OCR_LANG,
+                            "md_page_break_placeholder": request.app.state.config.DOCLING_MD_PAGE_BREAK_PLACEHOLDER,
+                            "pdf_backend": request.app.state.config.DOCLING_PDF_BACKEND,
+                            "table_mode": request.app.state.config.DOCLING_TABLE_MODE,
+                            "pipeline": request.app.state.config.DOCLING_PIPELINE,
+                            "do_picture_description": request.app.state.config.DOCLING_DO_PICTURE_DESCRIPTION,
+                            "picture_description_mode": request.app.state.config.DOCLING_PICTURE_DESCRIPTION_MODE,
+                            "picture_description_local": request.app.state.config.DOCLING_PICTURE_DESCRIPTION_LOCAL,
+                            "picture_description_api": request.app.state.config.DOCLING_PICTURE_DESCRIPTION_API,
+                        },
+                        PDF_EXTRACT_IMAGES=request.app.state.config.PDF_EXTRACT_IMAGES,
+                        DOCUMENT_INTELLIGENCE_ENDPOINT=request.app.state.config.DOCUMENT_INTELLIGENCE_ENDPOINT,
+                        DOCUMENT_INTELLIGENCE_KEY=request.app.state.config.DOCUMENT_INTELLIGENCE_KEY,
+                        MISTRAL_OCR_API_KEY=request.app.state.config.MISTRAL_OCR_API_KEY,
+                    )
+                    docs = loader.load(
+                        file.filename, file.meta.get("content_type"), file_path
+                    )
+                    log.info(
+                        f"Successfully extracted content using {extraction_method} for file: {file.filename}"
+                    )
+
+                except Exception as e:
+                    log.error(
+                        f"Error using {extraction_method} for file {file.filename}: {str(e)}"
+                    )
+                    # Classify the error for user-friendly messaging
+                    error_classification = classify_extraction_error(str(e))
+                    extraction_error = error_classification
+
+                    # Fallback to standard extraction if primary method fails and it's not already standard
+                    if (
+                        request.app.state.config.CONTENT_EXTRACTION_ENGINE.lower()
+                        != "langchain"
+                    ):
+                        try:
+                            log.info(
+                                f"Falling back to standard extraction for file: {file.filename}"
+                            )
+                            fallback_loader = Loader(
+                                engine="langchain",  # Use langchain as fallback
+                                PDF_EXTRACT_IMAGES=request.app.state.config.PDF_EXTRACT_IMAGES,
+                            )
+                            docs = fallback_loader.load(
+                                file.filename, file.meta.get("content_type"), file_path
+                            )
+                            extraction_method = "langchain"
+                            fallback_used = True
+                            log.info(
+                                f"Successfully extracted content using fallback method for file: {file.filename}"
+                            )
+                        except Exception as fallback_error:
+                            log.error(
+                                f"Fallback extraction also failed for file {file.filename}: {str(fallback_error)}"
+                            )
+                            # If both methods fail, raise the original error
+                            raise e
+                    else:
+                        # If already using standard method, re-raise the error
+                        raise e
+
+                # If upstream loader (e.g., Docling) returned single md with explicit page breaks,
+                # split it into per-page docs so we can stream and index pages correctly.
+                try:
+                    placeholder = (
+                        request.app.state.config.DOCLING_MD_PAGE_BREAK_PLACEHOLDER
+                    )
+                    if (
+                        len(docs) == 1
+                        and isinstance(docs[0].page_content, str)
+                        and placeholder in docs[0].page_content
+                    ):
+                        parts = docs[0].page_content.split(placeholder)
+                        base_meta = {
+                            **docs[0].metadata,
+                            "name": file.filename,
+                            "created_by": file.user_id,
+                            "file_id": file.id,
+                            "source": file.filename,
+                        }
+                        docs = [
+                            Document(page_content=part.strip(), metadata=base_meta)
+                            for part in parts
+                            if part and part.strip() != ""
+                        ]
+                except Exception:
+                    pass
 
                 docs = [
                     Document(
@@ -1539,15 +1890,147 @@ def process_file(
                         },
                     )
                 ]
-            text_content = " ".join([doc.page_content for doc in docs])
 
-        log.debug(f"text_content: {text_content}")
-        Files.update_file_data_by_id(
-            file.id,
-            {"status": "completed", "content": text_content},
-        )
+            text_content = [doc.page_content for doc in docs]
+            known_entities = []
+            current_page_offset = 0
+            detections = {}
 
-        hash = calculate_sha256_string(text_content)
+            # Store extraction information in file data
+            try:
+                Files.update_file_data_by_id(
+                    file.id,
+                    {
+                        "extraction": {
+                            "method": extraction_method,
+                            "fallback_used": fallback_used,
+                            "error": extraction_error,
+                        }
+                    },
+                )
+            except Exception:
+                pass  # Don't let extraction info storage break the main flow
+
+            total_pages = len(docs) if docs else 1
+            try:
+                Files.update_file_data_by_id(
+                    file.id,
+                    {
+                        "content": " ".join(text_content),
+                        "page_content": text_content,
+                    },
+                )
+            except Exception:
+                pass
+
+            for page_index, doc in enumerate(docs):
+                page_start_offset = current_page_offset
+
+                page_detections = {}
+                pii = None
+                if (
+                    request.app.state.config.ENABLE_PII_DETECTION
+                    and request.app.state.config.PII_API_KEY
+                    and form_data.enable_pii_detection
+                ):
+                    log.info(
+                        f"PII detection enabled for file {file.id}: config={request.app.state.config.ENABLE_PII_DETECTION}, api_key_set={bool(request.app.state.config.PII_API_KEY)}, form_flag={form_data.enable_pii_detection}"
+                    )
+                    try:
+                        client = AuthenticatedClient(
+                            base_url=request.app.state.config.PII_API_BASE_URL,
+                            token=request.app.state.config.PII_API_KEY,
+                            prefix="",
+                            auth_header_name="X-API-Key",
+                        )
+                        body = TextMaskRequest(
+                            text=[doc.page_content],
+                            pii_labels=PiiLabels(detect=["ALL"]),
+                            known_entities=known_entities,
+                        )
+                        response = mask_text_text_mask_post.sync(
+                            client=client,
+                            body=body,
+                            create_session=False,
+                            quiet=False,
+                        ).to_dict()
+
+                        log.debug(f"response: {response}")
+                        # response can be HTTPValidationError or TextMaskResponse
+                        _set_processing(file.id, "processing", "pii_detection", 20)
+                        if "pii" in response:
+                            # response.pii is list[list[PiiEntity]] or None/Unset
+                            pii = (
+                                (response["pii"] or [[]])[0] if response["pii"] else {}
+                            )
+                            for pii_entity in pii:
+                                page_detections[pii_entity["text"]] = pii_entity.copy()
+                                updated_occurences = []
+
+                                for occurrence in pii_entity["occurrences"]:
+                                    adjusted_occurrence = {
+                                        # Use the page's start offset to align to full-text positions
+                                        "start_idx": occurrence["start_idx"]
+                                        + page_start_offset,
+                                        "end_idx": occurrence["end_idx"]
+                                        + page_start_offset,
+                                    }
+                                    updated_occurences.append(adjusted_occurrence)
+
+                                pii_entity["occurrences"] = updated_occurences
+
+                                if pii_entity["text"] not in detections:
+                                    detections[pii_entity["text"]] = pii_entity
+                                    known_entities.append(
+                                        {
+                                            "id": pii_entity["id"],
+                                            "label": pii_entity["label"],
+                                            "name": pii_entity["text"],
+                                        }
+                                    )
+                                else:
+                                    detections[pii_entity["text"]][
+                                        "occurrences"
+                                    ].extend(pii_entity["occurrences"])
+                    except Exception as e:
+                        log.exception(e)
+                        pii = None
+
+                    # attach PII to document metadata for downstream use
+                    doc.metadata["pii"] = page_detections
+                else:
+                    log.info(
+                        f"PII detection skipped for file {file.id}: config={request.app.state.config.ENABLE_PII_DETECTION}, api_key_set={bool(request.app.state.config.PII_API_KEY)}, form_flag={form_data.enable_pii_detection}"
+                    )
+                # Persist latest PII results incrementally, without blocking content updates
+                try:
+                    Files.update_file_data_by_id(
+                        file.id,
+                        {
+                            "pii": detections,
+                        },
+                    )
+                except Exception:
+                    pass
+                # Granular PII progress from 20 to 30
+                try:
+                    pii_progress = 20 + int(10 * (page_index + 1) / max(total_pages, 1))
+                    _set_processing(
+                        file.id, "processing", "pii_detection", pii_progress
+                    )
+                except Exception:
+                    log.exception("Failed to update PII progress")
+
+                # Move the running offset forward for the next page
+                current_page_offset = page_start_offset + len(doc.page_content)
+
+            # Extraction completed
+            _set_processing(file.id, "processing", "pii_detection", 70)
+
+        # About to embed/index
+        _set_processing(file.id, "processing", "embedding", 70)
+
+        hash = calculate_sha256_string(" ".join(text_content))
         Files.update_file_hash_by_id(file.id, hash)
 
         if not request.app.state.config.BYPASS_EMBEDDING_AND_RETRIEVAL:
@@ -1566,6 +2049,8 @@ def process_file(
                 )
 
                 if result:
+                    # Indexing completed
+                    _set_processing(file.id, "processing", "indexing", 95)
                     Files.update_file_metadata_by_id(
                         file.id,
                         {
@@ -1573,20 +2058,75 @@ def process_file(
                         },
                     )
 
+                    # Done
+                    _set_processing(file.id, "done", "done", 100)
+
                     return {
                         "status": True,
                         "collection_name": collection_name,
                         "filename": file.filename,
                         "content": text_content,
+                        "extraction": {
+                            "method": extraction_method,
+                            "fallback_used": fallback_used,
+                            "error": extraction_error,
+                        },
                     }
+            except ValueError as e:
+                # Handle duplicate content as a special case - not really an error
+                if "Duplicate content detected" in str(e):
+                    log.info(
+                        f"Duplicate content detected for file {file.filename}, treating as successful"
+                    )
+                    _set_processing(file.id, "done", "done", 100)
+
+                    return {
+                        "status": True,
+                        "collection_name": collection_name,
+                        "filename": file.filename,
+                        "content": text_content,
+                        "extraction": {
+                            "method": extraction_method,
+                            "fallback_used": fallback_used,
+                            "error": extraction_error,
+                        },
+                        "duplicate": True,  # Indicate this was duplicate content
+                    }
+                else:
+                    # Other ValueError exceptions should still be treated as errors
+                    _set_processing(file.id, "error", "error", 100, error=str(e))
+                    raise e
             except Exception as e:
+                # Mark error state so clients stop polling
+                _set_processing(file.id, "error", "error", 100, error=str(e))
                 raise e
         else:
+            # Store extraction information in file data for bypass path too
+            try:
+                Files.update_file_data_by_id(
+                    file.id,
+                    {
+                        "extraction": {
+                            "method": extraction_method,
+                            "fallback_used": fallback_used,
+                            "error": extraction_error,
+                        }
+                    },
+                )
+            except Exception:
+                pass  # Don't let extraction info storage break the main flow
+
+            _set_processing(file.id, "done", "done", 100)
             return {
                 "status": True,
                 "collection_name": None,
                 "filename": file.filename,
                 "content": text_content,
+                "extraction": {
+                    "method": extraction_method,
+                    "fallback_used": fallback_used,
+                    "error": extraction_error,
+                },
             }
 
     except Exception as e:
@@ -1597,6 +2137,8 @@ def process_file(
                 detail=ERROR_MESSAGES.PANDOC_NOT_INSTALLED,
             )
         else:
+            # Ensure error state is written
+            _set_processing(form_data.file_id, "error", "error", 100, error=str(e))
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=str(e),
@@ -1987,7 +2529,6 @@ def search_web(request: Request, engine: str, query: str) -> list[SearchResult]:
 async def process_web_search(
     request: Request, form_data: SearchForm, user=Depends(get_verified_user)
 ):
-
     urls = []
     result_items = []
 
@@ -2138,7 +2679,8 @@ def query_doc_handler(
                 collection_name=form_data.collection_name,
                 collection_result=collection_results[form_data.collection_name],
                 query=form_data.query,
-                embedding_function=lambda query, prefix: request.app.state.EMBEDDING_FUNCTION(
+                embedding_function=lambda query,
+                prefix: request.app.state.EMBEDDING_FUNCTION(
                     query, prefix=prefix, user=user
                 ),
                 k=form_data.k if form_data.k else request.app.state.config.TOP_K,
@@ -2205,7 +2747,8 @@ def query_collection_handler(
             return query_collection_with_hybrid_search(
                 collection_names=form_data.collection_names,
                 queries=[form_data.query],
-                embedding_function=lambda query, prefix: request.app.state.EMBEDDING_FUNCTION(
+                embedding_function=lambda query,
+                prefix: request.app.state.EMBEDDING_FUNCTION(
                     query, prefix=prefix, user=user
                 ),
                 k=form_data.k if form_data.k else request.app.state.config.TOP_K,
@@ -2235,7 +2778,8 @@ def query_collection_handler(
             return query_collection(
                 collection_names=form_data.collection_names,
                 queries=[form_data.query],
-                embedding_function=lambda query, prefix: request.app.state.EMBEDDING_FUNCTION(
+                embedding_function=lambda query,
+                prefix: request.app.state.EMBEDDING_FUNCTION(
                     query, prefix=prefix, user=user
                 ),
                 k=form_data.k if form_data.k else request.app.state.config.TOP_K,

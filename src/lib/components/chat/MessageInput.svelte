@@ -44,6 +44,8 @@
 	import { uploadFile } from '$lib/apis/files';
 	import { generateAutoCompletion } from '$lib/apis';
 	import { deleteFileById } from '$lib/apis/files';
+	import { processFile as triggerProcessFile } from '$lib/apis/retrieval';
+	import { getFileById } from '$lib/apis/files';
 
 	import { WEBUI_BASE_URL, WEBUI_API_BASE_URL, PASTED_TEXT_CHARACTER_LIMIT } from '$lib/constants';
 
@@ -65,8 +67,13 @@
 	import Wrench from '../icons/Wrench.svelte';
 	import CommandLine from '../icons/CommandLine.svelte';
 	import Sparkles from '../icons/Sparkles.svelte';
+	import Mask from '../icons/Mask.svelte';
 
 	import { KokoroWorker } from '$lib/workers/KokoroWorker';
+
+	// PII Detection imports
+	import { maskPiiTextWithSession, createPiiSession, type PiiEntity } from '$lib/apis/pii';
+	import { PiiSessionManager, type ExtendedPiiEntity } from '$lib/utils/pii';
 	import InputVariablesModal from './MessageInput/InputVariablesModal.svelte';
 	import Voice from '../icons/Voice.svelte';
 	import { getSessionUser } from '$lib/apis/auths';
@@ -87,14 +94,15 @@
 
 	export let history;
 	export let taskIds = null;
+	export let chatId = '';
 
 	export let prompt = '';
-	export let files = [];
+	export let files: any[] = [];
 
-	export let toolServers = [];
+	export let toolServers: any[] = [];
 
-	export let selectedToolIds = [];
-	export let selectedFilterIds = [];
+	export let selectedToolIds: any[] = [];
+	export let selectedFilterIds: any[] = [];
 
 	export let imageGenerationEnabled = false;
 	export let webSearchEnabled = false;
@@ -107,15 +115,24 @@
 
 	$: onChange({
 		prompt,
-		files: files
-			.filter((file) => file.type !== 'image')
-			.map((file) => {
-				return {
-					...file,
-					user: undefined,
-					access_control: undefined
-				};
-			}),
+		files: (() => {
+			const nonImageFiles = files
+				.filter((file) => file.type !== 'image')
+				.map((file) => {
+					return {
+						...file,
+						user: undefined,
+						access_control: undefined
+					};
+				});
+
+			// Mask filenames if PII detection is enabled
+			if (enablePiiDetection) {
+				return piiSessionManager.maskFilenames(nonImageFiles, chatId || undefined);
+			}
+
+			return nonImageFiles;
+		})(),
 		selectedToolIds,
 		selectedFilterIds,
 		imageGenerationEnabled,
@@ -460,16 +477,303 @@
 	let chatInputContainerElement;
 	let chatInputElement;
 
-	let filesInputElement;
-	let commandsElement;
+	let filesInputElement: any;
+	let commandsElement: any;
 
-	let inputFiles;
-
+	let inputFiles: any;
 	let dragged = false;
 	let shiftKey = false;
 
 	let user = null;
 	export let placeholder = '';
+
+	// PII Detection state
+	let piiSessionManager = PiiSessionManager.getInstance();
+	let currentPiiEntities: ExtendedPiiEntity[] = [];
+	let maskedPrompt = '';
+	let piiMaskingEnabled = true; // Toggle state for PII masking
+	let loadedFileIds = new Set<string>(); // Track which files have had their PII entities loaded
+
+	// Transfer PII state from Knowledge Base context to chat context
+	function syncPiiFromKnowledgeBaseFile(fileData: any, knowledgeBaseId: string | null) {
+		// Only process PII data if detection is enabled
+		if (!enablePiiDetection) {
+			console.log('MessageInput: Skipping KB PII sync - detection disabled');
+			return;
+		}
+
+		try {
+			const fileId = fileData?.id;
+			if (!fileId) return;
+
+			// Try to get PII state from Knowledge Base context
+			const kbConvoId = `${knowledgeBaseId || 'kb'}:${fileId}`;
+			const kbState = piiSessionManager.getConversationState(kbConvoId);
+
+			if (kbState && kbState.entities && kbState.entities.length > 0) {
+				console.log('MessageInput: Found KB PII state, transferring to chat context:', {
+					kbConvoId,
+					chatId,
+					entitiesCount: kbState.entities.length
+				});
+
+				// Transfer entities to chat context
+				const chatConvoId = chatId || 'temp';
+				if (chatId && chatId.trim() !== '') {
+					piiSessionManager.setConversationEntitiesFromLatestDetection(
+						chatConvoId,
+						kbState.entities
+					);
+
+					// Apply masking states
+					try {
+						kbState.entities.forEach((ent: any) =>
+							piiSessionManager.setEntityMaskingState(
+								chatConvoId,
+								ent.label,
+								ent.shouldMask ?? true
+							)
+						);
+					} catch (_) {}
+
+					// Transfer modifiers if present
+					if (kbState.modifiers && kbState.modifiers.length > 0) {
+						try {
+							const existing = piiSessionManager.getModifiersForDisplay(chatConvoId) || [];
+							const byEntity = new Map<string, any>();
+							existing.forEach((m: any) => byEntity.set((m.entity || '').toString(), m));
+							kbState.modifiers.forEach((m: any) => byEntity.set((m.entity || '').toString(), m));
+							const merged = Array.from(byEntity.values());
+							piiSessionManager.setConversationModifiers(chatConvoId, merged);
+						} catch (_) {}
+					}
+
+					// Transfer filename mappings from KB context to chat context
+					if (kbState.filenameMappings) {
+						kbState.filenameMappings.forEach((mapping: any) => {
+							if (mapping.fileId === fileId && mapping.originalFilename) {
+								piiSessionManager.addFilenameMapping(chatConvoId, fileId, mapping.originalFilename);
+							}
+						});
+					}
+				} else {
+					// Temporary chat: seed temporary state
+					if (!piiSessionManager.isTemporaryStateActive()) {
+						piiSessionManager.activateTemporaryState();
+					}
+					piiSessionManager.setTemporaryStateEntities(kbState.entities);
+
+					if (kbState.modifiers && kbState.modifiers.length > 0) {
+						try {
+							const existing = piiSessionManager.getModifiersForDisplay(undefined) || [];
+							const byEntity = new Map<string, any>();
+							existing.forEach((m: any) => byEntity.set((m.entity || '').toString(), m));
+							kbState.modifiers.forEach((m: any) => byEntity.set((m.entity || '').toString(), m));
+							const merged = Array.from(byEntity.values());
+							piiSessionManager.setTemporaryModifiers(merged);
+						} catch (_) {}
+					}
+				}
+
+				// Ask the editor to sync its decorations
+				try {
+					if (chatInputElement?.syncWithSession) {
+						chatInputElement.syncWithSession();
+					}
+				} catch (_) {}
+
+				return true; // Successfully transferred KB PII state
+			}
+		} catch (e) {
+			console.log('MessageInput: Error syncing KB PII state:', e);
+		}
+
+		return false; // No KB PII state found or transfer failed
+	}
+
+	// Sync PII detections found on files to the current conversation's PII session
+	function syncPiiDetectionsFromFileData(
+		fileData: any,
+		isKnowledgeBaseFile: boolean = false,
+		knowledgeBaseId: string | null = null
+	) {
+		// Only process PII data if detection is enabled
+		if (!enablePiiDetection) {
+			console.log('MessageInput: Skipping PII sync - detection disabled');
+			return;
+		}
+
+		// For Knowledge Base files, try to transfer PII state from KB context first
+		if (isKnowledgeBaseFile) {
+			const kbTransferSuccess = syncPiiFromKnowledgeBaseFile(fileData, knowledgeBaseId);
+			if (kbTransferSuccess) {
+				return; // Successfully transferred KB PII state, no need to process file data
+			}
+		}
+
+		try {
+			const piiState = fileData?.data?.piiState;
+			const stateEntitiesArr = Array.isArray(piiState?.entities) ? piiState.entities : [];
+			const stateModifiersArr = Array.isArray(piiState?.modifiers) ? piiState.modifiers : [];
+
+			let extended: ExtendedPiiEntity[] = [];
+
+			if (stateEntitiesArr.length > 0) {
+				// Prefer stored entities with persisted shouldMask
+				extended = stateEntitiesArr
+					.map((e: any) => ({
+						id: e.id,
+						label: e.label,
+						type: e.type || e.entity_type || 'PII',
+						text: e.text || e.raw_text || e.name || '',
+						raw_text: e.raw_text || e.text || e.name || '',
+						occurrences: (e.occurrences || []).map((o: any) => ({
+							start_idx: o.start_idx,
+							end_idx: o.end_idx
+						})),
+						shouldMask: e.shouldMask ?? true
+					}))
+					.filter((e) => e.raw_text && String(e.raw_text).trim() !== '');
+			} else {
+				// Fallback: build from legacy pii map and apply current toggle as default
+				const detections = fileData?.data?.pii;
+				if (!detections || typeof detections !== 'object') return;
+				const values = Object.values(detections) as any[];
+				if (!Array.isArray(values) || values.length === 0) return;
+
+				extended = values
+					.map((e: any) => ({
+						id: e.id,
+						label: e.label,
+						type: e.type || e.entity_type || 'PII',
+						text: e.text || e.raw_text || e.name || '',
+						raw_text: e.raw_text || e.text || e.name || '',
+						occurrences: (e.occurrences || []).map((o: any) => ({
+							start_idx: o.start_idx,
+							end_idx: o.end_idx
+						})),
+						shouldMask: piiMaskingEnabled
+					}))
+					.filter((e) => e.raw_text && String(e.raw_text).trim() !== '');
+			}
+
+			if (extended.length === 0 && stateModifiersArr.length === 0) return;
+
+			if (chatId && chatId.trim() !== '') {
+				// Merge entities into the conversation and apply mask states
+				if (extended.length > 0) {
+					piiSessionManager.setConversationEntitiesFromLatestDetection(chatId, extended as any);
+					try {
+						extended.forEach((ent) =>
+							piiSessionManager.setEntityMaskingState(chatId, ent.label, ent.shouldMask ?? true)
+						);
+					} catch (_) {}
+				}
+
+				// Merge modifiers: file modifiers override existing modifiers for same entity text
+				if (stateModifiersArr.length > 0) {
+					try {
+						const existing = piiSessionManager.getModifiersForDisplay(chatId) || [];
+						const byEntity = new Map<string, any>();
+						existing.forEach((m: any) => byEntity.set((m.entity || '').toString(), m));
+						stateModifiersArr.forEach((m: any) => byEntity.set((m.entity || '').toString(), m));
+						const merged = Array.from(byEntity.values());
+						piiSessionManager.setConversationModifiers(chatId, merged);
+					} catch (_) {}
+				}
+			} else {
+				// Temporary chat: seed temporary state so editors and Chat can display
+				if (!piiSessionManager.isTemporaryStateActive()) {
+					piiSessionManager.activateTemporaryState();
+				}
+				if (extended.length > 0) {
+					piiSessionManager.setTemporaryStateEntities(extended);
+				}
+				if (stateModifiersArr.length > 0) {
+					try {
+						const existing = piiSessionManager.getModifiersForDisplay(undefined) || [];
+						const byEntity = new Map<string, any>();
+						existing.forEach((m: any) => byEntity.set((m.entity || '').toString(), m));
+						stateModifiersArr.forEach((m: any) => byEntity.set((m.entity || '').toString(), m));
+						const merged = Array.from(byEntity.values());
+						piiSessionManager.setTemporaryModifiers(merged);
+					} catch (_) {}
+				}
+			}
+
+			// Ask the editor to sync its decorations if available
+			try {
+				if (chatInputElement?.syncWithSession) {
+					chatInputElement.syncWithSession();
+				}
+			} catch (_) {}
+		} catch (_) {}
+	}
+
+	// Get PII settings from config - only enable when both config allows it AND button is active
+	$: piiConfigEnabled = $config?.features?.enable_pii_detection ?? false;
+	$: enablePiiDetection = piiConfigEnabled && piiMaskingEnabled;
+	$: piiApiKey = $config?.pii?.api_key ?? '';
+
+	// Load PII masking state from session manager when chatId changes
+	let previousChatId = '';
+	$: if (chatId !== previousChatId) {
+		previousChatId = chatId;
+		piiMaskingEnabled = piiSessionManager.getCurrentPiiMaskingEnabled();
+	}
+
+	// Load PII entities for existing files on page load or when PII detection is enabled
+	$: if (enablePiiDetection && files && files.length > 0) {
+		// Check for files that have IDs but haven't had their PII entities loaded yet
+		files.forEach(async (file) => {
+			if (
+				file.id &&
+				!loadedFileIds.has(file.id) &&
+				file.status !== 'uploading' &&
+				file.status !== 'processing'
+			) {
+				console.log('MessageInput: Loading PII entities for existing file:', {
+					fileId: file.id,
+					fileName: file.name,
+					fileType: file.type
+				});
+
+				try {
+					// Add to loaded set immediately to prevent duplicate loading
+					loadedFileIds.add(file.id);
+
+					// Skip PII loading for collections - they don't have individual file data
+					if (file.type === 'collection') {
+						console.log(
+							'MessageInput: Skipping PII loading for collection (collections are knowledge base containers, not files):',
+							file.id
+						);
+						return;
+					}
+
+					// Fetch fresh file data to ensure PII state is available
+					const freshFileData = await getFileById(localStorage.token, file.id);
+					if (freshFileData) {
+						// Determine if this is a Knowledge Base file (but not a collection)
+						const isKnowledgeBaseFile = file.knowledge === true;
+						const knowledgeBaseId = file.collection?.id || null;
+
+						// Sync PII detections from the file data
+						syncPiiDetectionsFromFileData(freshFileData, isKnowledgeBaseFile, knowledgeBaseId);
+
+						console.log(
+							'MessageInput: Successfully loaded PII entities for existing file:',
+							file.id
+						);
+					}
+				} catch (e) {
+					console.log('MessageInput: Error loading PII entities for existing file:', file.id, e);
+					// Remove from loaded set on error so we can retry later
+					loadedFileIds.delete(file.id);
+				}
+			}
+		});
+	}
 
 	let visionCapableModels = [];
 	$: visionCapableModels = (atSelectedModel?.id ? [atSelectedModel.id] : selectedModels).filter(
@@ -539,6 +843,135 @@
 		});
 	};
 
+	// PII Detection handler
+	const handlePiiDetected = (entities: ExtendedPiiEntity[], maskedText: string) => {
+		// Set shouldMask based on the toggle state for newly detected entities
+		const entitiesWithToggleState = entities.map((entity) => ({
+			...entity,
+			shouldMask: piiMaskingEnabled
+		}));
+		currentPiiEntities = entitiesWithToggleState;
+		maskedPrompt = maskedText;
+	};
+
+	// PII Toggle handler - update current entities when user toggles masking in editor
+	const handlePiiToggled = (entities: ExtendedPiiEntity[]) => {
+		currentPiiEntities = entities;
+		console.log('MessageInput: PII entities toggled, updated currentPiiEntities:', entities.length);
+	};
+
+	// Function to toggle PII masking (deterministic based on button state)
+	const togglePiiMasking = () => {
+		if (!piiConfigEnabled) {
+			console.log('MessageInput: PII detection not enabled in config');
+			return;
+		}
+
+		// Toggle the masking state
+		piiMaskingEnabled = !piiMaskingEnabled;
+
+		// Store the state in session manager
+		piiSessionManager.setCurrentPiiMaskingEnabled(piiMaskingEnabled);
+
+		console.log('MessageInput: PII masking toggled to:', piiMaskingEnabled);
+
+		// Deterministic behavior based on button state
+		if (piiMaskingEnabled) {
+			// Button ON: Enable PII detection and trigger detection
+			if (chatInputElement?.enablePiiDetectionDynamically) {
+				chatInputElement.enablePiiDetectionDynamically();
+			}
+			if (chatInputElement?.maskAllPiiEntities) {
+				chatInputElement.maskAllPiiEntities();
+			}
+		} else {
+			// Button OFF: Disable PII detection, clear highlights and entities
+			if (chatInputElement?.disablePiiDetectionDynamically) {
+				chatInputElement.disablePiiDetectionDynamically();
+			}
+			if (chatInputElement?.clearAllPiiHighlights) {
+				chatInputElement.clearAllPiiHighlights();
+			}
+
+			// Clear current entities and masked prompt
+			currentPiiEntities = [];
+			maskedPrompt = '';
+
+			// Clear the loaded file IDs so PII entities can be re-loaded if PII detection is re-enabled
+			loadedFileIds.clear();
+
+			// Clear PII data from session manager for current conversation
+			try {
+				if (chatId && chatId.trim() !== '') {
+					// For existing conversations, clear working entities but keep persisted ones
+					piiSessionManager.clearConversationWorkingEntities(chatId);
+				} else {
+					// For new chats, clear temporary state entirely (includes both entities and modifiers)
+					if (piiSessionManager.isTemporaryStateActive()) {
+						piiSessionManager.clearTemporaryState();
+					}
+				}
+			} catch (e) {
+				console.log('MessageInput: Error clearing PII session data:', e);
+			}
+		}
+	};
+
+	// Function to get the prompt to send (masked if PII detected)
+	const getPromptToSend = (): string => {
+		if (!enablePiiDetection || !currentPiiEntities.length) {
+			return prompt;
+		}
+
+		// Create a masked version based on user's masking preferences
+		let maskedText = prompt;
+		const entitiesToMask = currentPiiEntities.filter((entity) => entity.shouldMask);
+
+		console.log('MessageInput: Creating masked prompt, entities to mask:', entitiesToMask.length);
+		console.log('MessageInput: Original prompt:', prompt.substring(0, 200));
+
+		// Use a more robust approach: sort entities by raw text length (longest first)
+		// to avoid partial replacements, then replace by raw text instead of positions
+		const sortedEntities = entitiesToMask.sort((a, b) => b.raw_text.length - a.raw_text.length);
+
+		sortedEntities.forEach((entity) => {
+			if (!entity.raw_text || entity.raw_text.trim() === '') {
+				console.log('MessageInput: Skipping entity with empty raw text:', entity.label);
+				return;
+			}
+
+			// Escape special regex characters
+			const escapedText = entity.raw_text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+			// Use word boundaries for better matching, but handle special characters gracefully
+			const hasSpecialChars = /[^\w\s]/.test(entity.raw_text);
+			const regex = hasSpecialChars
+				? new RegExp(escapedText, 'gi')
+				: new RegExp(`\\b${escapedText}\\b`, 'gi');
+
+			console.log(
+				'MessageInput: Replacing text for entity',
+				entity.label,
+				'raw text:',
+				entity.raw_text
+			);
+
+			// Replace all occurrences of the raw text with the masked pattern
+			const replacementPattern = `[{${entity.label}}]`;
+			const beforeReplace = maskedText;
+			maskedText = maskedText.replace(regex, replacementPattern);
+
+			if (maskedText !== beforeReplace) {
+				console.log('MessageInput: Successfully masked entity', entity.label);
+			} else {
+				console.log('MessageInput: No replacements made for entity', entity.label);
+			}
+		});
+
+		console.log('MessageInput: Final masked prompt:', maskedText.substring(0, 200));
+		return maskedText;
+	};
+
 	const screenCaptureHandler = async () => {
 		try {
 			// Request screen media
@@ -596,6 +1029,7 @@
 			name: file.name,
 			collection_name: '',
 			status: 'uploading',
+			progress: 5,
 			size: file.size,
 			error: '',
 			itemId: tempItemId,
@@ -622,8 +1056,17 @@
 					};
 				}
 
+				// Decide processing mode based on file type
+				// - Audio/Video: let backend process immediately (e.g., transcription)
+				// - Documents (pdf/docx/txt/etc.): upload first, then trigger retrieval processing
+				const shouldProcessOnUpload =
+					file.type.startsWith('audio/') || file.type.startsWith('video/');
+
 				// During the file upload, file content is automatically extracted.
-				const uploadedFile = await uploadFile(localStorage.token, file, metadata);
+				const uploadedFile = await uploadFile(localStorage.token, file, metadata, {
+					process: shouldProcessOnUpload,
+					enablePiiDetection: enablePiiDetection // Pass PII detection state to backend
+				});
 
 				if (uploadedFile) {
 					console.log('File upload completed:', {
@@ -637,12 +1080,174 @@
 						toast.warning(uploadedFile.error);
 					}
 
-					fileItem.status = 'uploaded';
+					// Begin processing sequence with progress polling
+					fileItem.status = 'processing';
 					fileItem.file = uploadedFile;
 					fileItem.id = uploadedFile.id;
 					fileItem.collection_name =
 						uploadedFile?.meta?.collection_name || uploadedFile?.collection_name;
 					fileItem.url = `${WEBUI_API_BASE_URL}/files/${uploadedFile.id}`;
+
+					// Add filename mapping if PII detection is enabled
+					if (enablePiiDetection && uploadedFile.id && fileItem.name) {
+						console.log('MessageInput: Adding filename mapping for PII masking:', {
+							fileId: uploadedFile.id,
+							originalName: fileItem.name
+						});
+						// Store the original filename in the mapping and meta
+						piiSessionManager.addFilenameMapping(
+							chatId || undefined,
+							uploadedFile.id,
+							fileItem.name
+						);
+						// Keep original in meta for fallback
+						if (!fileItem.meta) fileItem.meta = {};
+						fileItem.meta.name = fileItem.meta.name || fileItem.name;
+						// Replace fileItem.name with the masked ID for display
+						fileItem.name = uploadedFile.id;
+					}
+
+					// Kick off retrieval processing only for non-audio/video documents
+					if (!shouldProcessOnUpload) {
+						try {
+							console.log(
+								'MessageInput: Triggering file processing with PII detection:',
+								enablePiiDetection
+							);
+							// Do not await to keep UI responsive
+							// eslint-disable-next-line @typescript-eslint/no-floating-promises
+							triggerProcessFile(
+								localStorage.token,
+								uploadedFile.id,
+								null,
+								enablePiiDetection
+							).catch(() => {});
+						} catch (e) {}
+					}
+
+					// Poll for processing progress via /files/{id}
+					const pollIntervalMs = 800;
+					const maxPollMs = 30 * 60 * 1000; // 30 minutes safety cap
+					let elapsed = 0;
+					const poll = async () => {
+						try {
+							const res = await fetch(`${WEBUI_API_BASE_URL}/files/${uploadedFile.id}`, {
+								method: 'GET',
+								headers: {
+									Accept: 'application/json',
+									'Content-Type': 'application/json',
+									Authorization: `Bearer ${localStorage.token}`
+								}
+							});
+							if (res.ok) {
+								const json = await res.json();
+								// Keep local file state in sync with server (data, meta, etc.)
+								try {
+									fileItem.file = json;
+								} catch (e) {}
+								// NEW: sync any PII detections from this file into the session manager
+								// Only if PII detection is enabled
+								if (enablePiiDetection) {
+									syncPiiDetectionsFromFileData(json, false, null);
+									// Mark this file as having its PII entities loaded
+									if (uploadedFile.id) {
+										loadedFileIds.add(uploadedFile.id);
+									}
+								}
+								const processing = json?.meta?.processing;
+								if (processing) {
+									console.log('Processing progress:', processing);
+									fileItem.progress =
+										typeof processing.progress === 'number'
+											? processing.progress
+											: (fileItem.progress ?? 0);
+									files = files;
+									if (
+										processing.status === 'done' ||
+										(typeof processing.progress === 'number' && processing.progress >= 100)
+									) {
+										// Only show messages if this is the first time we see completion
+										if (fileItem.status !== 'uploaded') {
+											// Check for duplicate content first
+											if (json?.duplicate) {
+												toast.info(
+													$i18n.t('File already exists in knowledge base - content is duplicate')
+												);
+											} else {
+												// Check for extraction information and show appropriate toast messages
+												if (json?.data?.extraction) {
+													const extraction = json.data.extraction;
+													if (extraction.fallback_used) {
+														// Handle classified error structure
+														let errorMessage = 'Unknown error';
+														if (extraction.error && typeof extraction.error === 'object') {
+															const errorInfo = extraction.error;
+															switch (errorInfo.category) {
+																case 'service_unavailable':
+																	errorMessage = $i18n.t(
+																		'Docling extraction service is not available'
+																	);
+																	break;
+																case 'timeout':
+																	errorMessage = $i18n.t(
+																		'Docling extraction took too long and timed out'
+																	);
+																	break;
+																case 'unknown':
+																default:
+																	errorMessage = $i18n.t(
+																		'Docling extraction failed with an unexpected error'
+																	);
+																	break;
+															}
+														} else if (extraction.error) {
+															// Fallback for old string-based errors
+															errorMessage = extraction.error;
+														}
+
+														toast.warning(
+															$i18n.t(
+																'Docling extraction failed, using standard extraction: {{error}}',
+																{
+																	error: errorMessage
+																}
+															)
+														);
+													} else if (extraction.method?.toLowerCase() === 'docling') {
+														toast.success($i18n.t('File processed successfully using Docling'));
+													} else if (extraction.method) {
+														toast.success(
+															$i18n.t('File processed successfully using {{method}}', {
+																method: extraction.method
+															})
+														);
+													}
+												}
+											}
+										}
+
+										fileItem.status = 'uploaded';
+										files = files;
+										return; // stop polling
+									}
+									if (processing.status === 'error') {
+										fileItem.status = 'error';
+										fileItem.error = processing.error || 'Processing failed';
+										files = files;
+										return; // stop polling
+									}
+								}
+							}
+						} catch (e) {
+							// ignore transient errors
+						}
+						elapsed += pollIntervalMs;
+						if (elapsed < maxPollMs && fileItem.status === 'processing') {
+							setTimeout(poll, pollIntervalMs);
+						}
+					};
+					// Start polling immediately, then at interval
+					poll();
 
 					files = files;
 				} else {
@@ -729,7 +1334,7 @@
 				}
 
 				const compressImageHandler = async (imageUrl, settings = {}, config = {}) => {
-					// Quick shortcut so we don’t do unnecessary work.
+					// Quick shortcut so we don't do unnecessary work.
 					const settingsCompression = settings?.imageCompression ?? false;
 					const configWidth = config?.file?.image_compression?.width ?? null;
 					const configHeight = config?.file?.image_compression?.height ?? null;
@@ -969,17 +1574,66 @@
 						onUpload={(e) => {
 							const { type, data } = e;
 
-							if (type === 'file') {
+							if (type === 'file' || type === 'collection') {
 								if (files.find((f) => f.id === data.id)) {
 									return;
 								}
-								files = [
-									...files,
-									{
-										...data,
-										status: 'processed'
-									}
-								];
+
+								// Check if this is a Knowledge Base file or collection
+								const isKnowledgeBaseFile = data.knowledge === true;
+								const isCollection = type === 'collection';
+								const knowledgeBaseId = data.collection?.id || data.id; // For collections, use their own ID
+
+								// For Knowledge Base files, apply filename masking (but not for collections)
+								let fileToAdd = { ...data, status: 'processed' };
+								if (isKnowledgeBaseFile && enablePiiDetection && !isCollection) {
+									console.log('MessageInput: Processing Knowledge Base file with PII masking:', {
+										fileId: data.id,
+										originalName: data.name,
+										knowledgeBaseId: knowledgeBaseId
+									});
+
+									// Apply filename masking - use file ID as display name and store original
+									fileToAdd = {
+										...fileToAdd,
+										name: data.id, // Use file ID as masked name
+										meta: { ...fileToAdd.meta, name: data.name } // Store original name in meta
+									};
+
+									// Add filename mapping for this file
+									piiSessionManager.addFilenameMapping(chatId || undefined, data.id, data.name);
+								} else if (enablePiiDetection && data.id && data.name && !isCollection) {
+									// Regular file - add filename mapping if PII detection is enabled (skip collections)
+									console.log('MessageInput: Adding filename mapping for command-selected file:', {
+										fileId: data.id,
+										originalName: data.name
+									});
+									piiSessionManager.addFilenameMapping(chatId || undefined, data.id, data.name);
+								} else if (isCollection) {
+									console.log('MessageInput: Adding collection (no filename masking):', {
+										collectionId: data.id,
+										collectionName: data.name,
+										hasPiiEnabled: data.enable_pii_detection
+									});
+								}
+
+								files = [...files, fileToAdd];
+
+								// Fetch full file details to seed PII entities into the current conversation
+								// Only do this if PII detection is enabled and it's not a collection
+								if (enablePiiDetection && data.type !== 'collection') {
+									(async () => {
+										try {
+											const json = await getFileById(localStorage.token, data.id);
+											if (json) {
+												// Pass Knowledge Base context information for proper PII state transfer
+												syncPiiDetectionsFromFileData(json, isKnowledgeBaseFile, knowledgeBaseId);
+												// Mark this file as having its PII entities loaded
+												loadedFileIds.add(data.id);
+											}
+										} catch (e) {}
+									})();
+								}
 							} else {
 								dispatch('upload', e);
 							}
@@ -1044,7 +1698,7 @@
 								document.getElementById('chat-input')?.focus();
 
 								if ($settings?.speechAutoSend ?? false) {
-									dispatch('submit', prompt);
+									dispatch('submit', getPromptToSend());
 								}
 							}}
 						/>
@@ -1053,7 +1707,7 @@
 							class="w-full flex flex-col gap-1.5"
 							on:submit|preventDefault={() => {
 								// check if selectedModels support image input
-								dispatch('submit', prompt);
+								dispatch('submit', getPromptToSend());
 							}}
 						>
 							<div
@@ -1107,6 +1761,22 @@
 															type="button"
 															aria-label={$i18n.t('Remove file')}
 															on:click={() => {
+																// Remove filename mapping if PII detection is enabled and file has an ID
+																if (enablePiiDetection && file.id) {
+																	console.log(
+																		'MessageInput: Removing filename mapping for dismissed image file:',
+																		{
+																			fileId: file.id
+																		}
+																	);
+																	piiSessionManager.removeFilenameMapping(
+																		chatId || undefined,
+																		file.id
+																	);
+																	// Remove from loaded files set
+																	loadedFileIds.delete(file.id);
+																}
+
 																files.splice(fileIdx, 1);
 																files = files;
 															}}
@@ -1135,7 +1805,22 @@
 													dismissible={true}
 													edit={true}
 													modal={['file', 'collection'].includes(file?.type)}
+													conversationId={chatId}
+													{enablePiiDetection}
 													on:dismiss={async () => {
+														// Remove filename mapping if PII detection is enabled
+														if (enablePiiDetection && file.id) {
+															console.log(
+																'MessageInput: Removing filename mapping for dismissed file:',
+																{
+																	fileId: file.id
+																}
+															);
+															piiSessionManager.removeFilenameMapping(chatId || undefined, file.id);
+															// Remove from loaded files set
+															loadedFileIds.delete(file.id);
+														}
+
 														// Remove from UI state
 														files.splice(fileIdx, 1);
 														files = files;
@@ -1179,6 +1864,28 @@
 													largeTextAsFile={($settings?.largeTextAsFile ?? false) && !shiftKey}
 													autocomplete={$config?.features?.enable_autocomplete_generation &&
 														($settings?.promptAutocomplete ?? false)}
+													enablePiiModifiers={true}
+													piiModifierLabels={[
+														'PERSON',
+														'EMAIL',
+														'PHONE_NUMBER',
+														'ADDRESS',
+														'SSN',
+														'CREDIT_CARD',
+														'DATE_TIME',
+														'IP_ADDRESS',
+														'URL',
+														'IBAN',
+														'MEDICAL_LICENSE',
+														'US_PASSPORT',
+														'US_DRIVER_LICENSE'
+													]}
+													{enablePiiDetection}
+													{piiApiKey}
+													{piiMaskingEnabled}
+													conversationId={chatId || undefined}
+													onPiiDetected={handlePiiDetected}
+													onPiiToggled={handlePiiToggled}
 													generateAutoCompletion={async (text) => {
 														if (selectedModelIds.length === 0 || !selectedModelIds.at(0)) {
 															toast.error($i18n.t('Please select a model first.'));
@@ -1219,7 +1926,7 @@
 														// Command/Ctrl + Shift + Enter to submit a message pair
 														if (isCtrlPressed && e.key === 'Enter' && e.shiftKey) {
 															e.preventDefault();
-															createMessagePair(prompt);
+															createMessagePair(getPromptToSend());
 														}
 
 														// Check if Ctrl + R is pressed
@@ -1328,7 +2035,7 @@
 																if (enterPressed) {
 																	e.preventDefault();
 																	if (prompt !== '' || files.length > 0) {
-																		dispatch('submit', prompt);
+																		dispatch('submit', getPromptToSend());
 																	}
 																}
 															}
@@ -1722,6 +2429,25 @@
 												</svg>
 											</div>
 										</InputMenu>
+
+										{#if piiConfigEnabled}
+											<Tooltip content={$i18n.t('Toggle PII masking')}>
+												<button
+													class="px-2 @xl:px-2.5 py-2 flex gap-1.5 items-center text-sm rounded-full transition-colors duration-300 focus:outline-hidden max-w-full overflow-hidden hover:bg-gray-50 dark:hover:bg-gray-800 {piiMaskingEnabled
+														? ' text-sky-500 dark:text-sky-300 bg-sky-50 dark:bg-sky-200/5'
+														: 'bg-transparent text-gray-600 dark:text-gray-300'}"
+													type="button"
+													on:click={togglePiiMasking}
+													aria-label={$i18n.t('Toggle PII masking')}
+												>
+													<Mask className="size-4" />
+													<span
+														class="hidden @xl:block whitespace-nowrap overflow-hidden text-ellipsis leading-none pr-0.5"
+														>{$i18n.t('Toggle PII masking')}</span
+													>
+												</button>
+											</Tooltip>
+										{/if}
 
 										{#if $_user && (showToolsButton || (toggleFilters && toggleFilters.length > 0) || showWebSearchButton || showImageGenerationButton || showCodeInterpreterButton)}
 											<div

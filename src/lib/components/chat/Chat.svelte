@@ -60,6 +60,7 @@
 		updateChatById,
 		updateChatFolderIdById
 	} from '$lib/apis/chats';
+	import { getFileById } from '$lib/apis/files';
 	import { generateOpenAIChatCompletion } from '$lib/apis/openai';
 	import { processWeb, processWebSearch, processYoutubeVideo } from '$lib/apis/retrieval';
 	import { getAndUpdateUserLocation, getUserSettings } from '$lib/apis/users';
@@ -88,6 +89,14 @@
 	import Spinner from '../common/Spinner.svelte';
 	import Tooltip from '../common/Tooltip.svelte';
 	import Sidebar from '../icons/Sidebar.svelte';
+	import { PiiSessionManager } from '$lib/utils/pii';
+	import type { ExtendedPiiEntity } from '$lib/utils/pii';
+	import PiiDebugOverlay from '$lib/components/common/PiiDebugOverlay.svelte';
+	import {
+		handlePiiPerformanceSlashCommand,
+		ensurePiiDebugInterface
+	} from '$lib/components/common/RichTextInput/PiiDebugInterface';
+	import { testPiiDebugInterface } from '$lib/components/common/RichTextInput/PiiDebugTest';
 
 	export let chatIdProp = '';
 
@@ -128,6 +137,9 @@
 
 	let showCommands = false;
 
+	// Admin-only PII debug overlay toggle
+	let showPiiDebug = false;
+
 	let generating = false;
 	let generationController = null;
 
@@ -147,9 +159,85 @@
 	let files = [];
 	let params = {};
 
+	// PII debug view state - now handled by PiiDebugOverlay component
+
 	$: if (chatIdProp) {
 		navigateHandler();
 	}
+
+	// Helper function to load PII entities from files (both uploaded and collection files)
+	const loadPiiEntitiesFromFiles = async (files: any[], piiManager: any) => {
+		for (const file of files) {
+			if (file.id) {
+				try {
+					// For uploaded files, check if PII data is already available
+					if (file.file?.data?.pii) {
+						const piiData = file.file.data.pii;
+						// Convert the pii object to an array of entities
+						const entities = Object.values(piiData).map((entity: any) => ({
+							id: entity.id,
+							label: entity.label,
+							type: entity.type,
+							raw_text: entity.raw_text,
+							text: entity.text,
+							occurrences: entity.occurrences,
+							shouldMask: true // Default to masked
+						}));
+
+						if (entities.length > 0) {
+							piiManager.setTemporaryStateEntities(entities);
+							console.log('Loaded PII entities from uploaded file:', file.id, entities.length);
+						}
+					} else if (file.type === 'collection' || file.knowledge === true) {
+						// For collection files, fetch the full file data to get PII information
+						console.log('Loading PII entities from collection file:', file.id);
+						const fileData = await getFileById(localStorage.token, file.id);
+
+						if (fileData?.data?.pii) {
+							const piiData = fileData.data.pii;
+							// Convert the pii object to an array of entities
+							const entities = Object.values(piiData).map((entity: any) => ({
+								id: entity.id,
+								label: entity.label,
+								type: entity.type,
+								raw_text: entity.raw_text,
+								text: entity.text,
+								occurrences: entity.occurrences,
+								shouldMask: true // Default to masked
+							}));
+
+							if (entities.length > 0) {
+								piiManager.setTemporaryStateEntities(entities);
+								console.log('Loaded PII entities from collection file:', file.id, entities.length);
+							}
+						} else if (fileData?.data?.piiState?.entities) {
+							// Handle new piiState format
+							const entities = fileData.data.piiState.entities.map((entity: any) => ({
+								id: entity.id,
+								label: entity.label,
+								type: entity.type || entity.entity_type || 'PII',
+								raw_text: entity.raw_text || entity.text || entity.name || '',
+								text: entity.text || entity.raw_text || entity.name || '',
+								occurrences: entity.occurrences || [],
+								shouldMask: entity.shouldMask ?? true
+							}));
+
+							if (entities.length > 0) {
+								piiManager.setTemporaryStateEntities(entities);
+								console.log(
+									'Loaded PII entities from collection file (piiState):',
+									file.id,
+									entities.length
+								);
+							}
+						}
+					}
+				} catch (error) {
+					console.warn('Failed to load PII entities from file:', file.id, error);
+				}
+			}
+		}
+	};
 
 	const navigateHandler = async () => {
 		loading = true;
@@ -542,6 +630,27 @@
 		chatInput?.focus();
 
 		chats.subscribe(() => {});
+
+		// Restore PII debug flag from session
+		try {
+			const saved = sessionStorage.getItem('piiDebug');
+			if (saved !== null) {
+				showPiiDebug = saved === 'true';
+			}
+		} catch (e) {}
+
+		// Initialize PII debug interface
+		ensurePiiDebugInterface();
+
+		// Test debug interface (will auto-initialize if needed)
+		testPiiDebugInterface();
+
+		// Also make sure it's available after DOM is ready
+		setTimeout(() => {
+			ensurePiiDebugInterface();
+		}, 500);
+
+		// PII debug auto-refresh now handled by PiiDebugOverlay component
 	});
 
 	onDestroy(() => {
@@ -549,6 +658,7 @@
 		chatIdUnsubscriber?.();
 		window.removeEventListener('message', onMessageHandler);
 		$socket?.off('chat-events', chatEventHandler);
+		// PII debug interval cleanup now handled by PiiDebugOverlay component
 	});
 
 	// File upload functions
@@ -766,6 +876,11 @@
 			.filter((m) => !(m?.info?.meta?.hidden ?? false))
 			.map((m) => m.id);
 
+		const { PiiSessionManager } = await import('$lib/utils/pii');
+		const piiManager = PiiSessionManager.getInstance();
+		piiManager.clearTemporaryState();
+		piiManager.activateTemporaryState();
+
 		if ($page.url.searchParams.get('models') || $page.url.searchParams.get('model')) {
 			const urlModels = (
 				$page.url.searchParams.get('models') ||
@@ -824,7 +939,6 @@
 		await showControls.set(false);
 		await showCallOverlay.set(false);
 		await showOverview.set(false);
-		await showArtifacts.set(false);
 
 		if ($page.url.pathname.includes('/c/')) {
 			window.history.replaceState(history.state, '', `/`);
@@ -911,6 +1025,11 @@
 
 		const chatInput = document.getElementById('chat-input');
 		setTimeout(() => chatInput?.focus(), 0);
+
+		// Load PII entities from files into temporary state
+		if (files && files.length > 0) {
+			loadPiiEntitiesFromFiles(files, piiManager);
+		}
 	};
 
 	const loadChat = async () => {
@@ -919,6 +1038,10 @@
 		if ($temporaryChatEnabled) {
 			temporaryChatEnabled.set(false);
 		}
+
+		const { PiiSessionManager } = await import('$lib/utils/pii');
+		const piiManager = PiiSessionManager.getInstance();
+		piiManager.clearTemporaryState();
 
 		chat = await getChatById(localStorage.token, $chatId).catch(async (error) => {
 			await goto('/');
@@ -953,6 +1076,11 @@
 
 				chatTitle.set(chatContent.title);
 
+				// Load PII state for this conversation if available
+				if (chatContent?.piiState && $chatId) {
+					piiManager.loadConversationState($chatId, chatContent.piiState);
+				}
+
 				const userSettings = await getUserSettings(localStorage.token);
 
 				if (userSettings) {
@@ -963,6 +1091,11 @@
 
 				params = chatContent?.params ?? {};
 				chatFiles = chatContent?.files ?? [];
+
+				// Load PII entities from collection files for existing chats
+				if (chatFiles && chatFiles.length > 0) {
+					loadPiiEntitiesFromFiles(chatFiles, piiManager);
+				}
 
 				autoScroll = true;
 				await tick();
@@ -1181,6 +1314,19 @@
 			} else {
 				await saveChatHandler($chatId, history);
 			}
+
+			// CRITICAL FIX: Commit working entities for existing chats
+			// This ensures PII entities detected while typing are persisted before sending
+			if ($chatId && $chatId !== 'local') {
+				try {
+					const { PiiSessionManager } = await import('$lib/utils/pii');
+					const piiManager = PiiSessionManager.getInstance();
+					piiManager.commitConversationWorkingEntities($chatId);
+					console.log('Chat: Committed working entities for existing chat:', $chatId);
+				} catch (error) {
+					console.warn('Chat: Failed to commit working entities:', error);
+				}
+			}
 		}
 	};
 
@@ -1248,7 +1394,17 @@
 	};
 
 	const chatCompletionEventHandler = async (data, message, chatId) => {
-		const { id, done, choices, content, sources, selected_model_id, error, usage } = data;
+		const {
+			id,
+			done,
+			choices,
+			content,
+			sources,
+			selected_model_id,
+			error,
+			usage,
+			consolidated_known_entities
+		} = data;
 
 		if (error) {
 			await handleOpenAIError(error, message);
@@ -1256,6 +1412,31 @@
 
 		if (sources && !message?.sources) {
 			message.sources = sources;
+		}
+
+		// Handle consolidated PII entities from RAG chunks
+		if (consolidated_known_entities && consolidated_known_entities.length > 0) {
+			console.log(
+				'Chat: Received consolidated PII entities from RAG chunks:',
+				consolidated_known_entities.length
+			);
+
+			// Convert to PiiEntity format for session manager
+			const piiEntities = consolidated_known_entities.map((entity) => ({
+				id: entity.id,
+				label: entity.label,
+				type: entity.type || 'PII',
+				text: entity.name,
+				occurrences: [], // RAG entities don't have specific occurrences in the response
+				raw_text: entity.raw_text
+			}));
+
+			// Use the existing method to consolidate with conversation state
+			if (chatId) {
+				const piiSessionManager = PiiSessionManager.getInstance();
+				piiSessionManager.setConversationEntitiesFromLatestDetection(chatId, piiEntities);
+				console.log('Chat: Consolidated RAG PII entities with conversation state');
+			}
 		}
 
 		if (choices) {
@@ -1392,7 +1573,7 @@
 			);
 		}
 
-		console.log(data);
+		//console.log(data);
 		await tick();
 
 		if (autoScroll) {
@@ -1407,6 +1588,35 @@
 	const submitPrompt = async (userPrompt, { _raw = false } = {}) => {
 		console.log('submitPrompt', userPrompt, $chatId);
 
+		// Admin-only PII slash commands
+		if (
+			$user?.role === 'admin' &&
+			typeof userPrompt === 'string' &&
+			(userPrompt.trim().startsWith('/pii-debug') || userPrompt.trim().startsWith('/pii-perf'))
+		) {
+			const parts = userPrompt.trim().split(/\s+/);
+			const command = parts[0];
+			const args = parts.slice(1);
+
+			if (command === '/pii-debug') {
+				// PII debug overlay toggle
+				const arg = args[0]?.toLowerCase();
+				if (arg === 'on') showPiiDebug = true;
+				else if (arg === 'off') showPiiDebug = false;
+				else showPiiDebug = !showPiiDebug; // toggle by default
+				try {
+					sessionStorage.setItem('piiDebug', showPiiDebug ? 'true' : 'false');
+				} catch (e) {}
+				toast.info(`PII Debug ${showPiiDebug ? 'enabled' : 'disabled'}`);
+			} else if (command === '/pii-perf') {
+				// PII performance commands
+				handlePiiPerformanceSlashCommand(args);
+			}
+
+			messageInput?.setText('');
+			return; // Do not proceed with normal submission
+		}
+		const messages = createMessagesList(history, history.currentId);
 		const _selectedModels = selectedModels.map((modelId) =>
 			$models.map((m) => m.id).includes(modelId) ? modelId : ''
 		);
@@ -1506,6 +1716,19 @@
 		// Append messageId to childrenIds of parent message
 		if (messages.length !== 0) {
 			history.messages[messages.at(-1).id].childrenIds.push(userMessageId);
+		}
+
+		// CRITICAL FIX: Commit working entities for existing chats
+		// This ensures PII entities detected while typing are persisted before sending
+		if ($chatId && $chatId !== 'local') {
+			try {
+				const { PiiSessionManager } = await import('$lib/utils/pii');
+				const piiManager = PiiSessionManager.getInstance();
+				piiManager.commitConversationWorkingEntities($chatId);
+				console.log('Chat: Committed working entities for existing chat:', $chatId);
+			} catch (error) {
+				console.warn('Chat: Failed to commit working entities:', error);
+			}
 		}
 
 		// focus on chat input
@@ -1772,6 +1995,7 @@
 		const res = await generateOpenAIChatCompletion(
 			localStorage.token,
 			{
+				known_entities: PiiSessionManager.getInstance().getKnownEntitiesForApi($chatId),
 				stream: stream,
 				model: model.id,
 				messages: messages,
@@ -1965,6 +2189,19 @@
 		history.messages[userMessageId] = userMessage;
 		history.currentId = userMessageId;
 
+		// CRITICAL FIX: Commit working entities for existing chats (follow-up messages)
+		// This ensures PII entities detected while typing are persisted before sending
+		if ($chatId && $chatId !== 'local') {
+			try {
+				const { PiiSessionManager } = await import('$lib/utils/pii');
+				const piiManager = PiiSessionManager.getInstance();
+				piiManager.commitConversationWorkingEntities($chatId);
+				console.log('Chat: Committed working entities for follow-up message:', $chatId);
+			} catch (error) {
+				console.warn('Chat: Failed to commit working entities for follow-up:', error);
+			}
+		}
+
 		await tick();
 
 		if (autoScroll) {
@@ -2086,6 +2323,9 @@
 	const initChatHandler = async (history) => {
 		let _chatId = $chatId;
 
+		const { PiiSessionManager } = await import('$lib/utils/pii');
+		const piiManager = PiiSessionManager.getInstance();
+
 		if (!$temporaryChatEnabled) {
 			chat = await createNewChat(
 				localStorage.token,
@@ -2110,6 +2350,14 @@
 
 			await tick();
 
+			if (piiManager.isTemporaryStateActive()) {
+				piiManager.transferTemporaryToConversation(_chatId);
+			}
+
+			if (_chatId && _chatId !== 'local') {
+				piiManager.commitConversationWorkingEntities(_chatId);
+			}
+
 			await chats.set(await getChatList(localStorage.token, $currentChatPage));
 			currentChatPage.set(1);
 
@@ -2126,13 +2374,21 @@
 	const saveChatHandler = async (_chatId, history) => {
 		if ($chatId == _chatId) {
 			if (!$temporaryChatEnabled) {
-				chat = await updateChatById(localStorage.token, _chatId, {
+				// Get PII state for this conversation
+				const { PiiSessionManager } = await import('$lib/utils/pii');
+				const piiManager = PiiSessionManager.getInstance();
+				const piiState = piiManager.getConversationState(_chatId);
+
+				const chatData = {
 					models: selectedModels,
 					history: history,
 					messages: createMessagesList(history, history.currentId),
 					params: params,
-					files: chatFiles
-				});
+					files: chatFiles,
+					...(piiState && { piiState })
+				};
+
+				chat = await updateChatById(localStorage.token, _chatId, chatData);
 				currentChatPage.set(1);
 				await chats.set(await getChatList(localStorage.token, $currentChatPage));
 			}
@@ -2165,6 +2421,15 @@
 		}
 		await sessionStorage.removeItem(`chat-input${chatId ? `-${chatId}` : ''}`);
 	};
+
+	// Expose saveChatHandler for PiiSessionManager to trigger saves
+	if (typeof window !== 'undefined') {
+		(window as any).triggerPiiChatSave = async (conversationId: string) => {
+			if (conversationId === $chatId) {
+				await saveChatHandler(conversationId, history);
+			}
+		};
+	}
 
 	const moveChatHandler = async (chatId, folderId) => {
 		if (chatId && folderId) {
@@ -2358,6 +2623,7 @@
 									{generating}
 									{stopResponse}
 									{createMessagePair}
+									chatId={$chatId}
 									onChange={(data) => {
 										if (!$temporaryChatEnabled) {
 											saveDraft(data, $chatId);
@@ -2419,6 +2685,7 @@
 											saveDraft(data);
 										}
 									}}
+									chatId={$chatId}
 									on:upload={async (e) => {
 										const { type, data } = e.detail;
 
@@ -2426,6 +2693,8 @@
 											await uploadWeb(data);
 										} else if (type === 'youtube') {
 											await uploadYoutubeTranscription(data);
+										} else if (type === 'google-drive') {
+											await uploadGoogleDriveFile(data);
 										}
 									}}
 									on:submit={async (e) => {
@@ -2476,3 +2745,7 @@
 		</div>
 	{/if}
 </div>
+
+{#if $user?.role === 'admin' && showPiiDebug}
+	<PiiDebugOverlay conversationId={$chatId} />
+{/if}

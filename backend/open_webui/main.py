@@ -214,6 +214,8 @@ from open_webui.config import (
     RAG_TOP_K_RERANKER,
     RAG_RELEVANCE_THRESHOLD,
     RAG_HYBRID_BM25_WEIGHT,
+    CHUNK_SIZE,
+    CHUNK_OVERLAP,
     RAG_ALLOWED_FILE_EXTENSIONS,
     RAG_FILE_MAX_COUNT,
     RAG_FILE_MAX_SIZE,
@@ -226,8 +228,7 @@ from open_webui.config import (
     RAG_AZURE_OPENAI_API_VERSION,
     RAG_OLLAMA_BASE_URL,
     RAG_OLLAMA_API_KEY,
-    CHUNK_OVERLAP,
-    CHUNK_SIZE,
+    # Extraction engines
     CONTENT_EXTRACTION_ENGINE,
     DATALAB_MARKER_API_KEY,
     DATALAB_MARKER_API_BASE_URL,
@@ -238,8 +239,8 @@ from open_webui.config import (
     DATALAB_MARKER_STRIP_EXISTING_OCR,
     DATALAB_MARKER_DISABLE_IMAGE_EXTRACTION,
     DATALAB_MARKER_FORMAT_LINES,
-    DATALAB_MARKER_OUTPUT_FORMAT,
     DATALAB_MARKER_USE_LLM,
+    DATALAB_MARKER_OUTPUT_FORMAT,
     EXTERNAL_DOCUMENT_LOADER_URL,
     EXTERNAL_DOCUMENT_LOADER_API_KEY,
     TIKA_SERVER_URL,
@@ -255,14 +256,38 @@ from open_webui.config import (
     DOCLING_PICTURE_DESCRIPTION_MODE,
     DOCLING_PICTURE_DESCRIPTION_LOCAL,
     DOCLING_PICTURE_DESCRIPTION_API,
+    DOCLING_MD_PAGE_BREAK_PLACEHOLDER,
     DOCUMENT_INTELLIGENCE_ENDPOINT,
     DOCUMENT_INTELLIGENCE_KEY,
     MISTRAL_OCR_API_KEY,
+    # Hybrid search
+    ENABLE_RAG_HYBRID_SEARCH,
+    # Template
     RAG_TEXT_SPLITTER,
     TIKTOKEN_ENCODING_NAME,
+    # Other
     PDF_EXTRACT_IMAGES,
     YOUTUBE_LOADER_LANGUAGE,
     YOUTUBE_LOADER_PROXY_URL,
+    ENABLE_WEB_SEARCH,
+    WEB_SEARCH_ENGINE,
+    WEB_SEARCH_DOMAIN_FILTER_LIST,
+    WEB_SEARCH_RESULT_COUNT,
+    WEB_SEARCH_CONCURRENT_REQUESTS,
+    WEB_LOADER_ENGINE,
+    WEB_SEARCH_TRUST_ENV,
+    BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL,
+    BYPASS_WEB_SEARCH_WEB_LOADER,
+    # Integrations
+    ENABLE_GOOGLE_DRIVE_INTEGRATION,
+    ENABLE_ONEDRIVE_INTEGRATION,
+    SEARXNG_QUERY_URL,
+    YACY_QUERY_URL,
+    YACY_USERNAME,
+    YACY_PASSWORD,
+    GOOGLE_PSE_API_KEY,
+    GOOGLE_PSE_ENGINE_ID,
+    BRAVE_SEARCH_API_KEY,
     # Retrieval (Web Search)
     ENABLE_WEB_SEARCH,
     WEB_SEARCH_ENGINE,
@@ -368,6 +393,10 @@ from open_webui.config import (
     LDAP_CA_CERT_FILE,
     LDAP_VALIDATE_CERT,
     LDAP_CIPHERS,
+    # PII Detection
+    ENABLE_PII_DETECTION,
+    PII_API_KEY,
+    PII_API_BASE_URL,
     # LDAP Group Management
     ENABLE_LDAP_GROUP_MANAGEMENT,
     ENABLE_LDAP_GROUP_CREATION,
@@ -755,11 +784,15 @@ app.state.config.LDAP_CA_CERT_FILE = LDAP_CA_CERT_FILE
 app.state.config.LDAP_VALIDATE_CERT = LDAP_VALIDATE_CERT
 app.state.config.LDAP_CIPHERS = LDAP_CIPHERS
 
+# PII Detection
+app.state.config.ENABLE_PII_DETECTION = ENABLE_PII_DETECTION
+app.state.config.PII_API_KEY = PII_API_KEY
+app.state.config.PII_API_BASE_URL = PII_API_BASE_URL
+
 # For LDAP Group Management
 app.state.config.ENABLE_LDAP_GROUP_MANAGEMENT = ENABLE_LDAP_GROUP_MANAGEMENT
 app.state.config.ENABLE_LDAP_GROUP_CREATION = ENABLE_LDAP_GROUP_CREATION
 app.state.config.LDAP_ATTRIBUTE_FOR_GROUPS = LDAP_ATTRIBUTE_FOR_GROUPS
-
 
 app.state.AUTH_TRUSTED_EMAIL_HEADER = WEBUI_AUTH_TRUSTED_EMAIL_HEADER
 app.state.AUTH_TRUSTED_NAME_HEADER = WEBUI_AUTH_TRUSTED_NAME_HEADER
@@ -828,6 +861,7 @@ app.state.config.DOCLING_DO_PICTURE_DESCRIPTION = DOCLING_DO_PICTURE_DESCRIPTION
 app.state.config.DOCLING_PICTURE_DESCRIPTION_MODE = DOCLING_PICTURE_DESCRIPTION_MODE
 app.state.config.DOCLING_PICTURE_DESCRIPTION_LOCAL = DOCLING_PICTURE_DESCRIPTION_LOCAL
 app.state.config.DOCLING_PICTURE_DESCRIPTION_API = DOCLING_PICTURE_DESCRIPTION_API
+app.state.config.DOCLING_MD_PAGE_BREAK_PLACEHOLDER = DOCLING_MD_PAGE_BREAK_PLACEHOLDER
 app.state.config.DOCUMENT_INTELLIGENCE_ENDPOINT = DOCUMENT_INTELLIGENCE_ENDPOINT
 app.state.config.DOCUMENT_INTELLIGENCE_KEY = DOCUMENT_INTELLIGENCE_KEY
 app.state.config.MISTRAL_OCR_API_KEY = MISTRAL_OCR_API_KEY
@@ -1492,6 +1526,7 @@ async def chat_completion(
                     else "default"
                 ),
             },
+            "known_entities": form_data.pop("known_entities", []),
         }
 
         if metadata.get("chat_id") and (user and user.role != "admin"):
@@ -1738,6 +1773,7 @@ async def get_app_config(request: Request):
                     "enable_admin_chat_access": ENABLE_ADMIN_CHAT_ACCESS,
                     "enable_google_drive_integration": app.state.config.ENABLE_GOOGLE_DRIVE_INTEGRATION,
                     "enable_onedrive_integration": app.state.config.ENABLE_ONEDRIVE_INTEGRATION,
+                    "enable_pii_detection": app.state.config.ENABLE_PII_DETECTION,
                 }
                 if user is not None
                 else {}
@@ -1783,6 +1819,11 @@ async def get_app_config(request: Request):
                     "pending_user_overlay_title": app.state.config.PENDING_USER_OVERLAY_TITLE,
                     "pending_user_overlay_content": app.state.config.PENDING_USER_OVERLAY_CONTENT,
                     "response_watermark": app.state.config.RESPONSE_WATERMARK,
+                },
+                "pii": {
+                    "enabled": app.state.config.ENABLE_PII_DETECTION,
+                    "api_key": app.state.config.PII_API_KEY,
+                    "api_base_url": app.state.config.PII_API_BASE_URL,
                 },
                 "license_metadata": app.state.LICENSE_METADATA,
                 **(

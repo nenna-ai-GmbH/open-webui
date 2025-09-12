@@ -1599,7 +1599,7 @@ FOLLOW_UP_GENERATION_PROMPT_TEMPLATE = PersistentConfig(
 DEFAULT_FOLLOW_UP_GENERATION_PROMPT_TEMPLATE = """### Task:
 Suggest 3-5 relevant follow-up questions or prompts that the user might naturally ask next in this conversation as a **user**, based on the chat history, to help continue or deepen the discussion.
 ### Guidelines:
-- Write all follow-up questions from the user’s point of view, directed to the assistant.
+- Write all follow-up questions from the user's point of view, directed to the assistant.
 - Make questions concise, clear, and directly related to the discussed topic(s).
 - Only suggest follow-ups that make sense given the chat content and do not repeat what was already covered.
 - If the conversation is very short or not specific, suggest more general (but relevant) follow-ups the user might ask.
@@ -2311,6 +2311,14 @@ DOCLING_PICTURE_DESCRIPTION_API = PersistentConfig(
     "DOCLING_PICTURE_DESCRIPTION_API",
     "rag.docling_picture_description_api",
     docling_picture_description_api,
+)
+
+
+# Docling markdown page break placeholder (string)
+DOCLING_MD_PAGE_BREAK_PLACEHOLDER = PersistentConfig(
+    "DOCLING_MD_PAGE_BREAK_PLACEHOLDER",
+    "rag.docling_md_page_break_placeholder",
+    os.getenv("DOCLING_MD_PAGE_BREAK_PLACEHOLDER", "<!-- md-page-break -->"),
 )
 
 
@@ -3409,6 +3417,29 @@ LDAP_VALIDATE_CERT = PersistentConfig(
 
 LDAP_CIPHERS = PersistentConfig(
     "LDAP_CIPHERS", "ldap.server.ciphers", os.environ.get("LDAP_CIPHERS", "ALL")
+)
+
+
+####################################
+# PII Detection
+####################################
+
+ENABLE_PII_DETECTION = PersistentConfig(
+    "ENABLE_PII_DETECTION",
+    "pii.enable",
+    os.environ.get("ENABLE_PII_DETECTION", "False").lower() == "true",
+)
+
+PII_API_KEY = PersistentConfig(
+    "PII_API_KEY",
+    "pii.api_key",
+    os.environ.get("PII_API_KEY", ""),
+)
+
+PII_API_BASE_URL = PersistentConfig(
+    "PII_API_BASE_URL",
+    "pii.api_base_url",
+    os.environ.get("PII_API_BASE_URL", "https://api.nenna.ai/latest"),
 )
 
 # For LDAP Group Management

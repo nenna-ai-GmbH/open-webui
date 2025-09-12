@@ -10,44 +10,83 @@
 	import { WEBUI_BASE_URL } from '$lib/constants';
 	import { copyToClipboard, unescapeHtml } from '$lib/utils';
 
+	import PiiAwareInlineText from './PiiAwareInlineText.svelte';
+	import CodespanToken from './MarkdownInlineTokens/CodespanToken.svelte';
+
 	import Image from '$lib/components/common/Image.svelte';
 	import KatexRenderer from './KatexRenderer.svelte';
 	import Source from './Source.svelte';
 	import HtmlToken from './HTMLToken.svelte';
 	import TextToken from './MarkdownInlineTokens/TextToken.svelte';
-	import CodespanToken from './MarkdownInlineTokens/CodespanToken.svelte';
 
 	export let id: string;
 	export let done = true;
 	export let tokens: Token[];
 	export let onSourceClick: Function = () => {};
+	export let conversationId: string = '';
 </script>
 
 {#each tokens as token}
 	{#if token.type === 'escape'}
-		{unescapeHtml(token.text)}
+		<PiiAwareInlineText
+			text={unescapeHtml(token.text ?? '')}
+			id={`${id}-text-${token.type}`}
+			{conversationId}
+			{done}
+		/>
 	{:else if token.type === 'html'}
-		<HtmlToken {id} {token} {onSourceClick} />
+		<HtmlToken {id} {token} {onSourceClick} {conversationId} {done} />
 	{:else if token.type === 'link'}
 		{#if token.tokens}
 			<a href={token.href} target="_blank" rel="nofollow" title={token.title}>
-				<svelte:self id={`${id}-a`} tokens={token.tokens} {onSourceClick} {done} />
+				<svelte:self id={`${id}-a`} tokens={token.tokens} {onSourceClick} {conversationId} {done} />
 			</a>
 		{:else}
-			<a href={token.href} target="_blank" rel="nofollow" title={token.title}>{token.text}</a>
+			<a href={token.href} target="_blank" rel="nofollow" title={token.title}>
+				<PiiAwareInlineText
+					text={unescapeHtml(token.text ?? '')}
+					id={`${id}-a-text`}
+					{conversationId}
+					{done}
+				/>
+			</a>
 		{/if}
 	{:else if token.type === 'image'}
 		<Image src={token.href} alt={token.text} />
 	{:else if token.type === 'strong'}
-		<strong><svelte:self id={`${id}-strong`} tokens={token.tokens} {onSourceClick} /></strong>
+		<strong
+			><svelte:self
+				id={`${id}-strong`}
+				tokens={token.tokens}
+				{onSourceClick}
+				{conversationId}
+				{done}
+			/></strong
+		>
 	{:else if token.type === 'em'}
-		<em><svelte:self id={`${id}-em`} tokens={token.tokens} {onSourceClick} /></em>
+		<em
+			><svelte:self
+				id={`${id}-em`}
+				tokens={token.tokens}
+				{onSourceClick}
+				{conversationId}
+				{done}
+			/></em
+		>
 	{:else if token.type === 'codespan'}
-		<CodespanToken {token} {done} />
+		<CodespanToken {token} {done} {conversationId} id={`${id}-codespan`} />
 	{:else if token.type === 'br'}
 		<br />
 	{:else if token.type === 'del'}
-		<del><svelte:self id={`${id}-del`} tokens={token.tokens} {onSourceClick} /></del>
+		<del
+			><svelte:self
+				id={`${id}-del`}
+				tokens={token.tokens}
+				{onSourceClick}
+				{conversationId}
+				{done}
+			/></del
+		>
 	{:else if token.type === 'inlineKatex'}
 		{#if token.text}
 			<KatexRenderer content={token.text} displayMode={false} />
@@ -58,9 +97,13 @@
 			title={token.fileId}
 			width="100%"
 			frameborder="0"
-			onload="this.style.height=(this.contentWindow.document.body.scrollHeight+20)+'px';"
 		></iframe>
 	{:else if token.type === 'text'}
-		<TextToken {token} {done} />
+		<PiiAwareInlineText
+			text={unescapeHtml(token.raw ?? '')}
+			id={`${id}-text-${token.type}`}
+			{conversationId}
+			{done}
+		/>
 	{/if}
 {/each}

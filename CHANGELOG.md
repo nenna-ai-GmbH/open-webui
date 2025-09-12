@@ -212,6 +212,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 🗃️ **Database Performance Options**: New database performance options, "DATABASE_ENABLE_SQLITE_WAL" and "DATABASE_DEDUPLICATE_INTERVAL", are now available. If "DATABASE_ENABLE_SQLITE_WAL" is enabled, SQLite will operate in WAL mode, which may alter SQLite's file locking behavior. If "DATABASE_DEDUPLICATE_INTERVAL" is set to a non-zero value, the "user.last_active_at" timestamp will be updated less frequently, leading to slightly less real-time accuracy for this specific field but significantly reducing database write conflicts and improving overall performance. Both options are disabled by default.
 - 🌐 **Renamed Web Search Concurrency Setting**: The environment variable "WEB_SEARCH_CONCURRENT_REQUESTS" has been renamed to "WEB_LOADER_CONCURRENT_REQUESTS". This change clarifies its scope, explicitly applying to the concurrency of the web loader component (which fetches content from search results) rather than the initial search engine query. Users relying on the old environment variable name for configuring web search concurrency must update their configurations to use "WEB_LOADER_CONCURRENT_REQUESTS".
 
+## [0.6.22n1] - 2025-09-10
+
+### Added
+
+- 🛡️ **PII masking:** Automatic masking of PII for file uploads in chats and knowledge collections.
+- 🛠️ **Simpler Behaviour of masking Button:** When masking button in a chat is off, no PII detection is done and no highlights will appear.
+- 🛡️ **Secure handling of masked RAG data:** Data from RAG is masked when part of a collection with activated PII masking (new option).
+
+### Fixed
+
+- 🎭 **Unmasking in lists** Resolved an issue where in formatted parts of model responses the unmasking didn't work.
+
 ## [0.6.22] - 2025-08-11
 
 ### Added
@@ -362,6 +374,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - ✂️ **Datalab Marker API Language Selection Removed**: The separate language selection option for the Datalab Marker API has been removed, as its functionality is now integrated and superseded by the more comprehensive 'additional_config' parameter. Users should transition to using 'additional_config' for relevant language and processing settings.
 - 📄 **Documentation and Releases Links Visibility**: The "Documentation" and "Releases" links in the user menu are now visible only to admin users, streamlining the user interface for non-admin roles.
 
+## [0.6.18n2] - 2025-07-25
+
+### Added
+
+- 🚀 **onboarding support**
+
+## [0.6.18n1] - 2025-07-25
+
+### Fixed
+
+- 🔒 **improved PII highlighting formatted texts**: PII highlighting and unmasking now works also for multiple formatting in the model answers.
+
 ## [0.6.18] - 2025-07-19
 
 ### Fixed
@@ -473,6 +497,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - ℹ️ **Consistent Model Description Rendering**: Model descriptions now render Markdown correctly in the main chat interface, matching the formatting seen in the model selection dropdown for a consistent user experience.
 - 🔄 **Offline Mode Update Check Display**: Corrected a UI bug where the "Checking for Updates..." message would display indefinitely when the application was set to offline mode.
 - 🛠️ **Tool Result Encoding**: Fixed a bug where tool calls returning non-ASCII characters would fail, ensuring robust handling of international text and special characters in tool outputs.
+
+## [0.6.15n2] - 2025-7-17
+
+### Added
+
+- 🛡️ Masking toggle button.
+- 📤 Unmasked chat export.
+- ⌨️ Shortcut (Ctrl + Shift + L) for mask/unmask all
+
+## [0.6.15_n1] - 2025-7-11
+
+### Added
+
+- 🎭 Admin Settings for PII masking API.
+- 💬 PII masking in chats using Nenna API.
+- ⌛️ Spinner for running masking requests.
 
 ## [0.6.15] - 2025-06-16
 
@@ -2627,7 +2667,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **🔗 Built-in LiteLLM Proxy**: Now includes LiteLLM proxy within Open WebUI for enhanced functionality.
-
   - Easily integrate existing LiteLLM configurations using `-v /path/to/config.yaml:/app/backend/data/litellm/config.yaml` flag.
   - When utilizing Docker container to run Open WebUI, ensure connections to localhost use `host.docker.internal`.
 

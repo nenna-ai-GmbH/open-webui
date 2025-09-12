@@ -26,6 +26,41 @@ export default defineConfig({
 	worker: {
 		format: 'es'
 	},
+
+	// Development optimizations
+	server: {
+		fs: {
+			// Allow serving files from one level up to the project root
+			allow: ['..']
+		}
+	},
+	// Preview server configuration (for npm run preview)
+	preview: {
+		proxy: {
+			'/api': {
+				target: 'http://localhost:8080',
+				changeOrigin: true
+			},
+			'/static': {
+				target: 'http://localhost:8080',
+				changeOrigin: true
+			}
+		}
+	},
+	optimizeDeps: {
+		include: [
+			'@codemirror/lang-javascript',
+			'@codemirror/lang-python',
+			'@codemirror/language-data',
+			'@codemirror/theme-one-dark',
+			'marked',
+			'katex',
+			'highlight.js'
+		],
+		// Force pre-bundling of large dependencies
+		force: process.env.NODE_ENV === 'development'
+	},
+	// Enable esbuild for faster builds in development
 	esbuild: {
 		pure: process.env.ENV === 'dev' ? [] : ['console.log', 'console.debug', 'console.error']
 	}

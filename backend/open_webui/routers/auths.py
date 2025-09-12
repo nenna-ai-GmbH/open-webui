@@ -84,7 +84,6 @@ class SessionUserInfoResponse(SessionUserResponse):
 async def get_session_user(
     request: Request, response: Response, user=Depends(get_current_user)
 ):
-
     auth_header = request.headers.get("Authorization")
     auth_token = get_http_authorization_cred(auth_header)
     token = auth_token.credentials
@@ -511,7 +510,6 @@ async def signin(request: Request, response: Response, form_data: SigninForm):
         user = Auths.authenticate_user(form_data.email.lower(), form_data.password)
 
     if user:
-
         expires_delta = parse_duration(request.app.state.config.JWT_EXPIRES_IN)
         expires_at = None
         if expires_delta:
@@ -839,6 +837,9 @@ async def get_admin_config(request: Request, user=Depends(get_admin_user)):
         "PENDING_USER_OVERLAY_TITLE": request.app.state.config.PENDING_USER_OVERLAY_TITLE,
         "PENDING_USER_OVERLAY_CONTENT": request.app.state.config.PENDING_USER_OVERLAY_CONTENT,
         "RESPONSE_WATERMARK": request.app.state.config.RESPONSE_WATERMARK,
+        "ENABLE_PII_DETECTION": request.app.state.config.ENABLE_PII_DETECTION,
+        "PII_API_KEY": request.app.state.config.PII_API_KEY,
+        "PII_API_BASE_URL": request.app.state.config.PII_API_BASE_URL,
     }
 
 
@@ -859,6 +860,9 @@ class AdminConfig(BaseModel):
     PENDING_USER_OVERLAY_TITLE: Optional[str] = None
     PENDING_USER_OVERLAY_CONTENT: Optional[str] = None
     RESPONSE_WATERMARK: Optional[str] = None
+    ENABLE_PII_DETECTION: bool = False
+    PII_API_KEY: Optional[str] = None
+    PII_API_BASE_URL: Optional[str] = "https://api.nenna.ai/latest"
 
 
 @router.post("/admin/config")
@@ -905,6 +909,11 @@ async def update_admin_config(
 
     request.app.state.config.RESPONSE_WATERMARK = form_data.RESPONSE_WATERMARK
 
+    # PII Detection settings
+    request.app.state.config.ENABLE_PII_DETECTION = form_data.ENABLE_PII_DETECTION
+    request.app.state.config.PII_API_KEY = form_data.PII_API_KEY
+    request.app.state.config.PII_API_BASE_URL = form_data.PII_API_BASE_URL
+
     return {
         "SHOW_ADMIN_DETAILS": request.app.state.config.SHOW_ADMIN_DETAILS,
         "WEBUI_URL": request.app.state.config.WEBUI_URL,
@@ -922,6 +931,9 @@ async def update_admin_config(
         "PENDING_USER_OVERLAY_TITLE": request.app.state.config.PENDING_USER_OVERLAY_TITLE,
         "PENDING_USER_OVERLAY_CONTENT": request.app.state.config.PENDING_USER_OVERLAY_CONTENT,
         "RESPONSE_WATERMARK": request.app.state.config.RESPONSE_WATERMARK,
+        "ENABLE_PII_DETECTION": request.app.state.config.ENABLE_PII_DETECTION,
+        "PII_API_KEY": request.app.state.config.PII_API_KEY,
+        "PII_API_BASE_URL": request.app.state.config.PII_API_BASE_URL,
     }
 
 

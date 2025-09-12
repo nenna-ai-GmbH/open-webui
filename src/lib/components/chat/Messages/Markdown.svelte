@@ -17,6 +17,7 @@
 
 	export let editCodeBlock = true;
 	export let topPadding = false;
+	export let conversationId = '';
 
 	export let sourceIds = [];
 
@@ -61,5 +62,6 @@
 		{onSave}
 		{onUpdate}
 		{onPreview}
+		{conversationId}
 	/>
 {/key}

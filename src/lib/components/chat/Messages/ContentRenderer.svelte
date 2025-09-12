@@ -26,6 +26,7 @@
 	export let done = true;
 	export let model = null;
 	export let sources = null;
+	export let conversationId = '';
 
 	export let save = false;
 	export let preview = false;
@@ -142,6 +143,7 @@
 		{done}
 		{editCodeBlock}
 		{topPadding}
+		{conversationId}
 		sourceIds={(sources ?? []).reduce((acc, source) => {
 			let ids = [];
 			source.document.forEach((document, index) => {
