@@ -18,7 +18,7 @@ interface CommandContext {
 }
 
 // Types for the Shield API modifiers
-export type ModifierAction = 'ignore' | 'string-mask' | 'word-mask';
+export type ModifierAction = 'ignore' | 'string-mask';
 
 export interface PiiModifier {
 	action: ModifierAction;
@@ -413,10 +413,10 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 							piiSessionManager.getModifiersForDisplay(currentConversationId);
 						const entityText = existingEntity.text;
 
-						// Find mask modifier for this entity (both string-mask and word-mask)
+						// Find mask modifier for this entity
 						const maskModifier = sessionModifiers.find(
 							(modifier) =>
-								(modifier.action === 'string-mask' || modifier.action === 'word-mask') &&
+								modifier.action === 'string-mask' &&
 								modifier.entity.toLowerCase() === entityText.toLowerCase()
 						);
 
@@ -649,8 +649,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 								// If this was a mask modifier, also temporarily hide the PII entity
 								if (
 									modifierToRemove &&
-									(modifierToRemove.action === 'string-mask' ||
-										modifierToRemove.action === 'word-mask')
+									modifierToRemove.action === 'string-mask'
 								) {
 									console.log(
 										'PiiModifierExtension: Hover menu removing modifier and hiding entity:',
@@ -829,7 +828,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 					return true;
 				},
 
-			// NEW: Add word-mask modifier for complete words in selection
+			// NEW: Add string-mask modifier for complete words in selection
 			addWordMaskModifier:
 				() =>
 				({ state, dispatch }: CommandContext) => {
@@ -847,7 +846,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 
 					const tr = state.tr.setMeta(piiModifierExtensionKey, {
 						type: 'ADD_MODIFIER',
-						modifierAction: 'word-mask' as ModifierAction,
+						modifierAction: 'string-mask' as ModifierAction,
 						entity: completeWordsText,
 						piiType: 'CUSTOM',
 						from,
@@ -1009,7 +1008,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 					// If this was a mask modifier, also temporarily hide the PII entity
 					if (
 						modifierToRemove &&
-						(modifierToRemove.action === 'string-mask' || modifierToRemove.action === 'word-mask')
+						modifierToRemove.action === 'string-mask'
 					) {
 						console.log('PiiModifierExtension: Also hiding PII entity:', modifierToRemove.entity);
 						tr = tr.setMeta(piiDetectionPluginKey, {
@@ -1068,7 +1067,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 					const pluginState = piiModifierExtensionKey.getState(state);
 					const maskModifiers =
 						pluginState?.modifiers.filter(
-							(m) => m.action === 'string-mask' || m.action === 'word-mask'
+							(m) => m.action === 'string-mask'
 						) || [];
 
 					if (maskModifiers.length === 0) {
