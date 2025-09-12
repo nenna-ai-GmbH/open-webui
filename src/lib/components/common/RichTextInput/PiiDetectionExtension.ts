@@ -868,7 +868,10 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 			}
 		};
 
-		const performFastMaskUpdate = async (plainText: string, currentEntities: ExtendedPiiEntity[]) => {
+		const performFastMaskUpdate = async (
+			plainText: string,
+			currentEntities: ExtendedPiiEntity[]
+		) => {
 			if (!plainText.trim() || !currentEntities.length) {
 				console.log('PiiDetectionExtension: Fast mask update skipped - no text or entities');
 				return;
@@ -895,7 +898,7 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 				const modifiers = piiSessionManager.getModifiersForApi(options.conversationId);
 
 				// Convert ExtendedPiiEntity[] to PiiEntity[] for API call
-				const piiEntities: PiiEntity[] = currentEntities.map(entity => ({
+				const piiEntities: PiiEntity[] = currentEntities.map((entity) => ({
 					id: entity.id,
 					type: entity.type,
 					label: entity.label,
@@ -915,13 +918,7 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 					modifiersCount: modifiers.length
 				});
 
-				const response = await updatePiiMasking(
-					apiKey,
-					plainText,
-					piiEntities,
-					modifiers,
-					false
-				);
+				const response = await updatePiiMasking(apiKey, plainText, piiEntities, modifiers, false);
 
 				// Track API completion
 				const apiElapsed = performance.now() - apiStartTime;
@@ -989,26 +986,26 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 					if (onPiiDetected) {
 						onPiiDetected(response.pii, response.text);
 					}
-					
-				// Clear the fast mask update flag after successful completion
-				// Use requestAnimationFrame to ensure all DOM updates and reflows are complete
-				requestAnimationFrame(() => {
+
+					// Clear the fast mask update flag after successful completion
+					// Use requestAnimationFrame to ensure all DOM updates and reflows are complete
 					requestAnimationFrame(() => {
-						if (editorView) {
-							const clearFlagTr = editorView.state.tr.setMeta(piiDetectionPluginKey, {
-								type: 'CLEAR_FAST_MASK_UPDATE_FLAG'
-							});
-							editorView.dispatch(clearFlagTr);
-						}
+						requestAnimationFrame(() => {
+							if (editorView) {
+								const clearFlagTr = editorView.state.tr.setMeta(piiDetectionPluginKey, {
+									type: 'CLEAR_FAST_MASK_UPDATE_FLAG'
+								});
+								editorView.dispatch(clearFlagTr);
+							}
+						});
 					});
-				});
 				}
 			} catch (error) {
 				console.error('PII fast mask update failed:', error);
 				// Fallback to regular detection if fast update fails
 				console.log('PiiDetectionExtension: Falling back to regular detection');
 				performPiiDetection(plainText);
-				
+
 				// Clear the fast mask update flag after fallback
 				if (editorView) {
 					const clearFlagTr = editorView.state.tr.setMeta(piiDetectionPluginKey, {
@@ -1319,7 +1316,9 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 
 							case 'CLEAR_FAST_MASK_UPDATE_FLAG':
 								newState.isFastMaskUpdate = false;
-								console.log('PiiDetectionExtension: ✅ Fast mask update completed, regular detection re-enabled');
+								console.log(
+									'PiiDetectionExtension: ✅ Fast mask update completed, regular detection re-enabled'
+								);
 								break;
 
 							case 'UPDATE_ENTITIES':
@@ -1474,10 +1473,12 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 
 								if (currentMapping.plainText.trim()) {
 									newState.lastText = currentMapping.plainText;
-									
+
 									// Check if a fast mask update is in progress
 									if (newState.isFastMaskUpdate) {
-										console.log('PiiDetectionExtension: Skipping regular detection - fast mask update in progress');
+										console.log(
+											'PiiDetectionExtension: Skipping regular detection - fast mask update in progress'
+										);
 									} else {
 										performPiiDetection(currentMapping.plainText);
 									}
@@ -1495,7 +1496,9 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 								newState.textNodes = currentTextNodes;
 								newState.lastWordCount = currentWordCount;
 								newState.isFastMaskUpdate = true; // Set flag to prevent regular detection
-								console.log('PiiDetectionExtension: 🚀 Starting fast mask update, blocking regular detection');
+								console.log(
+									'PiiDetectionExtension: 🚀 Starting fast mask update, blocking regular detection'
+								);
 
 								if (currentMapping.plainText.trim()) {
 									newState.lastText = currentMapping.plainText;

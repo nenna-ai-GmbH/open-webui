@@ -818,7 +818,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 
 					if (dispatch) {
 						dispatch(tr);
-						
+
 						// Trigger fast mask-update API call after modifiers are cleared
 						const fastUpdateTr = state.tr.setMeta(piiDetectionPluginKey, {
 							type: 'TRIGGER_FAST_MASK_UPDATE'
@@ -856,7 +856,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 
 					if (dispatch) {
 						dispatch(tr);
-						
+
 						// Trigger fast mask-update API call after modifier is added
 						const fastUpdateTr = state.tr.setMeta(piiDetectionPluginKey, {
 							type: 'TRIGGER_FAST_MASK_UPDATE'
@@ -943,7 +943,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 
 					if (dispatch) {
 						dispatch(tr);
-						
+
 						// Trigger fast mask-update API call after modifier is added
 						const fastUpdateTr = state.tr.setMeta(piiDetectionPluginKey, {
 							type: 'TRIGGER_FAST_MASK_UPDATE'
@@ -1020,7 +1020,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 
 					if (dispatch) {
 						dispatch(tr);
-						
+
 						// Trigger fast mask-update API call after modifier is removed
 						const fastUpdateTr = state.tr.setMeta(piiDetectionPluginKey, {
 							type: 'TRIGGER_FAST_MASK_UPDATE'
