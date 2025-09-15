@@ -337,7 +337,9 @@ export class PiiSessionManager {
 				);
 
 				// Also merge originalOccurrences if they exist
-				const currentOriginalOccKeys = new Set((current.originalOccurrences || []).map(occurrenceKey));
+				const currentOriginalOccKeys = new Set(
+					(current.originalOccurrences || []).map(occurrenceKey)
+				);
 				const newOriginalOcc = (incomingEntity.originalOccurrences || []).filter(
 					(o) => !currentOriginalOccKeys.has(occurrenceKey(o))
 				);
@@ -896,7 +898,9 @@ export class PiiSessionManager {
 				);
 
 				// Also handle originalOccurrences
-				const currentOriginalOccKeys = new Set((current.originalOccurrences || []).map(occurrenceKey));
+				const currentOriginalOccKeys = new Set(
+					(current.originalOccurrences || []).map(occurrenceKey)
+				);
 				const newOriginalOcc = (incoming.originalOccurrences || []).filter(
 					(o) => !currentOriginalOccKeys.has(occurrenceKey(o))
 				);

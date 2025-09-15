@@ -81,7 +81,9 @@
 			class="hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg p-1.5 transition-all text-xs font-medium flex items-center gap-1"
 			style={!enabled ? 'opacity: 0.5; cursor: not-allowed;' : ''}
 			on:click={enabled ? addWordMask : () => {}}
-			title={enabled ? "PII Modifier: Mask complete words in selection" : "PII modifiers disabled during file processing"}
+			title={enabled
+				? 'PII Modifier: Mask complete words in selection'
+				: 'PII modifiers disabled during file processing'}
 		>
 			🛡️ Mask Words
 		</button>

@@ -52,7 +52,7 @@
 	// Handle PII detection results - save PII entities but keep original text
 	const handlePiiDetected = async (entities: ExtendedPiiEntity[], maskedText: string) => {
 		if (!item?.id) return;
-		
+
 		// Prevent PII detection updates during file processing
 		if (isFileProcessing) {
 			console.log('FileItemModal: PII detection results blocked - file is still processing');
@@ -72,7 +72,7 @@
 					text: (entity.text || entity.label).toLowerCase(),
 					raw_text: entity.raw_text || entity.label,
 					// CRITICAL: Use originalOccurrences (plain text positions) for storage, fallback to regular occurrences
-					occurrences: ((entity.originalOccurrences || entity.occurrences) || []).map((o) => ({
+					occurrences: (entity.originalOccurrences || entity.occurrences || []).map((o) => ({
 						start_idx: o.start_idx,
 						end_idx: o.end_idx
 					}))
@@ -269,7 +269,7 @@
 					start_idx: o.start_idx,
 					end_idx: o.end_idx
 				}));
-				
+
 				return {
 					id: e.id,
 					label: e.label,
@@ -564,13 +564,17 @@
 		</div>
 
 		{#if isFileProcessing}
-			<div class="mb-3 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
+			<div
+				class="mb-3 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg"
+			>
 				<div class="flex items-center gap-2 text-sm text-yellow-800 dark:text-yellow-200">
 					<Info className="size-4 flex-shrink-0" />
 					<div>
 						<div class="font-medium">{$i18n.t('File is still processing')}</div>
 						<div class="text-xs opacity-90 mt-1">
-							{$i18n.t('PII modifier functionality is disabled until processing completes. You can view content but cannot add or modify PII rules yet.')}
+							{$i18n.t(
+								'PII modifier functionality is disabled until processing completes. You can view content but cannot add or modify PII rules yet.'
+							)}
 						</div>
 					</div>
 				</div>
@@ -649,23 +653,25 @@
 													enablePiiModifiers={!isFileProcessing}
 													disableModifierTriggeredDetection={isFileProcessing}
 													usePiiMarkdownMode={true}
-												onPiiToggled={(entities) => {
-													// Prevent PII toggling during file processing
-													if (isFileProcessing) {
-														console.log('FileItemModal: PII toggling blocked - file is still processing');
-														return;
-													}
-													
-													// When PII is toggled on one page, sync all other pages
-													editors.forEach((ed, edIdx) => {
-														if (edIdx !== idx && ed && ed.commands?.syncWithSessionManager) {
-															setTimeout(() => {
-																ed.commands.syncWithSessionManager();
-															}, 10);
+													onPiiToggled={(entities) => {
+														// Prevent PII toggling during file processing
+														if (isFileProcessing) {
+															console.log(
+																'FileItemModal: PII toggling blocked - file is still processing'
+															);
+															return;
 														}
-													});
-												}}
-												onPiiModifiersChanged={async () => {
+
+														// When PII is toggled on one page, sync all other pages
+														editors.forEach((ed, edIdx) => {
+															if (edIdx !== idx && ed && ed.commands?.syncWithSessionManager) {
+																setTimeout(() => {
+																	ed.commands.syncWithSessionManager();
+																}, 10);
+															}
+														});
+													}}
+													onPiiModifiersChanged={async () => {
 													// Prevent modifier changes during file processing
 													if (isFileProcessing) {
 														console.log('FileItemModal: Modifier changes blocked - file is still processing');
@@ -765,24 +771,24 @@
 														isPiiDetectionInProgress = false;
 													}
 												}}
-												onPiiDetected={handlePiiDetected}
-												piiModifierLabels={[
-													'PERSON',
-													'EMAIL',
-													'PHONE_NUMBER',
-													'ADDRESS',
-													'SSN',
-													'CREDIT_CARD',
-													'DATE_TIME',
-													'IP_ADDRESS',
-													'URL',
-													'IBAN',
-													'MEDICAL_LICENSE',
-													'US_PASSPORT',
-													'US_DRIVER_LICENSE'
-												]}
-												messageInput={false}
-											/>
+													onPiiDetected={handlePiiDetected}
+													piiModifierLabels={[
+														'PERSON',
+														'EMAIL',
+														'PHONE_NUMBER',
+														'ADDRESS',
+														'SSN',
+														'CREDIT_CARD',
+														'DATE_TIME',
+														'IP_ADDRESS',
+														'URL',
+														'IBAN',
+														'MEDICAL_LICENSE',
+														'US_PASSPORT',
+														'US_DRIVER_LICENSE'
+													]}
+													messageInput={false}
+												/>
 											{/key}
 										</div>
 									</div>
@@ -826,5 +832,4 @@
 	:global(.pii-selectable .tiptap *::-moz-selection) {
 		background-color: rgba(100, 108, 255, 0.3) !important;
 	}
-
 </style>
