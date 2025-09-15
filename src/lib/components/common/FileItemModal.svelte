@@ -25,7 +25,6 @@
 	import Mask from '../icons/Mask.svelte';
 	import dayjs from 'dayjs';
 	import Spinner from './Spinner.svelte';
-	import { getFileById } from '$lib/apis/files';
 
 	export let item: any;
 	export let show = false;
@@ -571,7 +570,7 @@
 							</div>
 						{/each}
 					</div>
-				{:else if isPDF}
+				{:else if isPdf}
 					<div
 						class="flex mb-2.5 scrollbar-none overflow-x-auto w-full border-b border-gray-100 dark:border-gray-800 text-center text-sm font-medium bg-transparent dark:text-gray-200"
 					>

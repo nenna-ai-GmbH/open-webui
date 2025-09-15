@@ -1673,8 +1673,6 @@
 		messageInput?.setText('');
 		prompt = '';
 
-		const messages = createMessagesList(history, history.currentId);
-
 		// Reset chat input textarea
 		if (!($settings?.richTextInput ?? true)) {
 			const chatInputElement = document.getElementById('chat-input');
