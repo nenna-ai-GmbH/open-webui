@@ -419,8 +419,8 @@ function remapEntitiesForCurrentDocument(
 			}
 		}
 
-		return { 
-			...entity, 
+		return {
+			...entity,
 			occurrences: newOccurrences,
 			originalOccurrences: newOriginalOccurrences
 		};
@@ -776,7 +776,7 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 				// Determine text to send to API
 				let textForApi = plainText;
 				let isUsingMarkdown = false;
-				
+
 				if (options.useMarkdownForApi && options.getMarkdownText) {
 					const markdownText = options.getMarkdownText();
 					if (markdownText && markdownText.trim()) {
@@ -858,18 +858,19 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 						// When using markdown, we need to remap entities from markdown positions to ProseMirror positions
 						// This is more complex but provides better accuracy
 						console.warn('PiiDetectionExtension: Markdown mode - positions may need remapping');
-						
+
 						// For now, use the remap function which will try to find the entities in the current document
 						const remappedEntities = remapEntitiesForCurrentDocument(
 							response.pii[0],
 							state.positionMapping,
 							editorView.state.doc
 						);
-						
-						mappedEntities = remappedEntities.map(entity => ({
+
+						mappedEntities = remappedEntities.map((entity) => ({
 							...entity,
-							shouldMask: existingEntitiesForMapping.find(e => e.label === entity.label)?.shouldMask ?? 
-										(options.getShouldMask ? options.getShouldMask() : true)
+							shouldMask:
+								existingEntitiesForMapping.find((e) => e.label === entity.label)?.shouldMask ??
+								(options.getShouldMask ? options.getShouldMask() : true)
 						}));
 					} else {
 						// Standard position mapping from ProseMirror plain text
@@ -955,7 +956,7 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 				// Determine text to send to API
 				let textForApi = plainText;
 				let isUsingMarkdown = false;
-				
+
 				if (options.useMarkdownForApi && options.getMarkdownText) {
 					const markdownText = options.getMarkdownText();
 					if (markdownText && markdownText.trim()) {
@@ -1170,7 +1171,7 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 				// Determine text to send to API for incremental detection
 				let textForApi = incrementalText;
 				let isUsingMarkdown = false;
-				
+
 				// Note: For incremental detection, we typically still use the incremental snippet
 				// even in markdown mode, as the context snippet is already extracted from markdown
 				if (options.useMarkdownForApi && options.getMarkdownText && incrementalText === fullText) {
