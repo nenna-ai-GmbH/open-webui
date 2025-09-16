@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.22n2] - 2025-09-16
+
+### Fixed
+
+- **Misaligned placeholders**: Fixed an issue where placeholders were misaligned in the chat completion when modifiers are added to a file.
+
 ## [0.6.22n1] - 2025-09-10
 
 ### Added
