@@ -1234,7 +1234,8 @@
 											? false
 											: true,
 								useMarkdownForApi: usePiiMarkdownMode,
-								getMarkdownText: usePiiMarkdownMode ? () => mdValue || value || '' : undefined
+								getMarkdownText: usePiiMarkdownMode ? () => mdValue || value || '' : undefined,
+								disableModifierTriggeredDetection: disableModifierTriggeredDetection
 							})
 						]
 					: []),

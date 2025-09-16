@@ -63,7 +63,7 @@
 			// Prepare PII payload in the format expected by the backend
 			const piiPayload: Record<string, any> = {};
 			entities.forEach((entity) => {
-				const key = entity.raw_text || entity.label;
+				const key = entity.text || entity.label;
 				if (!key) return;
 				piiPayload[key] = {
 					id: entity.id,
@@ -651,7 +651,7 @@
 													{conversationId}
 													piiMaskingEnabled={true}
 													enablePiiModifiers={!isFileProcessing}
-													disableModifierTriggeredDetection={isFileProcessing}
+													disableModifierTriggeredDetection={true}
 													usePiiMarkdownMode={true}
 													onPiiToggled={(entities) => {
 														// Prevent PII toggling during file processing
@@ -695,7 +695,7 @@
 
 												// Send complete document text as one string to PII API
 												const { updatePiiMasking } = await import('$lib/apis/pii');
-												const completeText = pageContents.join('\n'); // Join all pages with double newlines
+												const completeText = pageContents.join('\n'); // Join all pages with newlines
 													
 													const response = await updatePiiMasking(
 														apiKey,
@@ -720,29 +720,29 @@
 															});
 														}
 
-															// Create PII payload for complete document
-															const piiPayload = {};
-															allEntities.forEach((entity) => {
-																const key = entity.raw_text || entity.label;
-																if (!key) return;
-																// @ts-ignore - Dynamic object key assignment
-																piiPayload[key] = {
-																	id: entity.id,
-																	label: entity.label,
-																	type: entity.type || 'PII',
-																	text: (entity.text || entity.label).toLowerCase(),
-																	raw_text: entity.raw_text || entity.label,
-																	// CRITICAL: Use originalOccurrences (plain text positions) for backend storage
-																	occurrences: ((entity.originalOccurrences || entity.occurrences) || []).map((o) => ({
-																		start_idx: o.start_idx,
-																		end_idx: o.end_idx
-																	}))
-																};
-															});
+														// Create PII payload for complete document
+														const piiPayload = {};
+														allEntities.forEach((entity) => {
+															const key = entity.text;
+															if (!key) return;
+															// @ts-ignore - Dynamic object key assignment
+															piiPayload[key] = {
+																id: entity.id,
+																label: entity.label,
+																type: entity.type || 'PII',
+																text: (entity.text || entity.label).toLowerCase(),
+																raw_text: entity.raw_text || entity.label,
+																// CRITICAL: Use originalOccurrences (plain text positions) for backend storage
+																occurrences: ((entity.originalOccurrences || entity.occurrences) || []).map((o) => ({
+																	start_idx: o.start_idx,
+																	end_idx: o.end_idx
+																}))
+															};
+														});
 
-															// Get current PII state including modifiers
-															const state = piiSessionManager.getConversationState(conversationId || '');
-															
+														// Get current PII state including modifiers
+														const state = piiSessionManager.getConversationState(conversationId || '');
+														
 														// Update session manager with all entities
 														if (conversationId && conversationId.trim() !== '') {
 															piiSessionManager.setConversationWorkingEntitiesWithMaskStates(conversationId, allEntities);
@@ -771,7 +771,6 @@
 														isPiiDetectionInProgress = false;
 													}
 												}}
-													onPiiDetected={handlePiiDetected}
 													piiModifierLabels={[
 														'PERSON',
 														'EMAIL',

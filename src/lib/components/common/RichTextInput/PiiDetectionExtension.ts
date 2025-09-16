@@ -67,6 +67,7 @@ export interface PiiDetectionOptions {
 	detectOnlyAfterUserEdit?: boolean; // If true, do not auto-detect on initial load; wait for user edits
 	getMarkdownText?: () => string; // Function to get original markdown text instead of processed text
 	useMarkdownForApi?: boolean; // If true, use markdown text for API calls instead of ProseMirror plain text
+	disableModifierTriggeredDetection?: boolean; // If true, disable fast mask updates when modifiers change (for FileItemModal)
 }
 
 // Removed unused interfaces - let TypeScript infer TipTap command types
@@ -704,7 +705,8 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 			debounceMs: getPiiConfig().timing.defaultDebounceMs,
 			detectOnlyAfterUserEdit: false,
 			getMarkdownText: undefined,
-			useMarkdownForApi: false
+			useMarkdownForApi: false,
+			disableModifierTriggeredDetection: false
 		};
 	},
 
@@ -1577,6 +1579,14 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 							}
 
 							case 'TRIGGER_FAST_MASK_UPDATE': {
+								// Skip fast mask update if disabled (e.g., for FileItemModal where component handles API calls)
+								if (options.disableModifierTriggeredDetection) {
+									console.log(
+										'PiiDetectionExtension: Fast mask update skipped - disabled by disableModifierTriggeredDetection flag'
+									);
+									break;
+								}
+
 								// Use the fast mask-update API when modifiers are added/removed
 								const currentMapping = buildPositionMapping(tr.doc);
 								const currentTextNodes = extractTextNodes(tr.doc);
