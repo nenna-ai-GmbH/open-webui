@@ -1080,6 +1080,7 @@
 	"PII Enabled": "PII Enabled",
 	"PII Masking": "PII Masking",
 	"PII modifier functionality is disabled until processing completes. You can view content but cannot add or modify PII rules yet.": "",
+	"PII masking is not yet supported in custom models": "PII masking is not yet supported in custom models",
 	"Pin": "",
 	"Pinned": "",
 	"Pioneer insights": "",
