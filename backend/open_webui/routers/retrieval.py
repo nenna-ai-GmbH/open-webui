@@ -1841,7 +1841,7 @@ def process_file(
                 Files.update_file_data_by_id(
                     file.id,
                     {
-                        "content": " ".join(text_content),
+                        "content": "".join(text_content),
                         "page_content": text_content,
                     },
                 )
