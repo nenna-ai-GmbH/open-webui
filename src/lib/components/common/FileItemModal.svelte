@@ -695,7 +695,7 @@
 
 												// Send complete document text as one string to PII API
 												const { updatePiiMasking } = await import('$lib/apis/pii');
-												const completeText = pageContents.join('\n'); // Join all pages with newlines
+												const completeText = pageContents.join(''); // Join all pages
 													
 													const response = await updatePiiMasking(
 														apiKey,
