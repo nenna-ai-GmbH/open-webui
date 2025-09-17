@@ -423,7 +423,10 @@ function remapEntitiesForCurrentDocument(
 		return {
 			...entity,
 			occurrences: newOccurrences,
-			originalOccurrences: newOriginalOccurrences
+			// Preserve any existing originalOccurrences (e.g., from file state) if present
+			originalOccurrences: entity.originalOccurrences && entity.originalOccurrences.length
+				? entity.originalOccurrences
+				: newOriginalOccurrences
 		};
 	});
 
@@ -972,15 +975,60 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 				}
 
 				// Convert ExtendedPiiEntity[] to PiiEntity[] for API call
-				// CRITICAL: Use originalOccurrences (plain text positions) for API, not ProseMirror positions
-				const piiEntities: PiiEntity[] = currentEntities.map((entity) => ({
-					id: entity.id,
-					type: entity.type,
-					label: entity.label,
-					text: entity.text,
-					raw_text: entity.raw_text,
-					occurrences: entity.originalOccurrences || entity.occurrences // Fallback to regular occurrences if original not available
-				}));
+				// IMPORTANT: Occurrence positions must align with the text sent to the API.
+				// If using markdown mode, recompute occurrences against markdown text.
+				const computeOccurrencesInText = (
+					text: string,
+					needle: string
+				): Array<{ start_idx: number; end_idx: number }> => {
+					if (!text || !needle) return [];
+					// Decode any entities and normalize whitespace tolerance
+					let target = decodeHtmlEntities(needle)
+						.normalize('NFKC')
+						.replace(/^[\s\u00A0\t|:;.,\-_/\\]+/, '')
+						.replace(/[\s\u00A0\t|:;.,\-_/\\]+$/, '');
+					if (!target) return [];
+
+					const haystack = decodeHtmlEntities(text);
+					const escaped = target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+					const pattern = escaped.replace(/\s+/g, '[\\s\\u00A0\\t]+');
+					const regex = new RegExp(pattern, 'gi');
+
+					const isAlnum = (ch: string) => /[A-Za-z0-9À-ÿ]/.test(ch);
+					const startsAlpha = isAlnum(target[0] || '');
+					const endsAlpha = isAlnum(target[target.length - 1] || '');
+
+					const results: Array<{ start_idx: number; end_idx: number }> = [];
+					let m: RegExpExecArray | null;
+					while ((m = regex.exec(haystack)) !== null) {
+						const start = m.index;
+						const end = start + m[0].length;
+						const before = start > 0 ? haystack[start - 1] : '';
+						const after = end < haystack.length ? haystack[end] : '';
+						if (startsAlpha && before && isAlnum(before)) continue;
+						if (endsAlpha && after && isAlnum(after)) continue;
+						results.push({ start_idx: start, end_idx: end });
+					}
+					return results;
+				};
+
+				const piiEntities: PiiEntity[] = currentEntities.map((entity) => {
+					let occurrences = entity.originalOccurrences || entity.occurrences;
+					if (isUsingMarkdown) {
+						occurrences = computeOccurrencesInText(
+							textForApi,
+							entity.raw_text || entity.text || ''
+						);
+					}
+					return {
+						id: entity.id,
+						type: entity.type,
+						label: entity.label,
+						text: entity.text,
+						raw_text: entity.raw_text,
+						occurrences
+					};
+				});
 
 				// Track API performance
 				const tracker = PiiPerformanceTracker.getInstance();

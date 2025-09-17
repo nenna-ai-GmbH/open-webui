@@ -677,16 +677,17 @@
 				entities.forEach((ent) => {
 					const key = ent.raw_text || ent.label;
 					if (!key) return;
+					const occurrences =
+						(ent as any).originalOccurrences && (ent as any).originalOccurrences.length
+							? (ent as any).originalOccurrences
+							: (ent.occurrences || []).map((o) => ({ start_idx: o.start_idx, end_idx: o.end_idx }));
 					map[key] = {
 						id: ent.id,
 						label: ent.label,
 						type: ent.type || 'PII',
 						text: (ent.raw_text || ent.label).toLowerCase(),
 						raw_text: ent.raw_text || ent.label,
-						occurrences: (ent.occurrences || []).map((o) => ({
-							start_idx: o.start_idx,
-							end_idx: o.end_idx
-						}))
+						occurrences
 					};
 				});
 				piiPayload = map;
@@ -804,7 +805,7 @@
 				// Seed PII entities from backend analysis into the session manager so RichTextInput highlights immediately
 				try {
 					const piiMap = response?.data?.pii || {};
-					const entities: ExtendedPiiEntity[] = Object.values(piiMap)
+						const entities: ExtendedPiiEntity[] = Object.values(piiMap)
 						.filter(Boolean)
 						.map((e: any) => ({
 							id: e.id,
@@ -816,6 +817,11 @@
 								start_idx: o.start_idx,
 								end_idx: o.end_idx
 							})),
+								// Preserve original plain-text occurrences from file state for API mask updates
+								originalOccurrences: (e.occurrences || []).map((o: any) => ({
+									start_idx: o.start_idx,
+									end_idx: o.end_idx
+								})),
 							shouldMask: true
 						}));
 
@@ -1205,6 +1211,7 @@
 										preserveBreaks={false}
 										{enablePiiDetection}
 										{piiApiKey}
+										usePiiMarkdownMode={true}
 										enablePiiModifiers={enablePiiDetection}
 										piiMaskingEnabled={enablePiiDetection}
 										piiDetectionOnlyAfterUserEdit={true}
@@ -1288,6 +1295,7 @@
 										preserveBreaks={false}
 										{enablePiiDetection}
 										{piiApiKey}
+											usePiiMarkdownMode={true}
 										enablePiiModifiers={enablePiiDetection}
 										piiMaskingEnabled={enablePiiDetection}
 										piiDetectionOnlyAfterUserEdit={true}
