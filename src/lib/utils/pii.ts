@@ -1072,6 +1072,46 @@ export class PiiSessionManager {
 	}
 
 	/**
+	 * Create a PII payload for API calls from current conversation entities
+	 * This transforms entities into a map format where the entity text is the key
+	 * and the value contains all entity details needed for API processing
+	 * 
+	 * @param conversationId - The conversation ID to get entities for (optional)
+	 * @returns Record<string, any> | null - PII payload map or null if no entities
+	 */
+	createPiiPayloadForApi(conversationId?: string): Record<string, any> | null {
+		// Get current working entities (includes user modifications and persistent state)
+		const currentEntities = this.getEntitiesForApiWithOriginalPositions(conversationId);
+
+		// Return null if no entities to process
+		if (!currentEntities || currentEntities.length === 0) {
+			return null;
+		}
+
+		// Create a map where entity text is the key for efficient API processing
+		// TypeScript note: Record<string, any> means an object with string keys and any value type
+		const map: Record<string, any> = {};
+		
+		currentEntities.forEach((ent) => {
+			// Use entity text as the key - this is how the API expects to find entities
+			const key = ent.text;
+			if (!key) return; // Skip entities without text
+
+			// Create structured object with all entity details
+			map[key] = {
+				id: ent.id,
+				label: ent.label,
+				type: ent.type,
+				text: (ent.text).toLowerCase(), // Lowercase for consistent matching
+				raw_text: ent.raw_text,
+				occurrences: ent.occurrences || []
+			};
+		});
+
+		return map;
+	}
+
+	/**
 	 * Update API client configuration
 	 */
 	updateApiConfig(config: Partial<PiiApiClientConfig>) {

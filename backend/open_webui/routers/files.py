@@ -22,6 +22,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from open_webui.constants import ERROR_MESSAGES
 from open_webui.env import SRC_LOG_LEVELS
 from open_webui.retrieval.vector.factory import VECTOR_DB_CLIENT
+from open_webui.routers.retrieval import ProcessFilePiiState
 
 from open_webui.models.users import Users
 from open_webui.models.files import (
@@ -423,13 +424,6 @@ class PiiEntity(BaseModel):
     shouldMask: Optional[bool] = True
 
 
-class PiiState(BaseModel):
-    entities: List[PiiEntity] = []
-    sessionId: Optional[str] = None
-    apiKey: Optional[str] = None
-    lastUpdated: Optional[int] = None
-
-
 # Support both dict format (legacy) and list format (new)
 PiiData = Union[Dict[str, Any], List[PiiEntity], Dict[str, PiiEntity]]
 
@@ -439,7 +433,7 @@ class ContentForm(BaseModel):
     # Optional client-provided PII detections to persist and use during re-indexing
     pii: Optional[PiiData] = None
     # Optional PII UI state (masking, etc.) to persist alongside chat/file data
-    pii_state: Optional[Union[PiiState, Dict[str, Any]]] = None
+    pii_state: Optional[Union[ProcessFilePiiState, Dict[str, Any]]] = None
 
 
 @router.post("/{id}/data/content/update")
@@ -481,7 +475,12 @@ async def update_file_data_content_by_id(
             # If the client provided PII UI state, persist it first
             if form_data.pii_state is not None:
                 try:
-                    Files.update_file_data_by_id(id, {"piiState": form_data.pii_state})
+                    state_dict = (
+                        form_data.pii_state.model_dump()
+                        if isinstance(form_data.pii_state, ProcessFilePiiState)
+                        else form_data.pii_state
+                    )
+                    Files.update_file_data_by_id(id, {"piiState": state_dict})
                 except Exception:
                     pass
 

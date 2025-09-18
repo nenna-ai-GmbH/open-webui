@@ -1540,6 +1540,7 @@ class ProcessFilePiiState(BaseModel):
     sessionId: Optional[str] = None
     apiKey: Optional[str] = None
     lastUpdated: Optional[int] = None
+    modifiers: List[Dict] = []
 
 
 # Support both dict format (legacy) and list format (new)
@@ -1657,9 +1658,12 @@ def process_file(
 
                 if form_data.pii_state is not None:
                     try:
-                        Files.update_file_data_by_id(
-                            file.id, {"piiState": form_data.pii_state}
+                        state_dict = (
+                            form_data.pii_state.model_dump()
+                            if isinstance(form_data.pii_state, ProcessFilePiiState)
+                            else form_data.pii_state
                         )
+                        Files.update_file_data_by_id(file.id, {"piiState": state_dict})
                         log.debug(f"process_file: Updated PII state for file {file.id}")
                     except Exception as e:
                         log.warning(f"process_file: Failed to update PII state: {e}")
@@ -2634,7 +2638,8 @@ def query_doc_handler(
                 collection_name=form_data.collection_name,
                 collection_result=collection_results[form_data.collection_name],
                 query=form_data.query,
-                embedding_function=lambda query, prefix: request.app.state.EMBEDDING_FUNCTION(
+                embedding_function=lambda query,
+                prefix: request.app.state.EMBEDDING_FUNCTION(
                     query, prefix=prefix, user=user
                 ),
                 k=form_data.k if form_data.k else request.app.state.config.TOP_K,
@@ -2699,7 +2704,8 @@ def query_collection_handler(
             return query_collection_with_hybrid_search(
                 collection_names=form_data.collection_names,
                 queries=[form_data.query],
-                embedding_function=lambda query, prefix: request.app.state.EMBEDDING_FUNCTION(
+                embedding_function=lambda query,
+                prefix: request.app.state.EMBEDDING_FUNCTION(
                     query, prefix=prefix, user=user
                 ),
                 k=form_data.k if form_data.k else request.app.state.config.TOP_K,
@@ -2729,7 +2735,8 @@ def query_collection_handler(
             return query_collection(
                 collection_names=form_data.collection_names,
                 queries=[form_data.query],
-                embedding_function=lambda query, prefix: request.app.state.EMBEDDING_FUNCTION(
+                embedding_function=lambda query,
+                prefix: request.app.state.EMBEDDING_FUNCTION(
                     query, prefix=prefix, user=user
                 ),
                 k=form_data.k if form_data.k else request.app.state.config.TOP_K,
