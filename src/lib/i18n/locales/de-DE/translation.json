@@ -1079,7 +1079,7 @@
 	"PII Disabled": "Maskierung deaktiviert",
 	"PII Enabled": "Maskierung aktiviert",
 	"PII Masking": "Maskiert",
-	"PII masking is not yet supported in custom models": "PII-Maskierung wird in benutzerdefinierten Modellen noch nicht unterstützt",
+	"PII masking is not yet supported in custom models": "Wissen und Dateien mit PII-Maskierung werden in benutzerdefinierten Modellen noch nicht unterstützt",
 	"PII modifier functionality is disabled until processing completes. You can view content but cannot add or modify PII rules yet.": "PII-Modifikationsfunktionen sind bis zum Abschluss der Verarbeitung deaktiviert. Sie können Inhalte anzeigen, aber noch keine PII-Regeln hinzufügen oder ändern.",
 	"Pin": "Anheften",
 	"Pinned": "Angeheftet",
