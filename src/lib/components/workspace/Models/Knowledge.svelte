@@ -155,7 +155,9 @@
 
 <div>
 	<!-- PII Warning -->
-	<div class="mb-3 px-3 py-2 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 rounded-lg">
+	<div
+		class="mb-3 px-3 py-2 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 rounded-lg"
+	>
 		<div class="flex items-start space-x-2">
 			<div class="flex-shrink-0">
 				<svg
