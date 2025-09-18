@@ -95,14 +95,14 @@
 				if (currentEntities && currentEntities.length > 0) {
 					const map: Record<string, any> = {};
 					currentEntities.forEach((ent) => {
-						const key = ent.raw_text || ent.text || ent.label;
+						const key = ent.text;
 						if (!key) return;
 						map[key] = {
 							id: ent.id,
 							label: ent.label,
 							type: ent.type,
-							text: (ent.text || ent.raw_text || ent.label).toLowerCase(),
-							raw_text: ent.raw_text || ent.text || ent.label,
+							text: (ent.text).toLowerCase(),
+							raw_text: ent.raw_text,
 							occurrences: ent.occurrences || []
 						};
 					});
