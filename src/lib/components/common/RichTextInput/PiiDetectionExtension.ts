@@ -424,9 +424,10 @@ function remapEntitiesForCurrentDocument(
 			...entity,
 			occurrences: newOccurrences,
 			// Preserve any existing originalOccurrences (e.g., from file state) if present
-			originalOccurrences: entity.originalOccurrences && entity.originalOccurrences.length
-				? entity.originalOccurrences
-				: newOriginalOccurrences
+			originalOccurrences:
+				entity.originalOccurrences && entity.originalOccurrences.length
+					? entity.originalOccurrences
+					: newOriginalOccurrences
 		};
 	});
 

@@ -4,7 +4,7 @@ import uuid
 import json
 from fnmatch import fnmatch
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, List, Union, Any
 from urllib.parse import quote
 
 from fastapi import (
@@ -412,12 +412,34 @@ async def get_file_data_content_by_id(id: str, user=Depends(get_verified_user)):
 ############################
 
 
+# Define types for PII data structures
+class PiiEntity(BaseModel):
+    id: int
+    label: str
+    type: str
+    raw_text: str
+    text: Optional[str] = None
+    occurrences: List[Dict[str, int]] = []
+    shouldMask: Optional[bool] = True
+
+
+class PiiState(BaseModel):
+    entities: List[PiiEntity] = []
+    sessionId: Optional[str] = None
+    apiKey: Optional[str] = None
+    lastUpdated: Optional[int] = None
+
+
+# Support both dict format (legacy) and list format (new)
+PiiData = Union[Dict[str, Any], List[PiiEntity], Dict[str, PiiEntity]]
+
+
 class ContentForm(BaseModel):
     content: str
     # Optional client-provided PII detections to persist and use during re-indexing
-    pii: Optional[dict | list] = None
+    pii: Optional[PiiData] = None
     # Optional PII UI state (masking, etc.) to persist alongside chat/file data
-    pii_state: Optional[dict] = None
+    pii_state: Optional[Union[PiiState, Dict[str, Any]]] = None
 
 
 @router.post("/{id}/data/content/update")
@@ -438,6 +460,24 @@ async def update_file_data_content_by_id(
         or has_access_to_file(id, "write", user)
     ):
         try:
+            # CRITICAL: Preserve existing PII data when not provided by client
+            # This fixes the issue where modifiers would corrupt PII data for collections
+            existing_pii = None
+            existing_pii_state = None
+
+            # Get existing PII data to preserve it
+            if hasattr(file, "data") and file.data:
+                existing_pii = file.data.get("pii")
+                existing_pii_state = file.data.get("piiState")
+
+            # Use provided PII data or preserve existing
+            final_pii = form_data.pii if form_data.pii is not None else existing_pii
+            final_pii_state = (
+                form_data.pii_state
+                if form_data.pii_state is not None
+                else existing_pii_state
+            )
+
             # If the client provided PII UI state, persist it first
             if form_data.pii_state is not None:
                 try:
@@ -457,13 +497,14 @@ async def update_file_data_content_by_id(
                 except Exception:
                     pass
 
+            # Pass the preserved PII data to process_file to maintain data structure consistency
             process_file(
                 request,
                 ProcessFileForm(
                     file_id=id,
                     content=form_data.content,
-                    pii=form_data.pii,
-                    pii_state=form_data.pii_state,
+                    pii=final_pii,  # Use preserved or provided PII data
+                    pii_state=final_pii_state,  # Use preserved or provided PII state
                 ),
                 user=user,
             )

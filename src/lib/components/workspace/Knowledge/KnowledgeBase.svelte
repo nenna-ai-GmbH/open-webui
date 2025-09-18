@@ -70,11 +70,11 @@
 			try {
 				const convoId = `${id || 'kb'}:${fileId}`;
 				const piiSessionManager = PiiSessionManager.getInstance();
-				
+
 				// Get the current file content
-				const currentFile = knowledge?.files?.find(f => f.id === fileId);
+				const currentFile = knowledge?.files?.find((f) => f.id === fileId);
 				if (!currentFile) return;
-				
+
 				// Get fresh content from cache or fetch it
 				let content = fileContentCache.get(fileId);
 				if (!content) {
@@ -86,10 +86,10 @@
 						return; // Skip update if we can't get content
 					}
 				}
-				
+
 				// Get current working entities (includes user modifications) - matches FileItemModal.svelte
 				const currentEntities = piiSessionManager.getEntitiesForApiWithOriginalPositions(convoId);
-				
+
 				// Collect PII entities for payload from current working state
 				let piiPayload: Record<string, any> | null = null;
 				if (currentEntities && currentEntities.length > 0) {
@@ -108,7 +108,7 @@
 					});
 					piiPayload = map;
 				}
-				
+
 				// Use full content update with current PII data (triggers reindexing)
 				// Wait for the mask-update endpoint to complete
 				await updateFileDataContentById(localStorage.token, fileId, content, {
@@ -721,7 +721,10 @@
 					const occurrences =
 						(ent as any).originalOccurrences && (ent as any).originalOccurrences.length
 							? (ent as any).originalOccurrences
-							: (ent.occurrences || []).map((o) => ({ start_idx: o.start_idx, end_idx: o.end_idx }));
+							: (ent.occurrences || []).map((o) => ({
+									start_idx: o.start_idx,
+									end_idx: o.end_idx
+								}));
 					map[key] = {
 						id: ent.id,
 						label: ent.label,
@@ -846,7 +849,7 @@
 				// Seed PII entities from backend analysis into the session manager so RichTextInput highlights immediately
 				try {
 					const piiMap = response?.data?.pii || {};
-						const entities: ExtendedPiiEntity[] = Object.values(piiMap)
+					const entities: ExtendedPiiEntity[] = Object.values(piiMap)
 						.filter(Boolean)
 						.map((e: any) => ({
 							id: e.id,
@@ -858,11 +861,11 @@
 								start_idx: o.start_idx,
 								end_idx: o.end_idx
 							})),
-								// Preserve original plain-text occurrences from file state for API mask updates
-								originalOccurrences: (e.occurrences || []).map((o: any) => ({
-									start_idx: o.start_idx,
-									end_idx: o.end_idx
-								})),
+							// Preserve original plain-text occurrences from file state for API mask updates
+							originalOccurrences: (e.occurrences || []).map((o: any) => ({
+								start_idx: o.start_idx,
+								end_idx: o.end_idx
+							})),
 							shouldMask: true
 						}));
 
@@ -1272,7 +1275,8 @@
 											'US_DRIVER_LICENSE'
 										]}
 										conversationId={`${id || 'kb'}:${selectedFile?.id || ''}`}
-										onPiiToggled={() => selectedFile?.id && savePiiContentDebounced(selectedFile.id)}
+										onPiiToggled={() =>
+											selectedFile?.id && savePiiContentDebounced(selectedFile.id)}
 										onPiiModifiersChanged={() =>
 											selectedFile?.id && savePiiContentDebounced(selectedFile.id)}
 									/>
@@ -1336,7 +1340,7 @@
 										preserveBreaks={false}
 										{enablePiiDetection}
 										{piiApiKey}
-											usePiiMarkdownMode={true}
+										usePiiMarkdownMode={true}
 										enablePiiModifiers={enablePiiDetection}
 										piiMaskingEnabled={enablePiiDetection}
 										piiDetectionOnlyAfterUserEdit={true}
@@ -1356,7 +1360,8 @@
 											'US_DRIVER_LICENSE'
 										]}
 										conversationId={`${id || 'kb'}:${selectedFile?.id || ''}`}
-										onPiiToggled={() => selectedFile?.id && savePiiContentDebounced(selectedFile.id)}
+										onPiiToggled={() =>
+											selectedFile?.id && savePiiContentDebounced(selectedFile.id)}
 										onPiiModifiersChanged={() =>
 											selectedFile?.id && savePiiContentDebounced(selectedFile.id)}
 									/>
