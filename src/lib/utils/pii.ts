@@ -559,8 +559,8 @@ export class PiiSessionManager {
 			label: entity.label,
 			text: entity.text,
 			raw_text: entity.raw_text,
-			// CRITICAL: Use originalOccurrences (plain text positions) for API, fallback to regular occurrences
-			occurrences: entity.originalOccurrences || entity.occurrences
+			// CRITICAL: Use originalOccurrences (plain text positions) for API
+			occurrences: entity.originalOccurrences
 		}));
 	}
 

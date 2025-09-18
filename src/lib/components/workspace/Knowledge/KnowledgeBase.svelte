@@ -62,19 +62,60 @@
 	// Reference to the embedded editor to trigger sync-after-seed
 	let kbEditor = null;
 
-	// Debounced PII state saver
+	// Debounced PII content update (matches FileItemModal.svelte approach)
 	let savePiiTimeout: any = null;
-	const savePiiStateDebounced = (fileId: string) => {
+	const savePiiContentDebounced = (fileId: string) => {
 		if (savePiiTimeout) clearTimeout(savePiiTimeout);
 		savePiiTimeout = setTimeout(async () => {
 			try {
 				const convoId = `${id || 'kb'}:${fileId}`;
-				const state = PiiSessionManager.getInstance().getConversationState(convoId);
-				if (state) {
-					await updateFilePiiStateById(localStorage.token, fileId, state);
+				const piiSessionManager = PiiSessionManager.getInstance();
+
+				// Get the current file content
+				const currentFile = knowledge?.files?.find((f) => f.id === fileId);
+				if (!currentFile) return;
+
+				// Get fresh content from cache or fetch it
+				let content = fileContentCache.get(fileId);
+				if (!content) {
+					try {
+						const fileResponse = await getFileById(localStorage.token, fileId);
+						content = fileResponse?.data?.content || '';
+						fileContentCache.set(fileId, content);
+					} catch (e) {
+						return; // Skip update if we can't get content
+					}
 				}
+
+				// Get current working entities (includes user modifications) - matches FileItemModal.svelte
+				const currentEntities = piiSessionManager.getEntitiesForApiWithOriginalPositions(convoId);
+
+				// Collect PII entities for payload from current working state
+				let piiPayload: Record<string, any> | null = null;
+				if (currentEntities && currentEntities.length > 0) {
+					const map: Record<string, any> = {};
+					currentEntities.forEach((ent) => {
+						const key = ent.raw_text || ent.text || ent.label;
+						if (!key) return;
+						map[key] = {
+							id: ent.id,
+							label: ent.label,
+							type: ent.type,
+							text: (ent.text || ent.raw_text || ent.label).toLowerCase(),
+							raw_text: ent.raw_text || ent.text || ent.label,
+							occurrences: ent.occurrences || []
+						};
+					});
+					piiPayload = map;
+				}
+
+				// Use full content update with current PII data (triggers reindexing)
+				// Wait for the mask-update endpoint to complete
+				await updateFileDataContentById(localStorage.token, fileId, content, {
+					pii: piiPayload || undefined
+				});
 			} catch (e) {
-				// silent
+				console.error('Failed to update PII content:', e);
 			}
 		}, 400);
 	};
@@ -677,16 +718,20 @@
 				entities.forEach((ent) => {
 					const key = ent.raw_text || ent.label;
 					if (!key) return;
+					const occurrences =
+						(ent as any).originalOccurrences && (ent as any).originalOccurrences.length
+							? (ent as any).originalOccurrences
+							: (ent.occurrences || []).map((o) => ({
+									start_idx: o.start_idx,
+									end_idx: o.end_idx
+								}));
 					map[key] = {
 						id: ent.id,
 						label: ent.label,
 						type: ent.type || 'PII',
 						text: (ent.raw_text || ent.label).toLowerCase(),
 						raw_text: ent.raw_text || ent.label,
-						occurrences: (ent.occurrences || []).map((o) => ({
-							start_idx: o.start_idx,
-							end_idx: o.end_idx
-						}))
+						occurrences
 					};
 				});
 				piiPayload = map;
@@ -813,6 +858,11 @@
 							raw_text: e.raw_text || e.text || e.name || '',
 							text: e.text || e.raw_text || e.name || '',
 							occurrences: (e.occurrences || []).map((o: any) => ({
+								start_idx: o.start_idx,
+								end_idx: o.end_idx
+							})),
+							// Preserve original plain-text occurrences from file state for API mask updates
+							originalOccurrences: (e.occurrences || []).map((o: any) => ({
 								start_idx: o.start_idx,
 								end_idx: o.end_idx
 							})),
@@ -1205,6 +1255,7 @@
 										preserveBreaks={false}
 										{enablePiiDetection}
 										{piiApiKey}
+										usePiiMarkdownMode={true}
 										enablePiiModifiers={enablePiiDetection}
 										piiMaskingEnabled={enablePiiDetection}
 										piiDetectionOnlyAfterUserEdit={true}
@@ -1224,9 +1275,10 @@
 											'US_DRIVER_LICENSE'
 										]}
 										conversationId={`${id || 'kb'}:${selectedFile?.id || ''}`}
-										onPiiToggled={() => selectedFile?.id && savePiiStateDebounced(selectedFile.id)}
+										onPiiToggled={() =>
+											selectedFile?.id && savePiiContentDebounced(selectedFile.id)}
 										onPiiModifiersChanged={() =>
-											selectedFile?.id && savePiiStateDebounced(selectedFile.id)}
+											selectedFile?.id && savePiiContentDebounced(selectedFile.id)}
 									/>
 								{/key}
 							</div>
@@ -1288,6 +1340,7 @@
 										preserveBreaks={false}
 										{enablePiiDetection}
 										{piiApiKey}
+										usePiiMarkdownMode={true}
 										enablePiiModifiers={enablePiiDetection}
 										piiMaskingEnabled={enablePiiDetection}
 										piiDetectionOnlyAfterUserEdit={true}
@@ -1307,9 +1360,10 @@
 											'US_DRIVER_LICENSE'
 										]}
 										conversationId={`${id || 'kb'}:${selectedFile?.id || ''}`}
-										onPiiToggled={() => selectedFile?.id && savePiiStateDebounced(selectedFile.id)}
+										onPiiToggled={() =>
+											selectedFile?.id && savePiiContentDebounced(selectedFile.id)}
 										onPiiModifiersChanged={() =>
-											selectedFile?.id && savePiiStateDebounced(selectedFile.id)}
+											selectedFile?.id && savePiiContentDebounced(selectedFile.id)}
 									/>
 								{/key}
 							</div>
