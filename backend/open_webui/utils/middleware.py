@@ -653,21 +653,21 @@ async def chat_completion_files_handler(
         # Extract PII entities from files metadata to build initial dictionary
         for file_item in files:
             # Path 1: file.data.pii (most common for uploaded files)
-            if file_item.get("file", {}).get("data", {}).get("pii"):
-                try:
-                    pii_data = file_item["file"]["data"]["pii"]
-                    if isinstance(pii_data, str):
-                        pii_dict = json.loads(pii_data)
-                    elif isinstance(pii_data, dict):
-                        pii_dict = pii_data
-                    else:
-                        pii_dict = {}
-                    file_entities_dict.update(pii_dict)
-                except (json.JSONDecodeError, TypeError, KeyError) as e:
-                    log.warning(f"Failed to parse PII dict from file.data.pii: {e}")
+            # if file_item.get("file", {}).get("data", {}).get("pii"):
+            #     try:
+            #         pii_data = file_item["file"]["data"]["pii"]
+            #         if isinstance(pii_data, str):
+            #             pii_dict = json.loads(pii_data)
+            #         elif isinstance(pii_data, dict):
+            #             pii_dict = pii_data
+            #         else:
+            #             pii_dict = {}
+            #         file_entities_dict.update(pii_dict)
+            #     except (json.JSONDecodeError, TypeError, KeyError) as e:
+            #         log.warning(f"Failed to parse PII dict from file.data.pii: {e}")
 
             # Path 2: Load from database if not in file data
-            elif file_item.get("id"):
+            if file_item.get("id"):
                 try:
                     from open_webui.models.files import Files
 

@@ -214,11 +214,13 @@ export class PiiSessionManager {
 		modifiers: PiiModifier[];
 		filenameMappings: FilenameMapping[];
 		isActive: boolean;
+		lastUpdated: number;
 	} = {
 		entities: [],
 		modifiers: [],
 		filenameMappings: [],
-		isActive: false
+		isActive: false,
+		lastUpdated: 0
 	};
 
 	private workingEntitiesForConversations: Map<string, ExtendedPiiEntity[]> = new Map();
@@ -535,6 +537,10 @@ export class PiiSessionManager {
 	// Get state for saving to localStorage (chat data)
 	getConversationState(conversationId: string): ConversationPiiState | null {
 		return this.conversationStates.get(conversationId) || null;
+	}
+
+	getTemporaryState(): ConversationPiiState | null {
+		return this.temporaryState;
 	}
 
 	// Convert conversation entities to known entities format for API
@@ -1083,32 +1089,8 @@ export class PiiSessionManager {
 		// Get current working entities (includes user modifications and persistent state)
 		const currentEntities = this.getEntitiesForApiWithOriginalPositions(conversationId);
 
-		// Return null if no entities to process
-		if (!currentEntities || currentEntities.length === 0) {
-			return null;
-		}
-
-		// Create a map where entity text is the key for efficient API processing
-		// TypeScript note: Record<string, any> means an object with string keys and any value type
-		const map: Record<string, any> = {};
-		
-		currentEntities.forEach((ent) => {
-			// Use entity text as the key - this is how the API expects to find entities
-			const key = ent.text;
-			if (!key) return; // Skip entities without text
-
-			// Create structured object with all entity details
-			map[key] = {
-				id: ent.id,
-				label: ent.label,
-				type: ent.type,
-				text: (ent.text).toLowerCase(), // Lowercase for consistent matching
-				raw_text: ent.raw_text,
-				occurrences: ent.occurrences || []
-			};
-		});
-
-		return map;
+		// Use the static utility function to create payload
+		return createPiiPayloadFromEntities(currentEntities);
 	}
 
 	/**
@@ -1178,6 +1160,53 @@ export class PiiSessionManager {
 			temporaryStateActive: this.temporaryState.isActive
 		};
 	}
+}
+
+/**
+ * Create a PII payload for API calls from a provided array of entities
+ * This is a static utility function that can be used when you have entities directly
+ * rather than needing to fetch them from the session manager
+ * 
+ * @param entities - Array of PII entities to transform into payload format
+ * @returns Record<string, any> | null - PII payload map or null if no entities
+ */
+export function createPiiPayloadFromEntities(entities: (PiiEntity | ExtendedPiiEntity)[]): Record<string, any> | null {
+	// Return null if no entities to process
+	if (!entities || entities.length === 0) {
+		return null;
+	}
+
+	// Create a map where entity text is the key for efficient API processing
+	// TypeScript note: Record<string, any> means an object with string keys and any value type
+	const map: Record<string, any> = {};
+	
+	entities.forEach((entity) => {
+		// Use entity text as primary key, fallback to label for compatibility
+		const key = entity.text || entity.label;
+		if (!key) return; // Skip entities without text or label
+
+		// Handle originalOccurrences vs regular occurrences
+		// ExtendedPiiEntity may have originalOccurrences (plain text positions)
+		const extendedEntity = entity as ExtendedPiiEntity;
+		const occurrences = extendedEntity.originalOccurrences && extendedEntity.originalOccurrences.length > 0
+			? extendedEntity.originalOccurrences
+			: (entity.occurrences || []).map((o) => ({
+				start_idx: o.start_idx,
+				end_idx: o.end_idx
+			}));
+
+		// Create structured object with all entity details
+		map[key] = {
+			id: entity.id,
+			label: entity.label,
+			type: entity.type || 'PII',
+			text: (entity.text || entity.label).toLowerCase(), // Lowercase for consistent matching
+			raw_text: entity.raw_text || entity.label,
+			occurrences
+		};
+	});
+
+	return map;
 }
 
 // Get label variations to handle different spellings

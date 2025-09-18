@@ -7,6 +7,7 @@
 	import {
 		createPiiHighlightStyles,
 		PiiSessionManager,
+		createPiiPayloadFromEntities,
 		type ExtendedPiiEntity
 	} from '$lib/utils/pii';
 	import type { PiiEntity } from '$lib/apis/pii';
@@ -720,28 +721,16 @@
 															});
 														}
 
-														// Create PII payload for complete document
-														const piiPayload = {};
-														allEntities.forEach((entity) => {
-															const key = entity.text;
-															if (!key) return;
-															// @ts-ignore - Dynamic object key assignment
-															piiPayload[key] = {
-																id: entity.id,
-																label: entity.label,
-																type: entity.type || 'PII',
-																text: (entity.text || entity.label).toLowerCase(),
-																raw_text: entity.raw_text || entity.label,
-																// CRITICAL: Use originalOccurrences (plain text positions) for backend storage
-																occurrences: ((entity.originalOccurrences || entity.occurrences) || []).map((o) => ({
-																	start_idx: o.start_idx,
-																	end_idx: o.end_idx
-																}))
-															};
-														});
+														// Create PII payload for complete document using utility function
+														const piiPayload = createPiiPayloadFromEntities(allEntities);
 
 														// Get current PII state including modifiers
-														const state = piiSessionManager.getConversationState(conversationId || '');
+														let state = null;
+														if (conversationId) {
+															state = piiSessionManager.getConversationState(conversationId || '');
+														} else {
+															state = piiSessionManager.getTemporaryState();
+														}
 														
 														// Update session manager with all entities
 														if (conversationId && conversationId.trim() !== '') {
@@ -755,9 +744,11 @@
 															const originalText = item?.file?.data?.content || '';
 															
 															// Update file with new PII entities and modifiers
+															console.log('piiPayload', piiPayload);
+															console.log('state', state);
 															await updateFileDataContentById(localStorage.token, item.id, originalText, {
 																pii: piiPayload,
-																piiState: state || undefined
+																piiState: state
 															});
 
 															// Sync all editors to show the updated highlights
