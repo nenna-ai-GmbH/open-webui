@@ -52,9 +52,58 @@ export class PiiTestHelpers {
    * Toggle the PII masking button
    */
   async toggleMasking(): Promise<void> {
-    const maskButton = this.page.getByRole('button', { name: 'Maskieren' });
-    await maskButton.click();
-    await this.page.waitForTimeout(500);
+    // The button contains both an icon and text, so we need flexible selectors
+    const selectors = [
+      'button:has-text("Maskieren")',  // Standard text match
+      'button >> text="Maskieren"',   // Child text match
+      'button:has(img) >> text="Maskieren"',  // Button with icon and text
+      'button:has([role="img"]) >> text="Maskieren"',  // Alternative icon selector
+      'button[title*="Maskieren"]',    // Title attribute
+      'button[aria-label*="Maskieren"]'  // Aria label
+    ];
+    
+    let maskButton = null;
+    
+    // Try each selector
+    for (const selector of selectors) {
+      try {
+        const button = this.page.locator(selector).first();
+        if (await button.count() > 0) {
+          await expect(button).toBeVisible({ timeout: 3000 });
+          maskButton = button;
+          break;
+        }
+      } catch (e) {
+        // Continue to next selector
+      }
+    }
+    
+    // Final fallback: iterate through all buttons and check text content
+    if (!maskButton) {
+      const allButtons = this.page.locator('button');
+      const count = await allButtons.count();
+      
+      for (let i = 0; i < count; i++) {
+        const button = allButtons.nth(i);
+        try {
+          const textContent = await button.textContent();
+          if (textContent && textContent.trim().includes('Maskieren')) {
+            await expect(button).toBeVisible({ timeout: 1000 });
+            maskButton = button;
+            break;
+          }
+        } catch (e) {
+          // Continue to next button
+        }
+      }
+    }
+    
+    if (maskButton) {
+      await maskButton.click();
+      await this.page.waitForTimeout(500);
+    } else {
+      throw new Error('Maskieren button not found with any selector');
+    }
   }
 
   /**

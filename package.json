@@ -27,6 +27,7 @@
 		"test:e2e:headed": "playwright test --headed",
 		"test:e2e:debug": "playwright test --debug",
 		"test:e2e:pii": "playwright test tests/e2e/pii.spec.ts",
+		"test:e2e:file-upload": "playwright test tests/e2e/file-upload.spec.ts",
 		"test:e2e:report": "playwright show-report",
 		"test": "npm run test:frontend && npm run test:backend",
 		"pyodide:fetch": "node scripts/prepare-pyodide.js",
