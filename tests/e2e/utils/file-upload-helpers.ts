@@ -40,6 +40,7 @@ export class FileUploadTestHelpers {
     // First, check if the upload menu is already open
     const uploadMenuSelectors = [
       'text=Datei(en) hochladen',
+      '[role="menuitem"]:has-text("Datei(en) hochladen")',  // RECORDED: From demo recording
       'text=Upload',
       'menuitem:has-text("Datei")',
       'menuitem:has-text("hochladen")',
@@ -67,6 +68,7 @@ export class FileUploadTestHelpers {
     
     // Look for the "+" button in the message input area (multiple strategies)
     const uploadButtonSelectors = [
+      'form button:first-child',              // RECORDED: First button in form (from demo recording)
       'button:has(svg):near([id*="input"])',  // Button with SVG near input
       '.message-input button:has(svg)',       // Button with SVG in message input area
       '[id*="input"] button:has(svg)',        // Button with SVG in input container
