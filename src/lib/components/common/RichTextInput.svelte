@@ -1887,7 +1887,7 @@
 		if (!previousConversationId && conversationId) {
 			// Transition from no ID (new chat) to having ID (after first message sent)
 			// The Chat.svelte component handles the temporary state transfer
-			console.log('RichTextInput: Transition from new chat to existing chat:', conversationId);
+			console.log('RichTextInput: Transition from new chat to existing chat');
 		} else if (
 			previousConversationId &&
 			conversationId &&
