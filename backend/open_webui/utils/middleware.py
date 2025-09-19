@@ -681,6 +681,7 @@ async def chat_completion_files_handler(
                         else:
                             pii_dict = {}
                         file_entities_dict.update(pii_dict)
+                    file_item["file"]["data"]["pii"] = pii_dict
                 except Exception as e:
                     log.warning(
                         f"Failed to load PII from database for file {file_item.get('id')}: {e}"
@@ -1103,10 +1104,13 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                 for file_metadata in file_source["metadata"]:
                     pii_dict = {}
                     if "pii" in file_metadata:
-                        try:
-                            pii_dict = json.loads(file_metadata["pii"])
-                        except (json.JSONDecodeError, TypeError) as e:
-                            log.warning(f"Failed to parse PII dict: {e}")
+                        if isinstance(file_metadata["pii"], str):
+                            try:
+                                pii_dict = json.loads(file_metadata["pii"])
+                            except (json.JSONDecodeError, TypeError) as e:
+                                log.warning(f"Failed to parse PII dict: {e}")
+                        else:
+                            pii_dict = file_metadata["pii"]
                     file_entities_dict.update(pii_dict)
 
         file_entities_dict = set_file_entity_ids(
