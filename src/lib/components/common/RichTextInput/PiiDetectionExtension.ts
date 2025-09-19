@@ -188,21 +188,21 @@ function hasNewContent(
 			currentNode.content.length > previousNode.content.length &&
 			currentNode.content.includes(previousNode.content)
 		) {
-		console.log('PiiDetectionExtension: Node content expanded', {
-			node: i,
-			previous: previousNode.content.length,
-			current: currentNode.content.length
-		});
+			console.log('PiiDetectionExtension: Node content expanded', {
+				node: i,
+				previous: previousNode.content.length,
+				current: currentNode.content.length
+			});
 			return true;
 		}
 
 		// If node content changed completely, consider it new content
 		if (currentNode.content !== previousNode.content && currentNode.content.trim() !== '') {
-		console.log('PiiDetectionExtension: Node content changed', {
-			node: i,
-			previousLength: previousNode.content.length,
-			currentLength: currentNode.content.length
-		});
+			console.log('PiiDetectionExtension: Node content changed', {
+				node: i,
+				previousLength: previousNode.content.length,
+				currentLength: currentNode.content.length
+			});
 			return true;
 		}
 	}
@@ -1430,9 +1430,15 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 									// Clear decoration cache to force recreation without hidden entity
 									newState.cachedDecorations = undefined;
 									newState.lastDecorationHash = undefined;
-				console.log('PiiDetectionExtension: Temporarily hiding entity');
-				console.log('PiiDetectionExtension: Current entities count:', newState.entities.length);
-				console.log('PiiDetectionExtension: Hidden entities count:', newState.temporarilyHiddenEntities.size);
+									console.log('PiiDetectionExtension: Temporarily hiding entity');
+									console.log(
+										'PiiDetectionExtension: Current entities count:',
+										newState.entities.length
+									);
+									console.log(
+										'PiiDetectionExtension: Hidden entities count:',
+										newState.temporarilyHiddenEntities.size
+									);
 								}
 								break;
 							}
@@ -1801,10 +1807,10 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 
 						// Only log when filtering decisions are interesting (new words found but blocked)
 						if (hasNewTextContent && newWords.length > 0 && !hasSignificantNewContent) {
-						console.log('PiiDetectionExtension: 🔍 Filtering blocked detection', {
-							newWordsCount: newWords.length,
-							reason: 'No meaningful words (3+ chars, alphabetic)'
-						});
+							console.log('PiiDetectionExtension: 🔍 Filtering blocked detection', {
+								newWordsCount: newWords.length,
+								reason: 'No meaningful words (3+ chars, alphabetic)'
+							});
 						}
 
 						// Determine if we should trigger detection
@@ -1899,7 +1905,7 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 										),
 										smartDelay,
 										defaultDelay: debounceMs || config.timing.defaultDebounceMs,
-					contextLength: contextSnippet.content.length
+										contextLength: contextSnippet.content.length
 									}
 								);
 
@@ -2072,7 +2078,7 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 									entityText.includes(hiddenText) ||
 									hiddenText.includes(entityText)
 								) {
-								console.log('PiiDetectionExtension: Hiding entity (partial match)');
+									console.log('PiiDetectionExtension: Hiding entity (partial match)');
 									return false;
 								}
 							}

@@ -202,7 +202,11 @@ def text_masking(
 
     # Apply all replacements
     for replacement in resolved_replacements:
-        log.debug("Replacing PII entity, start_idx: %d, end_idx: %d", replacement["start_idx"], replacement["end_idx"])
+        log.debug(
+            "Replacing PII entity, start_idx: %d, end_idx: %d",
+            replacement["start_idx"],
+            replacement["end_idx"],
+        )
 
         start_idx = replacement["start_idx"]
         end_idx = replacement["end_idx"]

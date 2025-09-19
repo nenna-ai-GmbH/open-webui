@@ -264,9 +264,17 @@ class AuditLoggingMiddleware:
                     '"password": "********"',
                     request_body,
                 )
-            
+
             # Redact other sensitive fields that might contain user input
-            sensitive_fields = ["text", "content", "message", "prompt", "input", "query", "transcript"]
+            sensitive_fields = [
+                "text",
+                "content",
+                "message",
+                "prompt",
+                "input",
+                "query",
+                "transcript",
+            ]
             for field in sensitive_fields:
                 if f'"{field}":' in request_body:
                     # Redact string values
@@ -281,9 +289,12 @@ class AuditLoggingMiddleware:
                         rf'"{field}": "[REDACTED:array]"',
                         request_body,
                     )
-            
+
             # Redact response bodies that might contain generated content
-            if response_body and any(field in response_body for field in ["text", "content", "message", "choices"]):
+            if response_body and any(
+                field in response_body
+                for field in ["text", "content", "message", "choices"]
+            ):
                 # For responses, just indicate that content was present
                 response_body = re.sub(
                     r'"(text|content|message)":\s*"[^"]*"',

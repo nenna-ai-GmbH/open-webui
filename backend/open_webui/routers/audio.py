@@ -779,7 +779,10 @@ def transcription_handler(request, file_path, metadata):
             with open(transcript_file, "w") as f:
                 json.dump(data, f)
 
-            log.debug("Azure transcription completed, text length: %d", len(data.get("text", "")))
+            log.debug(
+                "Azure transcription completed, text length: %d",
+                len(data.get("text", "")),
+            )
             return data
 
         except (KeyError, IndexError, ValueError) as e:

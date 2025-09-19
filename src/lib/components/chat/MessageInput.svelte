@@ -884,11 +884,11 @@
 			const beforeReplace = maskedText;
 			maskedText = maskedText.replace(regex, replacementPattern);
 
-		if (maskedText !== beforeReplace) {
-			console.log('MessageInput: Successfully masked entity');
-		} else {
-			console.log('MessageInput: No replacements made for entity');
-		}
+			if (maskedText !== beforeReplace) {
+				console.log('MessageInput: Successfully masked entity');
+			} else {
+				console.log('MessageInput: No replacements made for entity');
+			}
 		});
 
 		console.log('MessageInput: Final masked prompt length:', maskedText.length);

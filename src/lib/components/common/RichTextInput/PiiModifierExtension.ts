@@ -421,7 +421,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 						);
 
 						if (maskModifier) {
-						console.log('PiiModifierExtension: Removing mask modifier and hiding entity');
+							console.log('PiiModifierExtension: Removing mask modifier and hiding entity');
 
 							// Create transaction with both meta actions
 							const tr = view.state.tr
@@ -645,7 +645,9 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 
 								// If this was a mask modifier, also temporarily hide the PII entity
 								if (modifierToRemove && modifierToRemove.action === 'string-mask') {
-								console.log('PiiModifierExtension: Hover menu removing modifier and hiding entity');
+									console.log(
+										'PiiModifierExtension: Hover menu removing modifier and hiding entity'
+									);
 									tr = tr.setMeta(piiDetectionPluginKey, {
 										type: 'TEMPORARILY_HIDE_ENTITY',
 										entityText: modifierToRemove.entity
@@ -833,7 +835,10 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 						return false; // No complete words found
 					}
 
-					console.log('PiiModifierExtension: Found complete words, length:', completeWordsText.length);
+					console.log(
+						'PiiModifierExtension: Found complete words, length:',
+						completeWordsText.length
+					);
 
 					const tr = state.tr.setMeta(piiModifierExtensionKey, {
 						type: 'ADD_MODIFIER',
@@ -985,7 +990,7 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 					const pluginState = piiModifierExtensionKey.getState(state);
 					const modifierToRemove = pluginState?.modifiers.find((m) => m.id === modifierId);
 
-				console.log('PiiModifierExtension: removeModifier command called');
+					console.log('PiiModifierExtension: removeModifier command called');
 
 					let tr = state.tr.setMeta(piiModifierExtensionKey, {
 						type: 'REMOVE_MODIFIER',
@@ -1056,7 +1061,11 @@ export const PiiModifierExtension = Extension.create<PiiModifierOptions>({
 						return false; // No mask modifiers to clear
 					}
 
-				console.log('PiiModifierExtension: clearMaskModifiers clearing', maskModifiers.length, 'modifiers');
+					console.log(
+						'PiiModifierExtension: clearMaskModifiers clearing',
+						maskModifiers.length,
+						'modifiers'
+					);
 
 					// For clearing multiple modifiers, we need to send separate transactions
 					// because ProseMirror transactions are immutable and we can't batch multiple REMOVE_MODIFIER actions
