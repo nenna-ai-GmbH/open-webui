@@ -1081,7 +1081,7 @@ export class PiiSessionManager {
 	 * Create a PII payload for API calls from current conversation entities
 	 * This transforms entities into a map format where the entity text is the key
 	 * and the value contains all entity details needed for API processing
-	 * 
+	 *
 	 * @param conversationId - The conversation ID to get entities for (optional)
 	 * @returns Record<string, any> | null - PII payload map or null if no entities
 	 */
@@ -1166,11 +1166,13 @@ export class PiiSessionManager {
  * Create a PII payload for API calls from a provided array of entities
  * This is a static utility function that can be used when you have entities directly
  * rather than needing to fetch them from the session manager
- * 
+ *
  * @param entities - Array of PII entities to transform into payload format
  * @returns Record<string, any> | null - PII payload map or null if no entities
  */
-export function createPiiPayloadFromEntities(entities: (PiiEntity | ExtendedPiiEntity)[]): Record<string, any> | null {
+export function createPiiPayloadFromEntities(
+	entities: (PiiEntity | ExtendedPiiEntity)[]
+): Record<string, any> | null {
 	// Return null if no entities to process
 	if (!entities || entities.length === 0) {
 		return null;
@@ -1179,7 +1181,7 @@ export function createPiiPayloadFromEntities(entities: (PiiEntity | ExtendedPiiE
 	// Create a map where entity text is the key for efficient API processing
 	// TypeScript note: Record<string, any> means an object with string keys and any value type
 	const map: Record<string, any> = {};
-	
+
 	entities.forEach((entity) => {
 		// Use entity text as primary key, fallback to label for compatibility
 		const key = entity.text || entity.label;
@@ -1188,12 +1190,13 @@ export function createPiiPayloadFromEntities(entities: (PiiEntity | ExtendedPiiE
 		// Handle originalOccurrences vs regular occurrences
 		// ExtendedPiiEntity may have originalOccurrences (plain text positions)
 		const extendedEntity = entity as ExtendedPiiEntity;
-		const occurrences = extendedEntity.originalOccurrences && extendedEntity.originalOccurrences.length > 0
-			? extendedEntity.originalOccurrences
-			: (entity.occurrences || []).map((o) => ({
-				start_idx: o.start_idx,
-				end_idx: o.end_idx
-			}));
+		const occurrences =
+			extendedEntity.originalOccurrences && extendedEntity.originalOccurrences.length > 0
+				? extendedEntity.originalOccurrences
+				: (entity.occurrences || []).map((o) => ({
+						start_idx: o.start_idx,
+						end_idx: o.end_idx
+					}));
 
 		// Create structured object with all entity details
 		map[key] = {

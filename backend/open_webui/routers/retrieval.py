@@ -2638,8 +2638,7 @@ def query_doc_handler(
                 collection_name=form_data.collection_name,
                 collection_result=collection_results[form_data.collection_name],
                 query=form_data.query,
-                embedding_function=lambda query,
-                prefix: request.app.state.EMBEDDING_FUNCTION(
+                embedding_function=lambda query, prefix: request.app.state.EMBEDDING_FUNCTION(
                     query, prefix=prefix, user=user
                 ),
                 k=form_data.k if form_data.k else request.app.state.config.TOP_K,
@@ -2704,8 +2703,7 @@ def query_collection_handler(
             return query_collection_with_hybrid_search(
                 collection_names=form_data.collection_names,
                 queries=[form_data.query],
-                embedding_function=lambda query,
-                prefix: request.app.state.EMBEDDING_FUNCTION(
+                embedding_function=lambda query, prefix: request.app.state.EMBEDDING_FUNCTION(
                     query, prefix=prefix, user=user
                 ),
                 k=form_data.k if form_data.k else request.app.state.config.TOP_K,
@@ -2735,8 +2733,7 @@ def query_collection_handler(
             return query_collection(
                 collection_names=form_data.collection_names,
                 queries=[form_data.query],
-                embedding_function=lambda query,
-                prefix: request.app.state.EMBEDDING_FUNCTION(
+                embedding_function=lambda query, prefix: request.app.state.EMBEDDING_FUNCTION(
                     query, prefix=prefix, user=user
                 ),
                 k=form_data.k if form_data.k else request.app.state.config.TOP_K,
