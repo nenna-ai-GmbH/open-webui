@@ -64,6 +64,11 @@
 			return { displayName: name, isFilenameMasked: false };
 		}
 
+		// Notes should never have masking badges
+		if (type === 'note') {
+			return { displayName: name, isFilenameMasked: false };
+		}
+
 		// Special handling for collections from PII-enabled knowledge bases
 		if (type === 'collection') {
 			// Check if this collection has PII detection enabled
