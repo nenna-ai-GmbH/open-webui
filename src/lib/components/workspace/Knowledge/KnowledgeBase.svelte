@@ -709,15 +709,15 @@
 			// Clear the cache for this file since we're updating it
 			fileContentCache.delete(fileId);
 
-		// Collect PII state and entities to send with content update
-		const convoId = `${id || 'kb'}:${fileId}`;
-		let piiState = piiSessionManager.getConversationState(convoId) as any;
-		let piiPayload: Record<string, any> | null = null;
-		try {
-			piiPayload = piiSessionManager.createPiiPayloadForApi(convoId);
-		} catch (e) {
-			// ignore PII packaging errors
-		}
+			// Collect PII state and entities to send with content update
+			const convoId = `${id || 'kb'}:${fileId}`;
+			let piiState = piiSessionManager.getConversationState(convoId) as any;
+			let piiPayload: Record<string, any> | null = null;
+			try {
+				piiPayload = piiSessionManager.createPiiPayloadForApi(convoId);
+			} catch (e) {
+				// ignore PII packaging errors
+			}
 
 			// Mask filename in content if PII detection is enabled
 			let processedContent = content;

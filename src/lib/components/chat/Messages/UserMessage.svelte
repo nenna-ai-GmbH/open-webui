@@ -349,8 +349,8 @@
 										loading={file.status === 'uploading'}
 										dismissible={true}
 										edit={true}
-											enablePiiDetection={$config?.features?.enable_pii_detection ?? false}
-											conversationId={chatId}
+										enablePiiDetection={$config?.features?.enable_pii_detection ?? false}
+										conversationId={chatId}
 										on:dismiss={async () => {
 											editedFiles.splice(fileIdx, 1);
 

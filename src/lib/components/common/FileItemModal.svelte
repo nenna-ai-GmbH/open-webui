@@ -12,6 +12,7 @@
 	} from '$lib/utils/pii';
 	import type { PiiEntity } from '$lib/apis/pii';
 	import RichTextInput from '$lib/components/common/RichTextInput.svelte';
+	import PiiEnabledFileEditor from '$lib/components/common/PiiEnabledFileEditor.svelte';
 	import { config } from '$lib/stores';
 	import type { i18n as i18nType } from 'i18next';
 	import type { Writable } from 'svelte/store';
@@ -361,32 +362,14 @@
 
 	// No precomputed HTML highlights; TipTap handles decorations
 
-	// Keep per-page editor refs to sync PII entities from session
-	let editors: any[] = [];
-	let hasInitialSynced = false;
+	// Sync function reference (bound from PiiEnabledFileEditor)
+	let syncEditorsNow: (() => void) | undefined;
 
 	// PII detection loading state
 	let isPiiDetectionInProgress = false;
 
 	// Check if file is still processing (extracting text or detecting PII)
 	$: isFileProcessing = item?.file?.meta?.processing?.status === 'processing';
-
-	function syncEditorsNow() {
-		editors.forEach((ed) => {
-			try {
-				if (!ed || !ed.commands) return;
-				if (typeof ed.commands.reloadConversationState === 'function') {
-					ed.commands.reloadConversationState(conversationId);
-				}
-				if (typeof ed.commands.syncWithSessionManager === 'function') {
-					ed.commands.syncWithSessionManager();
-				}
-				if (typeof ed.commands.forceEntityRemapping === 'function') {
-					ed.commands.forceEntityRemapping();
-				}
-			} catch (e) {}
-		});
-	}
 
 	// When extendedEntities change (PII detections update), re-sync editors to update highlights
 	$: {
@@ -395,39 +378,16 @@
 			lastEntitiesKey = key;
 			// Do not touch pageContents; only refresh decorations via commands
 			setTimeout(() => {
-				syncEditorsNow();
+				syncEditorsNow?.();
 			}, 0);
 		}
 	}
 
-	// Reset sync flag when modal closes or processing state changes
+	// Reset page content lock when modal closes
 	$: if (!show) {
-		hasInitialSynced = false;
 		hasLockedPageContents = false;
 		initialPageContents = [];
 		isScrollLocked = false;
-		editors = []; // Clear editors array when modal closes
-	}
-
-	// Clear editors array when processing state changes to force re-binding
-	$: if (isFileProcessing !== undefined) {
-		// When processing state changes, clear editors to allow re-binding
-		editors = [];
-		hasInitialSynced = false;
-	}
-
-	// After showing modal, extended entities seeded (conv or temp), and editors mounted → sync once
-	$: if (
-		show &&
-		Array.isArray(editors) &&
-		editors.length > 0 &&
-		extendedEntities.length > 0 &&
-		!hasInitialSynced
-	) {
-		hasInitialSynced = true;
-		setTimeout(() => {
-			syncEditorsNow();
-		}, 100);
 	}
 </script>
 
@@ -642,9 +602,17 @@
 							class="w-full h-[70vh] border-0 rounded-lg"
 						/>
 					{:else}
-						<div class="max-h-96 overflow-scroll scrollbar-hidden text-xs whitespace-pre-wrap">
-							{item?.file?.data?.content ?? 'No content'}
-						</div>
+						<PiiEnabledFileEditor
+							{pageContents}
+							{conversationId}
+							{isFileProcessing}
+							fileId={item?.id}
+							originalFileContent={item?.file?.data?.content || ''}
+							onPiiDetectionProgress={(inProgress) => {
+								isPiiDetectionInProgress = inProgress;
+							}}
+							bind:syncAllEditors={syncEditorsNow}
+						/>
 					{/if}
 				{:else}
 					{#if isAudio}
@@ -656,191 +624,20 @@
 						/>
 					{/if}
 
-					{#if isPdf || isDocx}
-						<!-- Render extracted text with TipTap editors per page (PII + Modifiers like RichTextInput) -->
-						{#if pageContents.length > 0}
-							<div class="space-y-6 mt-3">
-								{#each pageContents as pageText, idx}
-									<div
-										class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-850"
-									>
-										<div
-											class="px-3 py-2 text-xs text-gray-500 dark:text-gray-400 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between"
-										>
-											<div>{$i18n.t('Page {{number}}', { number: idx + 1 })}</div>
-											{#if item?.file?.meta?.processing?.status === 'processing'}
-												<div class="flex items-center gap-2 w-48">
-													<div
-														class="h-1.5 bg-gray-200 dark:bg-gray-800 rounded w-full overflow-hidden"
-													>
-														<div
-															class="h-full bg-sky-500 transition-all duration-300"
-															style={`width: ${Math.min(100, Math.max(0, item?.file?.meta?.processing?.progress ?? 0))}%`}
-														/>
-													</div>
-													{#if item?.file?.meta?.processing?.stage === 'extracting'}
-														<span>{$i18n.t('Extracting')}</span>
-													{:else if item?.file?.meta?.processing?.stage === 'pii_detection'}
-														<span>{$i18n.t('Masking PII')}</span>
-													{:else}
-														<span>{$i18n.t('Processing')}</span>
-													{/if}
-												</div>
-											{/if}
-										</div>
-										<div class="p-3">
-											{#key `${isFileProcessing}-${idx}`}
-												<RichTextInput
-													bind:editor={editors[idx]}
-													className="input-prose-sm pii-selectable"
-													value={pageText}
-													preserveBreaks={false}
-													raw={false}
-													editable={true}
-													preventDocEdits={true}
-													showFormattingToolbar={false}
-													enablePiiDetection={true}
-													piiApiKey={$config?.pii?.api_key || 'preview-only'}
-													{conversationId}
-													piiMaskingEnabled={true}
-													enablePiiModifiers={!isFileProcessing}
-													disableModifierTriggeredDetection={true}
-													usePiiMarkdownMode={true}
-													onPiiToggled={(entities) => {
-														// Prevent PII toggling during file processing
-														if (isFileProcessing) {
-															console.log(
-																'FileItemModal: PII toggling blocked - file is still processing'
-															);
-															return;
-														}
-
-														// When PII is toggled on one page, sync all other pages
-														editors.forEach((ed, edIdx) => {
-															if (edIdx !== idx && ed && ed.commands?.syncWithSessionManager) {
-																setTimeout(() => {
-																	ed.commands.syncWithSessionManager();
-																}, 10);
-															}
-														});
-													}}
-													onPiiModifiersChanged={async () => {
-													// Prevent modifier changes during file processing
-													if (isFileProcessing) {
-														console.log('FileItemModal: Modifier changes blocked - file is still processing');
-														return;
-													}
-													
-													// When modifiers change, trigger re-detection on all pages
-													if (!item?.id || !pageContents || pageContents.length === 0) return;
-
-													try {
-														const apiKey = $config?.pii?.api_key;
-														if (!apiKey) return;
-
-														// Set loading state
-														isPiiDetectionInProgress = true;
-
-													const piiSessionManager = PiiSessionManager.getInstance();
-													const modifiers = piiSessionManager.getModifiersForApi(conversationId);
-													// CRITICAL: Use new method that returns entities with original plain text positions
-													const piiEntities = piiSessionManager.getEntitiesForApiWithOriginalPositions(conversationId);
-
-												// Send complete document text as one string to PII API
-												const { updatePiiMasking } = await import('$lib/apis/pii');
-												const completeText = pageContents.join(''); // Join all pages
-													
-													const response = await updatePiiMasking(
-														apiKey,
-														completeText,
-														piiEntities,
-														modifiers,
-														false
-													);
-
-													if (response.pii && response.pii.length > 0) {
-														// Process entities from complete document and convert to ExtendedPiiEntity
-														const allEntities = [];
-														for (const entity of response.pii) {
-															allEntities.push({
-																...entity,
-																shouldMask: true,
-																// CRITICAL: API response positions ARE the original plain text positions
-																originalOccurrences: entity.occurrences.map(o => ({
-																	start_idx: o.start_idx,
-																	end_idx: o.end_idx
-																}))
-															});
-														}
-
-														// Create PII payload for complete document using utility function
-														const piiPayload = createPiiPayloadFromEntities(allEntities);
-
-														// Get current PII state including modifiers
-														let state = null;
-														if (conversationId) {
-															state = piiSessionManager.getConversationState(conversationId || '');
-														} else {
-															state = piiSessionManager.getTemporaryState();
-														}
-														
-														// Update session manager with all entities
-														if (conversationId && conversationId.trim() !== '') {
-															piiSessionManager.setConversationWorkingEntitiesWithMaskStates(conversationId, allEntities);
-														} else {
-															// For new chats without conversationId, update temporary state
-															piiSessionManager.setTemporaryStateEntities(allEntities);
-														}
-															
-															// Get the original unmasked text from the file
-															const originalText = item?.file?.data?.content || '';
-															
-															// Update file with new PII entities and modifiers
-															console.log('piiPayload', piiPayload);
-															console.log('state', state);
-															await updateFileDataContentById(localStorage.token, item.id, originalText, {
-																pii: piiPayload,
-																piiState: state
-															});
-
-															// Sync all editors to show the updated highlights
-															syncEditorsNow();
-															
-														}
-													} catch (e) {
-														console.error('FileItemModal: Failed to re-detect PII with modifiers:', e);
-													} finally {
-														// Clear loading state
-														isPiiDetectionInProgress = false;
-													}
-												}}
-													piiModifierLabels={[
-														'PERSON',
-														'EMAIL',
-														'PHONE_NUMBER',
-														'ADDRESS',
-														'SSN',
-														'CREDIT_CARD',
-														'DATE_TIME',
-														'IP_ADDRESS',
-														'URL',
-														'IBAN',
-														'MEDICAL_LICENSE',
-														'US_PASSPORT',
-														'US_DRIVER_LICENSE'
-													]}
-													messageInput={false}
-												/>
-											{/key}
-										</div>
-									</div>
-								{/each}
-							</div>
-						{:else}
-							<div class="flex items-center justify-center py-6 text-sm text-gray-500">
-								{$i18n.t('No extracted text available yet.')}
-							</div>
-						{/if}
+					{#if isDocx}
+						<!-- Use modular PII-enabled editor for extracted text -->
+						<!-- Shows for: PDF files in 'Content' tab, or always for Word files -->
+						<PiiEnabledFileEditor
+							{pageContents}
+							{conversationId}
+							{isFileProcessing}
+							fileId={item?.id}
+							originalFileContent={item?.file?.data?.content || ''}
+							onPiiDetectionProgress={(inProgress) => {
+								isPiiDetectionInProgress = inProgress;
+							}}
+							bind:syncAllEditors={syncEditorsNow}
+						/>
 					{:else if item?.file?.data}
 						<div class="max-h-96 overflow-scroll scrollbar-hidden text-xs whitespace-pre-wrap">
 							{item?.file?.data?.content ?? $i18n.t('No content')}
