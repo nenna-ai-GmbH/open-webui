@@ -734,7 +734,7 @@
   "Format Lines": "Formatar les línies",
   "Format the lines in the output. Defaults to False. If set to True, the lines will be formatted to detect inline math and styles.": "Formata les línies a la sortida. Per defecte, és Fals. Si es defineix com a Cert, les línies es formataran per detectar matemàtiques i estils en línia.",
   "Format your variables using brackets like this:": "Formata les teves variables utilitzant claudàtors així:",
-  "Formatting may be inconsistent from source.": "La formatació pot ser inconsistent amb l'origen",
+  "Formatting may be inconsistent from source.": "",
   "Forwards system user OAuth access token to authenticate": "",
   "Forwards system user session credentials to authenticate": "Envia les credencials de l'usuari del sistema per autenticar",
   "Full Context Mode": "Mode de context complert",
@@ -1710,5 +1710,16 @@
   "Toggle PII masking (mask all / unmask all)": "",
   "Use Gravatar": "Utilitzar Gravatar",
   "Use Initials": "Utilitzar inicials",
-  "When enabled, files uploaded to this knowledge base will be automatically analyzed for personally identifiable information (PII) and highlighted in the editor.": ""
+  "When enabled, files uploaded to this knowledge base will be automatically analyzed for personally identifiable information (PII) and highlighted in the editor.": "",
+  "Extracting": "",
+  "Extracting text…": "",
+  "File is still processing": "",
+  "Masking PII": "",
+  "Masking PII…": "",
+  "No extracted text available yet.": "",
+  "Page {{number}}": "",
+  "PII masking is not yet supported in custom models": "",
+  "PII modifier functionality is disabled until processing completes. You can view content but cannot add or modify PII rules yet.": "",
+  "Processing": "",
+  "Processing…": ""
 }

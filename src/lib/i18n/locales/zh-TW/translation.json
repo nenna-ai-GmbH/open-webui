@@ -734,7 +734,7 @@
   "Format Lines": "",
   "Format the lines in the output. Defaults to False. If set to True, the lines will be formatted to detect inline math and styles.": "",
   "Format your variables using brackets like this:": "使用方括號格式化您的變數，如下所示：",
-  "Formatting may be inconsistent from source.": "可能與原始格式不完全一致。",
+  "Formatting may be inconsistent from source.": "",
   "Forwards system user OAuth access token to authenticate": "轉發使用者 OAuth 存取令牌（Access Token）以進行驗證",
   "Forwards system user session credentials to authenticate": "轉發系統使用者 session 憑證以進行驗證",
   "Full Context Mode": "完整上下文模式",
@@ -1708,5 +1708,16 @@
   "Toggle PII masking (mask all / unmask all)": "",
   "Use Gravatar": "使用 Gravatar",
   "Use Initials": "使用姓名縮寫",
-  "When enabled, files uploaded to this knowledge base will be automatically analyzed for personally identifiable information (PII) and highlighted in the editor.": ""
+  "When enabled, files uploaded to this knowledge base will be automatically analyzed for personally identifiable information (PII) and highlighted in the editor.": "",
+  "Extracting": "",
+  "Extracting text…": "",
+  "File is still processing": "",
+  "Masking PII": "",
+  "Masking PII…": "",
+  "No extracted text available yet.": "",
+  "Page {{number}}": "",
+  "PII masking is not yet supported in custom models": "",
+  "PII modifier functionality is disabled until processing completes. You can view content but cannot add or modify PII rules yet.": "",
+  "Processing": "",
+  "Processing…": ""
 }

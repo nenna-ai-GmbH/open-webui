@@ -734,7 +734,7 @@
   "Format Lines": "行内容格式化",
   "Format the lines in the output. Defaults to False. If set to True, the lines will be formatted to detect inline math and styles.": "对输出中的文本行进行格式处理。默认为 False。设置为 True 时，将会格式化这些文本行，以检测并识别行内数学公式和样式。",
   "Format your variables using brackets like this:": "使用括号格式化您的变量，如下所示：",
-  "Formatting may be inconsistent from source.": "格式可能会与原始文件不完全一致。",
+  "Formatting may be inconsistent from source.": "",
   "Forwards system user OAuth access token to authenticate": "转发用户的 OAuth 访问令牌（Access Token）以进行身份验证",
   "Forwards system user session credentials to authenticate": "转发系统用户 session 凭证以进行身份验证",
   "Full Context Mode": "完整上下文模式",
@@ -1708,5 +1708,16 @@
   "Toggle PII masking (mask all / unmask all)": "",
   "Use Gravatar": "使用来自 Gravatar 的头像",
   "Use Initials": "使用首个字符作为头像",
-  "When enabled, files uploaded to this knowledge base will be automatically analyzed for personally identifiable information (PII) and highlighted in the editor.": ""
+  "When enabled, files uploaded to this knowledge base will be automatically analyzed for personally identifiable information (PII) and highlighted in the editor.": "",
+  "Extracting": "",
+  "Extracting text…": "",
+  "File is still processing": "",
+  "Masking PII": "",
+  "Masking PII…": "",
+  "No extracted text available yet.": "",
+  "Page {{number}}": "",
+  "PII masking is not yet supported in custom models": "",
+  "PII modifier functionality is disabled until processing completes. You can view content but cannot add or modify PII rules yet.": "",
+  "Processing": "",
+  "Processing…": ""
 }

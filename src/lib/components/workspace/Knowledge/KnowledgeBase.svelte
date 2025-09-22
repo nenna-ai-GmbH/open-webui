@@ -63,19 +63,40 @@
 	// Reference to the embedded editor to trigger sync-after-seed
 	let kbEditor = null;
 
-	// Debounced PII state saver
+	// Debounced PII content update (matches FileItemModal.svelte approach)
 	let savePiiTimeout: any = null;
-	const savePiiStateDebounced = (fileId: string) => {
+	const savePiiContentDebounced = (fileId: string) => {
 		if (savePiiTimeout) clearTimeout(savePiiTimeout);
 		savePiiTimeout = setTimeout(async () => {
 			try {
 				const convoId = `${id || 'kb'}:${fileId}`;
-				const state = PiiSessionManager.getInstance().getConversationState(convoId);
-				if (state) {
-					await updateFilePiiStateById(localStorage.token, fileId, state);
+
+				// Get the current file content
+				const currentFile = knowledge?.files?.find((f) => f.id === fileId);
+				if (!currentFile) return;
+
+				// Get fresh content from cache or fetch it
+				let content = fileContentCache.get(fileId);
+				if (!content) {
+					try {
+						const fileResponse = await getFileById(localStorage.token, fileId);
+						content = fileResponse?.data?.content || '';
+						fileContentCache.set(fileId, content);
+					} catch (e) {
+						return; // Skip update if we can't get content
+					}
 				}
+
+				// Get current working entities and create PII payload for API
+				const piiPayload = piiSessionManager.createPiiPayloadForApi(convoId);
+
+				// Use full content update with current PII data (triggers reindexing)
+				// Wait for the mask-update endpoint to complete
+				await updateFileDataContentById(localStorage.token, fileId, content, {
+					pii: piiPayload || undefined
+				});
 			} catch (e) {
-				// silent
+				console.error('Failed to update PII content:', e);
 			}
 		}, 400);
 	};
@@ -688,36 +709,15 @@
 			// Clear the cache for this file since we're updating it
 			fileContentCache.delete(fileId);
 
-			// Collect PII state and entities to send with content update
-			let piiState = null;
-			let piiPayload: Record<string, any> | null = null;
-			try {
-				const convoId = `${id || 'kb'}:${fileId}`;
-				const state = PiiSessionManager.getInstance().getConversationState(convoId);
-				if (state) {
-					piiState = state as any;
-					const entities = state.entities || [];
-					const map: Record<string, any> = {};
-					entities.forEach((ent) => {
-						const key = ent.raw_text || ent.label;
-						if (!key) return;
-						map[key] = {
-							id: ent.id,
-							label: ent.label,
-							type: ent.type || 'PII',
-							text: (ent.raw_text || ent.label).toLowerCase(),
-							raw_text: ent.raw_text || ent.label,
-							occurrences: (ent.occurrences || []).map((o) => ({
-								start_idx: o.start_idx,
-								end_idx: o.end_idx
-							}))
-						};
-					});
-					piiPayload = map;
-				}
-			} catch (e) {
-				// ignore PII packaging errors
-			}
+		// Collect PII state and entities to send with content update
+		const convoId = `${id || 'kb'}:${fileId}`;
+		let piiState = piiSessionManager.getConversationState(convoId) as any;
+		let piiPayload: Record<string, any> | null = null;
+		try {
+			piiPayload = piiSessionManager.createPiiPayloadForApi(convoId);
+		} catch (e) {
+			// ignore PII packaging errors
+		}
 
 			// Mask filename in content if PII detection is enabled
 			let processedContent = content;
@@ -840,6 +840,11 @@
 							raw_text: e.raw_text || e.text || e.name || '',
 							text: e.text || e.raw_text || e.name || '',
 							occurrences: (e.occurrences || []).map((o: any) => ({
+								start_idx: o.start_idx,
+								end_idx: o.end_idx
+							})),
+							// Preserve original plain-text occurrences from file state for API mask updates
+							originalOccurrences: (e.occurrences || []).map((o: any) => ({
 								start_idx: o.start_idx,
 								end_idx: o.end_idx
 							})),
@@ -1235,6 +1240,32 @@
 										bind:value={selectedFileContent}
 										placeholder={$i18n.t('Add content here')}
 										preserveBreaks={false}
+										{enablePiiDetection}
+										{piiApiKey}
+										usePiiMarkdownMode={true}
+										enablePiiModifiers={enablePiiDetection}
+										piiMaskingEnabled={enablePiiDetection}
+										piiDetectionOnlyAfterUserEdit={true}
+										piiModifierLabels={[
+											'PERSON',
+											'EMAIL',
+											'PHONE_NUMBER',
+											'ADDRESS',
+											'SSN',
+											'CREDIT_CARD',
+											'DATE_TIME',
+											'IP_ADDRESS',
+											'URL',
+											'IBAN',
+											'MEDICAL_LICENSE',
+											'US_PASSPORT',
+											'US_DRIVER_LICENSE'
+										]}
+										conversationId={`${id || 'kb'}:${selectedFile?.id || ''}`}
+										onPiiToggled={() =>
+											selectedFile?.id && savePiiContentDebounced(selectedFile.id)}
+										onPiiModifiersChanged={() =>
+											selectedFile?.id && savePiiContentDebounced(selectedFile.id)}
 									/>
 								{/key}
 							</div>
@@ -1299,6 +1330,32 @@
 										bind:value={selectedFileContent}
 										placeholder={$i18n.t('Add content here')}
 										preserveBreaks={false}
+										{enablePiiDetection}
+										{piiApiKey}
+										usePiiMarkdownMode={true}
+										enablePiiModifiers={enablePiiDetection}
+										piiMaskingEnabled={enablePiiDetection}
+										piiDetectionOnlyAfterUserEdit={true}
+										piiModifierLabels={[
+											'PERSON',
+											'EMAIL',
+											'PHONE_NUMBER',
+											'ADDRESS',
+											'SSN',
+											'CREDIT_CARD',
+											'DATE_TIME',
+											'IP_ADDRESS',
+											'URL',
+											'IBAN',
+											'MEDICAL_LICENSE',
+											'US_PASSPORT',
+											'US_DRIVER_LICENSE'
+										]}
+										conversationId={`${id || 'kb'}:${selectedFile?.id || ''}`}
+										onPiiToggled={() =>
+											selectedFile?.id && savePiiContentDebounced(selectedFile.id)}
+										onPiiModifiersChanged={() =>
+											selectedFile?.id && savePiiContentDebounced(selectedFile.id)}
 									/>
 								{/key}
 							</div>

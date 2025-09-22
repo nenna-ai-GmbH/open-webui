@@ -1713,5 +1713,16 @@
   "Toggle PII masking (mask all / unmask all)": "",
   "Use Gravatar": "Gravatar أستخدم",
   "Use Initials": "Initials أستخدم",
-  "When enabled, files uploaded to this knowledge base will be automatically analyzed for personally identifiable information (PII) and highlighted in the editor.": ""
+  "When enabled, files uploaded to this knowledge base will be automatically analyzed for personally identifiable information (PII) and highlighted in the editor.": "",
+  "Extracting": "",
+  "Extracting text…": "",
+  "File is still processing": "",
+  "Masking PII": "",
+  "Masking PII…": "",
+  "No extracted text available yet.": "",
+  "Page {{number}}": "",
+  "PII masking is not yet supported in custom models": "",
+  "PII modifier functionality is disabled until processing completes. You can view content but cannot add or modify PII rules yet.": "",
+  "Processing": "",
+  "Processing…": ""
 }

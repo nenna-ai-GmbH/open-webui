@@ -734,7 +734,7 @@
   "Format Lines": "",
   "Format the lines in the output. Defaults to False. If set to True, the lines will be formatted to detect inline math and styles.": "",
   "Format your variables using brackets like this:": "Formate suas variáveis usando colchetes como este:",
-  "Formatting may be inconsistent from source.": "A formatação pode ser inconsistente em relação à fonte.",
+  "Formatting may be inconsistent from source.": "",
   "Forwards system user OAuth access token to authenticate": "Encaminha o token de acesso OAuth do usuário do sistema para autenticação",
   "Forwards system user session credentials to authenticate": "",
   "Full Context Mode": "",
@@ -1710,5 +1710,16 @@
   "Toggle PII masking (mask all / unmask all)": "",
   "Use Gravatar": "Usar Gravatar",
   "Use Initials": "Usar Iniciais",
-  "When enabled, files uploaded to this knowledge base will be automatically analyzed for personally identifiable information (PII) and highlighted in the editor.": ""
+  "When enabled, files uploaded to this knowledge base will be automatically analyzed for personally identifiable information (PII) and highlighted in the editor.": "",
+  "Extracting": "",
+  "Extracting text…": "",
+  "File is still processing": "",
+  "Masking PII": "",
+  "Masking PII…": "",
+  "No extracted text available yet.": "",
+  "Page {{number}}": "",
+  "PII masking is not yet supported in custom models": "",
+  "PII modifier functionality is disabled until processing completes. You can view content but cannot add or modify PII rules yet.": "",
+  "Processing": "",
+  "Processing…": ""
 }
