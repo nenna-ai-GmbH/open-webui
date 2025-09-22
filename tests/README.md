@@ -26,13 +26,13 @@ Add these scripts to your `package.json` file in the scripts section:
 
 ```json
 {
-  "scripts": {
-    "test:e2e": "playwright test",
-    "test:e2e:headed": "playwright test --headed",
-    "test:e2e:debug": "playwright test --debug",
-    "test:e2e:pii": "playwright test tests/e2e/pii.spec.ts",
-    "test:e2e:report": "playwright show-report"
-  }
+	"scripts": {
+		"test:e2e": "playwright test",
+		"test:e2e:headed": "playwright test --headed",
+		"test:e2e:debug": "playwright test --debug",
+		"test:e2e:pii": "playwright test tests/e2e/pii.spec.ts",
+		"test:e2e:report": "playwright show-report"
+	}
 }
 ```
 
@@ -41,9 +41,11 @@ Add these scripts to your `package.json` file in the scripts section:
 ### Prerequisites
 
 1. **Start the development server**:
+
    ```bash
    npm run dev
    ```
+
    The application should be running on `http://localhost:5173`
 
 2. **Ensure PII API is configured**:
@@ -146,23 +148,26 @@ The tests are configured through `playwright.config.ts`:
 ### Debugging Tips
 
 1. **Use headed mode** to see what's happening:
+
    ```bash
    npm run test:e2e:headed
    ```
 
 2. **Use debug mode** to step through tests:
+
    ```bash
    npm run test:e2e:debug
    ```
 
 3. **Take screenshots** on failure by adding to test:
+
    ```typescript
    await page.screenshot({ path: 'failure.png' });
    ```
 
 4. **Check console logs** during tests:
    ```typescript
-   page.on('console', msg => console.log(msg.text()));
+   page.on('console', (msg) => console.log(msg.text()));
    ```
 
 ## Contributing
@@ -186,6 +191,7 @@ To integrate with continuous integration:
 5. Upload test reports and screenshots as artifacts
 
 Example GitHub Actions step:
+
 ```yaml
 - name: Run PII E2E tests
   run: |
