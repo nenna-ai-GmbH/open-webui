@@ -1574,19 +1574,20 @@
 						onUpload={(e) => {
 							const { type, data } = e;
 
-							if (type === 'file' || type === 'collection') {
+							if (type === 'file' || type === 'collection' || type === 'note') {
 								if (files.find((f) => f.id === data.id)) {
 									return;
 								}
 
-								// Check if this is a Knowledge Base file or collection
+								// Check if this is a Knowledge Base file, collection, or note
 								const isKnowledgeBaseFile = data.knowledge === true;
 								const isCollection = type === 'collection';
+								const isNote = type === 'note';
 								const knowledgeBaseId = data.collection?.id || data.id; // For collections, use their own ID
 
-								// For Knowledge Base files, apply filename masking (but not for collections)
+								// For Knowledge Base files, apply filename masking (but not for collections or notes)
 								let fileToAdd = { ...data, status: 'processed' };
-								if (isKnowledgeBaseFile && enablePiiDetection && !isCollection) {
+								if (isKnowledgeBaseFile && enablePiiDetection && !isCollection && !isNote) {
 									console.log('MessageInput: Processing Knowledge Base file with PII masking:', {
 										fileId: data.id,
 										originalName: data.name,
@@ -1602,8 +1603,8 @@
 
 									// Add filename mapping for this file
 									piiSessionManager.addFilenameMapping(chatId || undefined, data.id, data.name);
-								} else if (enablePiiDetection && data.id && data.name && !isCollection) {
-									// Regular file - add filename mapping if PII detection is enabled (skip collections)
+								} else if (enablePiiDetection && data.id && data.name && !isCollection && !isNote) {
+									// Regular file - add filename mapping if PII detection is enabled (skip collections and notes)
 									console.log('MessageInput: Adding filename mapping for command-selected file:', {
 										fileId: data.id,
 										originalName: data.name
@@ -1615,13 +1616,18 @@
 										collectionName: data.name,
 										hasPiiEnabled: data.enable_pii_detection
 									});
+								} else if (isNote) {
+									console.log('MessageInput: Adding note (no special processing):', {
+										noteId: data.id,
+										noteName: data.name || data.title
+									});
 								}
 
 								files = [...files, fileToAdd];
 
 								// Fetch full file details to seed PII entities into the current conversation
-								// Only do this if PII detection is enabled and it's not a collection
-								if (enablePiiDetection && data.type !== 'collection') {
+								// Only do this if PII detection is enabled and it's not a collection or note
+								if (enablePiiDetection && data.type !== 'collection' && data.type !== 'note') {
 									(async () => {
 										try {
 											const json = await getFileById(localStorage.token, data.id);
