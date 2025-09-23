@@ -64,14 +64,11 @@ export default defineConfig({
 	esbuild: {
 		pure: process.env.ENV === 'dev' ? [] : ['console.log', 'console.debug', 'console.error']
 	},
-	
+
 	// Vitest configuration
 	test: {
 		// Include only unit/integration tests, exclude e2e
-		include: [
-			'src/**/*.{test,spec}.{js,ts}',
-			'src/**/*.test.{js,ts}'
-		],
+		include: ['src/**/*.{test,spec}.{js,ts}', 'src/**/*.test.{js,ts}'],
 		// Explicitly exclude e2e tests (handled by Playwright)
 		exclude: [
 			'**/node_modules/**',
