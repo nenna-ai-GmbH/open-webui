@@ -928,7 +928,7 @@
 		const entitiesToMask = currentPiiEntities.filter((entity) => entity.shouldMask);
 
 		console.log('MessageInput: Creating masked prompt, entities to mask:', entitiesToMask.length);
-		console.log('MessageInput: Original prompt:', prompt.substring(0, 200));
+		console.log('MessageInput: Original prompt length:', prompt.length);
 
 		// Use a more robust approach: sort entities by raw text length (longest first)
 		// to avoid partial replacements, then replace by raw text instead of positions
@@ -936,7 +936,7 @@
 
 		sortedEntities.forEach((entity) => {
 			if (!entity.raw_text || entity.raw_text.trim() === '') {
-				console.log('MessageInput: Skipping entity with empty raw text:', entity.label);
+				console.log('MessageInput: Skipping entity with empty raw text');
 				return;
 			}
 
@@ -962,13 +962,13 @@
 			maskedText = maskedText.replace(regex, replacementPattern);
 
 			if (maskedText !== beforeReplace) {
-				console.log('MessageInput: Successfully masked entity', entity.label);
+				console.log('MessageInput: Successfully masked entity');
 			} else {
-				console.log('MessageInput: No replacements made for entity', entity.label);
+				console.log('MessageInput: No replacements made for entity');
 			}
 		});
 
-		console.log('MessageInput: Final masked prompt:', maskedText.substring(0, 200));
+		console.log('MessageInput: Final masked prompt length:', maskedText.length);
 		return maskedText;
 	};
 

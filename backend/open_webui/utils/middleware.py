@@ -1387,7 +1387,7 @@ async def process_chat_payload(request, form_data, user, metadata, model):
 
         # Check message length to avoid logging huge context
         if len(content) < 1000:
-            log.debug(f"Message {i} content: {content[:200]}...")
+            log.debug(f"Message {i} content length: {len(content)}")
         else:
             log.debug(
                 f"Message {i}: Large content ({len(content)} chars), not logging full text"

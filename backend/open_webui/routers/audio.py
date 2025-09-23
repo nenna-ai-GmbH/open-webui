@@ -580,7 +580,7 @@ def transcription_handler(request, file_path, metadata):
         with open(transcript_file, "w") as f:
             json.dump(data, f)
 
-        log.debug(data)
+        log.debug("Transcription completed, text length: %d", len(data.get("text", "")))
         return data
     elif request.app.state.config.STT_ENGINE == "openai":
         r = None
@@ -792,7 +792,10 @@ def transcription_handler(request, file_path, metadata):
             with open(transcript_file, "w") as f:
                 json.dump(data, f)
 
-            log.debug(data)
+            log.debug(
+                "Azure transcription completed, text length: %d",
+                len(data.get("text", "")),
+            )
             return data
 
         except (KeyError, IndexError, ValueError) as e:
@@ -833,7 +836,7 @@ def transcribe(request: Request, file_path: str, metadata: Optional[dict] = None
     # Always produce a list of chunk paths (could be one entry if small)
     try:
         chunk_paths = split_audio(file_path, MAX_FILE_SIZE)
-        print(f"Chunk paths: {chunk_paths}")
+        log.debug("Audio split into %d chunks", len(chunk_paths))
     except Exception as e:
         log.exception(e)
         raise HTTPException(
