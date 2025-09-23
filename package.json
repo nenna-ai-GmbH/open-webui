@@ -28,7 +28,8 @@
 		"generate:api": "npm-run-all -s generate:api:ts generate:api:py",
 		"generate:api:ts": "openapi-ts",
 		"generate:api:py": "bash scripts/generate-python-client.sh",
-		"generate:api:watch": "openapi-ts --watch"
+		"generate:api:watch": "openapi-ts --watch",
+		"mock:api": "python test/simple-mock-api.py"
 	},
 	"devDependencies": {
 		"@hey-api/openapi-ts": "0.80.1",
