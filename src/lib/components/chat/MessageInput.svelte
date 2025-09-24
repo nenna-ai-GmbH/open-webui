@@ -60,14 +60,15 @@
 	import FileItem from '../common/FileItem.svelte';
 	import Image from '../common/Image.svelte';
 
-	import XMark from '../icons/XMark.svelte';
-	import Headphone from '../icons/Headphone.svelte';
-	import GlobeAlt from '../icons/GlobeAlt.svelte';
-	import Photo from '../icons/Photo.svelte';
-	import Wrench from '../icons/Wrench.svelte';
-	import CommandLine from '../icons/CommandLine.svelte';
-	import Sparkles from '../icons/Sparkles.svelte';
-	import Mask from '../icons/Mask.svelte';
+import XMark from '../icons/XMark.svelte';
+import Headphone from '../icons/Headphone.svelte';
+import GlobeAlt from '../icons/GlobeAlt.svelte';
+import Photo from '../icons/Photo.svelte';
+import Wrench from '../icons/Wrench.svelte';
+import CommandLine from '../icons/CommandLine.svelte';
+import Sparkles from '../icons/Sparkles.svelte';
+import Mask from '../icons/Mask.svelte';
+import Spinner from '../common/Spinner.svelte';
 
 	import { KokoroWorker } from '$lib/workers/KokoroWorker';
 
@@ -493,6 +494,7 @@
 	let maskedPrompt = '';
 	let piiMaskingEnabled = true; // Toggle state for PII masking
 	let loadedFileIds = new Set<string>(); // Track which files have had their PII entities loaded
+	let isPiiDetectionInProgress = false; // Track scanning state
 
 	// Transfer PII state from Knowledge Base context to chat context
 	function syncPiiFromKnowledgeBaseFile(fileData: any, knowledgeBaseId: string | null) {
@@ -858,6 +860,12 @@
 	const handlePiiToggled = (entities: ExtendedPiiEntity[]) => {
 		currentPiiEntities = entities;
 		console.log('MessageInput: PII entities toggled, updated currentPiiEntities:', entities.length);
+	};
+
+	// PII Detection state handler - track when scanning starts/stops
+	const handlePiiDetectionStateChanged = (isDetecting: boolean) => {
+		isPiiDetectionInProgress = isDetecting;
+		console.log('MessageInput: PII detection state changed:', isDetecting);
 	};
 
 	// Function to toggle PII masking (deterministic based on button state)
@@ -1840,7 +1848,17 @@
 									</div>
 								{/if}
 
-								<div class="px-2.5">
+								<div class="px-2.5 relative">
+									<!-- PII Detection Scanning Indicator -->
+									{#if enablePiiDetection && isPiiDetectionInProgress}
+										<div
+											class="absolute top-3 right-3 z-10 flex items-center gap-1 bg-gray-50 dark:bg-gray-850 px-2 py-1 rounded-md shadow-sm border border-gray-200 dark:border-gray-700"
+										>
+											<Spinner className="size-3" />
+											<span class="text-xs text-gray-600 dark:text-gray-400">Scanning for PII...</span>
+										</div>
+									{/if}
+
 									{#if $settings?.richTextInput ?? true}
 										<div
 											class="scrollbar-hidden rtl:text-right ltr:text-left bg-transparent dark:text-gray-100 outline-hidden w-full pt-2.5 pb-[5px] px-1 resize-none h-fit max-h-80 overflow-auto"
@@ -1893,6 +1911,7 @@
 													conversationId={chatId || undefined}
 													onPiiDetected={handlePiiDetected}
 													onPiiToggled={handlePiiToggled}
+													onPiiDetectionStateChanged={handlePiiDetectionStateChanged}
 													generateAutoCompletion={async (text) => {
 														if (selectedModelIds.length === 0 || !selectedModelIds.at(0)) {
 															toast.error($i18n.t('Please select a model first.'));
