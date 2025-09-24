@@ -1300,25 +1300,29 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 							mergedEntities
 						);
 
-						// Update plugin state with adjusted entities
+						// Update plugin state with all merged entities (not just incremental)
 						if (editorView) {
 							const state = piiDetectionPluginKey.getState(editorView.state);
 							if (state?.positionMapping) {
-								const mappedEntities = mapPiiEntitiesToProseMirror(
-									adjustedEntities,
-									state.positionMapping
+								// Map all merged entities to ProseMirror positions, preserving shouldMask states
+								const allMappedEntities = mapPiiEntitiesToProseMirror(
+									mergedEntities,
+									state.positionMapping,
+									state.entities, // Use existing plugin entities for shouldMask preservation
+									options.getShouldMask ? options.getShouldMask() : true
 								);
 
 								const tr = editorView.state.tr.setMeta(piiDetectionPluginKey, {
 									type: 'UPDATE_ENTITIES',
-									entities: mappedEntities,
+									entities: allMappedEntities, // Send ALL entities to prevent clearing
+									isIncrementalUpdate: true, // Mark as incremental to preserve existing entities
 									clearTemporarilyHidden: true // Clear hidden entities when new detection results come in from user activity
 								});
 								editorView.dispatch(tr);
 
-								// Notify parent component
+								// Notify parent component with all entities
 								if (onPiiDetected) {
-									onPiiDetected(mappedEntities, fullText);
+									onPiiDetected(allMappedEntities, fullText);
 								}
 							}
 						}
@@ -1472,11 +1476,64 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 												`PiiDetectionExtension: Position mapping (UPDATE_ENTITIES): ${elapsed.toFixed(1)}ms`
 											);
 									}
-									const remapped = remapEntitiesForCurrentDocument(meta.entities, mapping, tr.doc);
-									newState.entities = validateAndFilterEntities(remapped, tr.doc, mapping);
-									newState.entities = resolveOverlaps(newState.entities, tr.doc);
-								} else {
+									
+									// Determine if this is a partial update (incremental) or full update
+									const isIncrementalUpdate = meta.isIncrementalUpdate === true;
+									
+									if (isIncrementalUpdate) {
+										// For incremental updates, merge with existing entities instead of replacing
+										console.log('PiiDetectionExtension: Performing incremental entity update', {
+											newEntities: meta.entities.length,
+											existingEntities: newState.entities.length
+										});
+										
+										// Remap new entities to current document positions
+										const remappedNewEntities = remapEntitiesForCurrentDocument(meta.entities, mapping, tr.doc);
+										const validatedNewEntities = validateAndFilterEntities(remappedNewEntities, tr.doc, mapping);
+										
+										// Merge new entities with existing ones
+										const mergedEntities = [...newState.entities];
+										validatedNewEntities.forEach((newEntity) => {
+											const existingIndex = mergedEntities.findIndex((e) => e.label === newEntity.label);
+											if (existingIndex >= 0) {
+												// Update existing entity but preserve shouldMask state
+												mergedEntities[existingIndex] = {
+													...newEntity,
+													shouldMask: mergedEntities[existingIndex].shouldMask ?? newEntity.shouldMask
+												};
+											} else {
+												// Add new entity
+												mergedEntities.push(newEntity);
+											}
+										});
+										
+										newState.entities = resolveOverlaps(mergedEntities, tr.doc);
+									} else {
+										// For full updates, replace all entities
+										const remapped = remapEntitiesForCurrentDocument(meta.entities, mapping, tr.doc);
+										newState.entities = validateAndFilterEntities(remapped, tr.doc, mapping);
+										newState.entities = resolveOverlaps(newState.entities, tr.doc);
+									}
+								} else if (meta.clearAllEntities === true) {
+									// Only clear entities when explicitly requested
+									console.log('PiiDetectionExtension: Explicitly clearing all entities');
 									newState.entities = [];
+								} else {
+									// If no entities provided and not explicitly clearing, preserve existing entities
+									// This prevents accidental clearing during partial updates
+									console.log('PiiDetectionExtension: No entities provided, preserving existing entities');
+									
+									// Still validate existing entities against current document
+									if (newState.entities.length > 0) {
+										let mapping = newState.positionMapping;
+										if (!mapping) {
+											const endTiming = tracker.startTiming();
+											mapping = buildPositionMapping(tr.doc);
+											const elapsed = endTiming();
+											tracker.recordPositionRemap();
+										}
+										newState.entities = validateAndFilterEntities(newState.entities, tr.doc, mapping);
+									}
 								}
 								// Only clear temporarily hidden entities if explicitly requested
 								// This allows entities to stay hidden after modifier removal until user makes another edit
@@ -2050,14 +2107,45 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 						return pluginState.cachedDecorations;
 					}
 
-					// If no entities yet, pull from session to allow immediate rendering
+					// Always ensure we have the most complete set of entities available
 					let entities = pluginState.entities || [];
-					if (!entities.length) {
-						const sessionEntities = piiSessionManager.getEntitiesForDisplay(options.conversationId);
-						if (sessionEntities.length) {
-							const mapping = buildPositionMapping(state.doc);
-							const remapped = remapEntitiesForCurrentDocument(sessionEntities, mapping, state.doc);
-							entities = validateAndFilterEntities(remapped, state.doc, mapping);
+					const sessionEntities = piiSessionManager.getEntitiesForDisplay(options.conversationId);
+					
+					// If plugin has no entities but session has entities, use session entities
+					if (!entities.length && sessionEntities.length) {
+						const mapping = buildPositionMapping(state.doc);
+						const remapped = remapEntitiesForCurrentDocument(sessionEntities, mapping, state.doc);
+						entities = validateAndFilterEntities(remapped, state.doc, mapping);
+						console.log('PiiDetectionExtension: Using session entities for decorations', {
+							sessionEntities: sessionEntities.length,
+							remappedEntities: entities.length
+						});
+					}
+					
+					// During detection, merge with session entities to ensure complete coverage
+					// This prevents entities from disappearing during incremental detection
+					if (pluginState.isDetecting && sessionEntities.length > 0) {
+						const mapping = buildPositionMapping(state.doc);
+						
+						// Create a map of existing plugin entities by label
+						const pluginEntityMap = new Map(entities.map(e => [e.label, e]));
+						
+						// Add session entities that aren't in plugin state
+						sessionEntities.forEach((sessionEntity: ExtendedPiiEntity) => {
+							if (!pluginEntityMap.has(sessionEntity.label)) {
+								// Remap this session entity to current document
+								const remapped = remapEntitiesForCurrentDocument([sessionEntity], mapping, state.doc);
+								const validated = validateAndFilterEntities(remapped, state.doc, mapping);
+								entities.push(...validated);
+							}
+						});
+						
+						if (entities.length > sessionEntities.length) {
+							console.log('PiiDetectionExtension: Enhanced decorations during detection', {
+								originalPluginEntities: pluginState.entities.length,
+								sessionEntities: sessionEntities.length,
+								finalEntities: entities.length
+							});
 						}
 					}
 
@@ -2423,7 +2511,9 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 				({ state, dispatch }: any) => {
 					if (dispatch) {
 						const tr = state.tr.setMeta(piiDetectionPluginKey, {
-							type: 'CLEAR_PII_HIGHLIGHTS'
+							type: 'UPDATE_ENTITIES',
+							entities: [],
+							clearAllEntities: true // Explicitly clear all entities
 						});
 						dispatch(tr);
 						return true;
