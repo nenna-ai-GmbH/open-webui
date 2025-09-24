@@ -1606,7 +1606,7 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 							}
 
 							case 'TOGGLE_ENTITY_MASKING': {
-								const { entityIndex, occurrenceIndex } = meta;
+								const { entityIndex, occurrenceIndex, fromModifierRemoval } = meta;
 								if (newState.entities[entityIndex]) {
 									const entity = { ...newState.entities[entityIndex] };
 									entity.shouldMask = !entity.shouldMask;
@@ -1639,11 +1639,22 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 										options.conversationId
 									);
 
+									// CRITICAL FIX: Only clear temporarily hidden entities for regular toggles
+									// If this toggle came from modifier removal, preserve the hidden state
+									const entityText = (entity.raw_text || entity.text || '').toLowerCase();
+									if (!fromModifierRemoval && newState.temporarilyHiddenEntities.has(entityText)) {
+										newState.temporarilyHiddenEntities = new Set(newState.temporarilyHiddenEntities);
+										newState.temporarilyHiddenEntities.delete(entityText);
+										console.log('PiiDetectionExtension: Cleared temporarily hidden entity on regular toggle');
+									} else if (fromModifierRemoval) {
+										console.log('PiiDetectionExtension: Preserving hidden state for modifier removal context');
+									}
+
 									// CRITICAL FIX: Mark that we need to sync with session manager on next transaction
 									// This ensures that subsequent detections use the correct shouldMask state
 									newState.needsSync = true;
 
-									// Clear decoration cache when entity masking is toggled
+									// CRITICAL FIX: Force decoration cache clear to ensure visual updates
 									newState.cachedDecorations = undefined;
 									newState.lastDecorationHash = undefined;
 
@@ -2119,6 +2130,18 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 						console.log('PiiDetectionExtension: Using session entities for decorations', {
 							sessionEntities: sessionEntities.length,
 							remappedEntities: entities.length
+						});
+					}
+					
+					// CRITICAL FIX: Always sync shouldMask state from session manager to ensure visual state matches
+					// This prevents cached plugin entities from having stale shouldMask values
+					if (entities.length && sessionEntities.length) {
+						entities = entities.map(pluginEntity => {
+							const sessionEntity = sessionEntities.find((se: ExtendedPiiEntity) => se.label === pluginEntity.label);
+							if (sessionEntity && sessionEntity.shouldMask !== pluginEntity.shouldMask) {
+								return { ...pluginEntity, shouldMask: sessionEntity.shouldMask };
+							}
+							return pluginEntity;
 						});
 					}
 					
