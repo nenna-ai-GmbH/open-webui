@@ -1476,41 +1476,56 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 												`PiiDetectionExtension: Position mapping (UPDATE_ENTITIES): ${elapsed.toFixed(1)}ms`
 											);
 									}
-									
+
 									// Determine if this is a partial update (incremental) or full update
 									const isIncrementalUpdate = meta.isIncrementalUpdate === true;
-									
+
 									if (isIncrementalUpdate) {
 										// For incremental updates, merge with existing entities instead of replacing
 										console.log('PiiDetectionExtension: Performing incremental entity update', {
 											newEntities: meta.entities.length,
 											existingEntities: newState.entities.length
 										});
-										
+
 										// Remap new entities to current document positions
-										const remappedNewEntities = remapEntitiesForCurrentDocument(meta.entities, mapping, tr.doc);
-										const validatedNewEntities = validateAndFilterEntities(remappedNewEntities, tr.doc, mapping);
-										
+										const remappedNewEntities = remapEntitiesForCurrentDocument(
+											meta.entities,
+											mapping,
+											tr.doc
+										);
+										const validatedNewEntities = validateAndFilterEntities(
+											remappedNewEntities,
+											tr.doc,
+											mapping
+										);
+
 										// Merge new entities with existing ones
 										const mergedEntities = [...newState.entities];
 										validatedNewEntities.forEach((newEntity) => {
-											const existingIndex = mergedEntities.findIndex((e) => e.label === newEntity.label);
+											const existingIndex = mergedEntities.findIndex(
+												(e) => e.label === newEntity.label
+											);
 											if (existingIndex >= 0) {
 												// Update existing entity but preserve shouldMask state
 												mergedEntities[existingIndex] = {
 													...newEntity,
-													shouldMask: mergedEntities[existingIndex].shouldMask ?? newEntity.shouldMask
+													shouldMask:
+														mergedEntities[existingIndex].shouldMask ?? newEntity.shouldMask
 												};
 											} else {
 												// Add new entity
 												mergedEntities.push(newEntity);
 											}
 										});
-										
+
 										newState.entities = resolveOverlaps(mergedEntities, tr.doc);
 									} else {
 										// For full updates, replace all entities
-										const remapped = remapEntitiesForCurrentDocument(meta.entities, mapping, tr.doc);
+										const remapped = remapEntitiesForCurrentDocument(
+											meta.entities,
+											mapping,
+											tr.doc
+										);
 										newState.entities = validateAndFilterEntities(remapped, tr.doc, mapping);
 										newState.entities = resolveOverlaps(newState.entities, tr.doc);
 									}
@@ -1521,8 +1536,10 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 								} else {
 									// If no entities provided and not explicitly clearing, preserve existing entities
 									// This prevents accidental clearing during partial updates
-									console.log('PiiDetectionExtension: No entities provided, preserving existing entities');
-									
+									console.log(
+										'PiiDetectionExtension: No entities provided, preserving existing entities'
+									);
+
 									// Still validate existing entities against current document
 									if (newState.entities.length > 0) {
 										let mapping = newState.positionMapping;
@@ -1532,7 +1549,11 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 											const elapsed = endTiming();
 											tracker.recordPositionRemap();
 										}
-										newState.entities = validateAndFilterEntities(newState.entities, tr.doc, mapping);
+										newState.entities = validateAndFilterEntities(
+											newState.entities,
+											tr.doc,
+											mapping
+										);
 									}
 								}
 								// Only clear temporarily hidden entities if explicitly requested
@@ -1640,7 +1661,7 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 									const updatedSessionEntities = piiSessionManager.getEntitiesForDisplay(
 										options.conversationId
 									);
-									
+
 									// Update local state with session manager's entities to ensure consistency
 									newState.entities = updatedSessionEntities;
 
@@ -1648,11 +1669,17 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 									// If this toggle came from modifier removal, preserve the hidden state
 									const entityText = (entity.raw_text || entity.text || '').toLowerCase();
 									if (!fromModifierRemoval && newState.temporarilyHiddenEntities.has(entityText)) {
-										newState.temporarilyHiddenEntities = new Set(newState.temporarilyHiddenEntities);
+										newState.temporarilyHiddenEntities = new Set(
+											newState.temporarilyHiddenEntities
+										);
 										newState.temporarilyHiddenEntities.delete(entityText);
-										console.log('PiiDetectionExtension: Cleared temporarily hidden entity on regular toggle');
+										console.log(
+											'PiiDetectionExtension: Cleared temporarily hidden entity on regular toggle'
+										);
 									} else if (fromModifierRemoval) {
-										console.log('PiiDetectionExtension: Preserving hidden state for modifier removal context');
+										console.log(
+											'PiiDetectionExtension: Preserving hidden state for modifier removal context'
+										);
 									}
 
 									// CRITICAL FIX: Mark that we need to sync with session manager on next transaction
@@ -2126,7 +2153,7 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 					// Always ensure we have the most complete set of entities available
 					let entities = pluginState.entities || [];
 					const sessionEntities = piiSessionManager.getEntitiesForDisplay(options.conversationId);
-					
+
 					// If plugin has no entities but session has entities, use session entities
 					if (!entities.length && sessionEntities.length) {
 						const mapping = buildPositionMapping(state.doc);
@@ -2137,37 +2164,43 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 							remappedEntities: entities.length
 						});
 					}
-					
+
 					// CRITICAL FIX: Always sync shouldMask state from session manager to ensure visual state matches
 					// This prevents cached plugin entities from having stale shouldMask values
 					if (entities.length && sessionEntities.length) {
-						entities = entities.map(pluginEntity => {
-							const sessionEntity = sessionEntities.find((se: ExtendedPiiEntity) => se.label === pluginEntity.label);
+						entities = entities.map((pluginEntity) => {
+							const sessionEntity = sessionEntities.find(
+								(se: ExtendedPiiEntity) => se.label === pluginEntity.label
+							);
 							if (sessionEntity && sessionEntity.shouldMask !== pluginEntity.shouldMask) {
 								return { ...pluginEntity, shouldMask: sessionEntity.shouldMask };
 							}
 							return pluginEntity;
 						});
 					}
-					
+
 					// During detection, merge with session entities to ensure complete coverage
 					// This prevents entities from disappearing during incremental detection
 					if (pluginState.isDetecting && sessionEntities.length > 0) {
 						const mapping = buildPositionMapping(state.doc);
-						
+
 						// Create a map of existing plugin entities by label
-						const pluginEntityMap = new Map(entities.map(e => [e.label, e]));
-						
+						const pluginEntityMap = new Map(entities.map((e) => [e.label, e]));
+
 						// Add session entities that aren't in plugin state
 						sessionEntities.forEach((sessionEntity: ExtendedPiiEntity) => {
 							if (!pluginEntityMap.has(sessionEntity.label)) {
 								// Remap this session entity to current document
-								const remapped = remapEntitiesForCurrentDocument([sessionEntity], mapping, state.doc);
+								const remapped = remapEntitiesForCurrentDocument(
+									[sessionEntity],
+									mapping,
+									state.doc
+								);
 								const validated = validateAndFilterEntities(remapped, state.doc, mapping);
 								entities.push(...validated);
 							}
 						});
-						
+
 						if (entities.length > sessionEntities.length) {
 							console.log('PiiDetectionExtension: Enhanced decorations during detection', {
 								originalPluginEntities: pluginState.entities.length,

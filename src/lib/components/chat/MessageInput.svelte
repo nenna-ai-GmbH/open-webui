@@ -860,7 +860,7 @@
 	const handlePiiToggled = (entities: ExtendedPiiEntity[]) => {
 		currentPiiEntities = entities;
 		console.log('MessageInput: PII entities toggled, updated currentPiiEntities:', entities.length);
-		
+
 		// Trigger sync to update visual highlights immediately
 		if (chatInputElement?.syncWithSession) {
 			chatInputElement.syncWithSession();
