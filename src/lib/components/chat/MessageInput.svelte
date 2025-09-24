@@ -860,6 +860,11 @@
 	const handlePiiToggled = (entities: ExtendedPiiEntity[]) => {
 		currentPiiEntities = entities;
 		console.log('MessageInput: PII entities toggled, updated currentPiiEntities:', entities.length);
+
+		// Trigger sync to update visual highlights immediately
+		if (chatInputElement?.syncWithSession) {
+			chatInputElement.syncWithSession();
+		}
 	};
 
 	// PII Detection state handler - track when scanning starts/stops
@@ -933,7 +938,7 @@
 
 		// Create a masked version based on user's masking preferences
 		let maskedText = prompt;
-		const entitiesToMask = currentPiiEntities.filter((entity) => entity.shouldMask);
+		const entitiesToMask = currentPiiEntities.filter((entity) => entity.shouldMask !== false);
 
 		console.log('MessageInput: Creating masked prompt, entities to mask:', entitiesToMask.length);
 		console.log('MessageInput: Original prompt length:', prompt.length);
