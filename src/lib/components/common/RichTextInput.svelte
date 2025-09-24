@@ -2046,7 +2046,6 @@
 
 <div class="relative w-full min-w-full h-full min-h-fit {className}">
 	<div bind:this={element} class="w-full h-full min-h-fit" />
-
 </div>
 
 <!-- PII Hover Menu -->

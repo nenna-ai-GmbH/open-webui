@@ -60,15 +60,15 @@
 	import FileItem from '../common/FileItem.svelte';
 	import Image from '../common/Image.svelte';
 
-import XMark from '../icons/XMark.svelte';
-import Headphone from '../icons/Headphone.svelte';
-import GlobeAlt from '../icons/GlobeAlt.svelte';
-import Photo from '../icons/Photo.svelte';
-import Wrench from '../icons/Wrench.svelte';
-import CommandLine from '../icons/CommandLine.svelte';
-import Sparkles from '../icons/Sparkles.svelte';
-import Mask from '../icons/Mask.svelte';
-import Spinner from '../common/Spinner.svelte';
+	import XMark from '../icons/XMark.svelte';
+	import Headphone from '../icons/Headphone.svelte';
+	import GlobeAlt from '../icons/GlobeAlt.svelte';
+	import Photo from '../icons/Photo.svelte';
+	import Wrench from '../icons/Wrench.svelte';
+	import CommandLine from '../icons/CommandLine.svelte';
+	import Sparkles from '../icons/Sparkles.svelte';
+	import Mask from '../icons/Mask.svelte';
+	import Spinner from '../common/Spinner.svelte';
 
 	import { KokoroWorker } from '$lib/workers/KokoroWorker';
 
@@ -1855,7 +1855,9 @@ import Spinner from '../common/Spinner.svelte';
 											class="absolute top-3 right-3 z-10 flex items-center gap-1 bg-gray-50 dark:bg-gray-850 px-2 py-1 rounded-md shadow-sm border border-gray-200 dark:border-gray-700"
 										>
 											<Spinner className="size-3" />
-											<span class="text-xs text-gray-600 dark:text-gray-400">Scanning for PII...</span>
+											<span class="text-xs text-gray-600 dark:text-gray-400"
+												>Scanning for PII...</span
+											>
 										</div>
 									{/if}
 
