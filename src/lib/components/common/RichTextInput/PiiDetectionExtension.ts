@@ -1608,11 +1608,7 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 							case 'TOGGLE_ENTITY_MASKING': {
 								const { entityIndex, occurrenceIndex, fromModifierRemoval } = meta;
 								if (newState.entities[entityIndex]) {
-									const entity = { ...newState.entities[entityIndex] };
-									entity.shouldMask = !entity.shouldMask;
-									newState.entities = [...newState.entities];
-									newState.entities[entityIndex] = entity;
-
+									const entity = newState.entities[entityIndex];
 									const piiSessionManager = PiiSessionManager.getInstance();
 
 									// Ensure the entity exists in session state before toggling
@@ -1633,11 +1629,20 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 										}
 									}
 
+									// Let session manager handle the toggle - don't double toggle locally
 									piiSessionManager.toggleEntityMasking(
 										entity.label,
 										occurrenceIndex,
 										options.conversationId
 									);
+
+									// Get updated entities from session manager after toggle
+									const updatedSessionEntities = piiSessionManager.getEntitiesForDisplay(
+										options.conversationId
+									);
+									
+									// Update local state with session manager's entities to ensure consistency
+									newState.entities = updatedSessionEntities;
 
 									// CRITICAL FIX: Only clear temporarily hidden entities for regular toggles
 									// If this toggle came from modifier removal, preserve the hidden state
