@@ -63,6 +63,15 @@
 	// Reference to the embedded editor to trigger sync-after-seed
 	let kbEditor = null;
 
+	// PII detection state tracking
+	let isPiiDetectionInProgress = false;
+
+	// PII Detection state handler - track when scanning starts/stops
+	const handlePiiDetectionStateChanged = (isDetecting: boolean) => {
+		isPiiDetectionInProgress = isDetecting;
+		console.log('KnowledgeBase: PII detection state changed:', isDetecting);
+	};
+
 	// Debounced PII content update (matches FileItemModal.svelte approach)
 	let savePiiTimeout: any = null;
 	const savePiiContentDebounced = (fileId: string) => {
@@ -1232,42 +1241,57 @@
 							</div>
 
 							<div
-								class=" flex-1 w-full h-full max-h-full text-sm bg-transparent outline-hidden overflow-y-auto scrollbar-hidden"
+								class="relative flex-1 w-full h-full max-h-full text-sm bg-transparent outline-hidden"
 							>
-								{#key selectedFile.id}
-									<RichTextInput
-										className="input-prose-sm"
-										bind:value={selectedFileContent}
-										placeholder={$i18n.t('Add content here')}
-										preserveBreaks={false}
-										{enablePiiDetection}
-										{piiApiKey}
-										usePiiMarkdownMode={true}
-										enablePiiModifiers={enablePiiDetection}
-										piiMaskingEnabled={enablePiiDetection}
-										piiDetectionOnlyAfterUserEdit={true}
-										piiModifierLabels={[
-											'PERSON',
-											'EMAIL',
-											'PHONE_NUMBER',
-											'ADDRESS',
-											'SSN',
-											'CREDIT_CARD',
-											'DATE_TIME',
-											'IP_ADDRESS',
-											'URL',
-											'IBAN',
-											'MEDICAL_LICENSE',
-											'US_PASSPORT',
-											'US_DRIVER_LICENSE'
-										]}
-										conversationId={`${id || 'kb'}:${selectedFile?.id || ''}`}
-										onPiiToggled={() =>
-											selectedFile?.id && savePiiContentDebounced(selectedFile.id)}
-										onPiiModifiersChanged={() =>
-											selectedFile?.id && savePiiContentDebounced(selectedFile.id)}
-									/>
-								{/key}
+								<!-- PII Detection Scanning Indicator -->
+								{#if enablePiiDetection && isPiiDetectionInProgress}
+									<div
+										class="absolute top-3 right-3 z-10 flex items-center gap-1 bg-gray-50 dark:bg-gray-850 px-2 py-1 rounded-md shadow-sm border border-gray-200 dark:border-gray-700"
+									>
+										<Spinner className="size-3" />
+										<span class="text-xs text-gray-600 dark:text-gray-400">Scanning for PII...</span
+										>
+									</div>
+								{/if}
+
+								<div class="w-full h-full overflow-y-auto scrollbar-hidden">
+									{#key selectedFile.id}
+										<RichTextInput
+											bind:this={kbEditor}
+											className="input-prose-sm"
+											bind:value={selectedFileContent}
+											placeholder={$i18n.t('Add content here')}
+											preserveBreaks={false}
+											{enablePiiDetection}
+											{piiApiKey}
+											usePiiMarkdownMode={true}
+											enablePiiModifiers={enablePiiDetection}
+											piiMaskingEnabled={enablePiiDetection}
+											piiDetectionOnlyAfterUserEdit={true}
+											piiModifierLabels={[
+												'PERSON',
+												'EMAIL',
+												'PHONE_NUMBER',
+												'ADDRESS',
+												'SSN',
+												'CREDIT_CARD',
+												'DATE_TIME',
+												'IP_ADDRESS',
+												'URL',
+												'IBAN',
+												'MEDICAL_LICENSE',
+												'US_PASSPORT',
+												'US_DRIVER_LICENSE'
+											]}
+											conversationId={`${id || 'kb'}:${selectedFile?.id || ''}`}
+											onPiiToggled={() =>
+												selectedFile?.id && savePiiContentDebounced(selectedFile.id)}
+											onPiiModifiersChanged={() =>
+												selectedFile?.id && savePiiContentDebounced(selectedFile.id)}
+											onPiiDetectionStateChanged={handlePiiDetectionStateChanged}
+										/>
+									{/key}
+								</div>
 							</div>
 						</div>
 					{:else}
@@ -1322,42 +1346,57 @@
 							</div>
 
 							<div
-								class=" flex-1 w-full h-full max-h-full py-2.5 px-3.5 rounded-lg text-sm bg-transparent overflow-y-auto scrollbar-hidden"
+								class="relative flex-1 w-full h-full max-h-full py-2.5 px-3.5 rounded-lg text-sm bg-transparent"
 							>
-								{#key selectedFile.id}
-									<RichTextInput
-										className="input-prose-sm"
-										bind:value={selectedFileContent}
-										placeholder={$i18n.t('Add content here')}
-										preserveBreaks={false}
-										{enablePiiDetection}
-										{piiApiKey}
-										usePiiMarkdownMode={true}
-										enablePiiModifiers={enablePiiDetection}
-										piiMaskingEnabled={enablePiiDetection}
-										piiDetectionOnlyAfterUserEdit={true}
-										piiModifierLabels={[
-											'PERSON',
-											'EMAIL',
-											'PHONE_NUMBER',
-											'ADDRESS',
-											'SSN',
-											'CREDIT_CARD',
-											'DATE_TIME',
-											'IP_ADDRESS',
-											'URL',
-											'IBAN',
-											'MEDICAL_LICENSE',
-											'US_PASSPORT',
-											'US_DRIVER_LICENSE'
-										]}
-										conversationId={`${id || 'kb'}:${selectedFile?.id || ''}`}
-										onPiiToggled={() =>
-											selectedFile?.id && savePiiContentDebounced(selectedFile.id)}
-										onPiiModifiersChanged={() =>
-											selectedFile?.id && savePiiContentDebounced(selectedFile.id)}
-									/>
-								{/key}
+								<!-- PII Detection Scanning Indicator -->
+								{#if enablePiiDetection && isPiiDetectionInProgress}
+									<div
+										class="absolute top-3 right-3 z-10 flex items-center gap-1 bg-gray-50 dark:bg-gray-850 px-2 py-1 rounded-md shadow-sm border border-gray-200 dark:border-gray-700"
+									>
+										<Spinner className="size-3" />
+										<span class="text-xs text-gray-600 dark:text-gray-400">Scanning for PII...</span
+										>
+									</div>
+								{/if}
+
+								<div class="w-full h-full overflow-y-auto scrollbar-hidden">
+									{#key selectedFile.id}
+										<RichTextInput
+											bind:this={kbEditor}
+											className="input-prose-sm"
+											bind:value={selectedFileContent}
+											placeholder={$i18n.t('Add content here')}
+											preserveBreaks={false}
+											{enablePiiDetection}
+											{piiApiKey}
+											usePiiMarkdownMode={true}
+											enablePiiModifiers={enablePiiDetection}
+											piiMaskingEnabled={enablePiiDetection}
+											piiDetectionOnlyAfterUserEdit={true}
+											piiModifierLabels={[
+												'PERSON',
+												'EMAIL',
+												'PHONE_NUMBER',
+												'ADDRESS',
+												'SSN',
+												'CREDIT_CARD',
+												'DATE_TIME',
+												'IP_ADDRESS',
+												'URL',
+												'IBAN',
+												'MEDICAL_LICENSE',
+												'US_PASSPORT',
+												'US_DRIVER_LICENSE'
+											]}
+											conversationId={`${id || 'kb'}:${selectedFile?.id || ''}`}
+											onPiiToggled={() =>
+												selectedFile?.id && savePiiContentDebounced(selectedFile.id)}
+											onPiiModifiersChanged={() =>
+												selectedFile?.id && savePiiContentDebounced(selectedFile.id)}
+											onPiiDetectionStateChanged={handlePiiDetectionStateChanged}
+										/>
+									{/key}
+								</div>
 							</div>
 						</div>
 					</div>

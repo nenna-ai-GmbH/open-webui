@@ -114,7 +114,6 @@
 		yDocToProsemirrorJSON
 	} from 'y-prosemirror';
 	import { keymap } from 'prosemirror-keymap';
-	import Spinner from '$lib/components/common/Spinner.svelte';
 
 	import { AIAutocompletion } from './RichTextInput/AutoCompletion.js';
 
@@ -2047,16 +2046,6 @@
 
 <div class="relative w-full min-w-full h-full min-h-fit {className}">
 	<div bind:this={element} class="w-full h-full min-h-fit" />
-
-	<!-- PII Detection Loading Indicator -->
-	{#if enablePiiDetection && isPiiDetectionInProgress}
-		<div
-			class="absolute top-2 right-2 flex items-center gap-1 bg-gray-50 dark:bg-gray-850 px-2 py-1 rounded-md shadow-sm border border-gray-200 dark:border-gray-700"
-		>
-			<Spinner className="size-3" />
-			<span class="text-xs text-gray-600 dark:text-gray-400">Scanning for PII...</span>
-		</div>
-	{/if}
 </div>
 
 <!-- PII Hover Menu -->
