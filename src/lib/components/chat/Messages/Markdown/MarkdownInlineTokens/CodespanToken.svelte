@@ -22,8 +22,9 @@
 		on:click={() => {
 			copyToClipboard(token.text);
 			toast.success($i18n.t('Copied to clipboard'));
-		}}>
-		<PiiAwareText token={token} {id} {conversationId} {done} /></code
+		}}
+	>
+		<PiiAwareText {token} {id} {conversationId} {done} /></code
 	>
 {:else}
 	<code
@@ -32,6 +33,6 @@
 		on:click={() => {
 			copyToClipboard(token.text);
 			toast.success($i18n.t('Copied to clipboard'));
-		}}><PiiAwareText token={token} {id} {conversationId} {done} /></code
+		}}><PiiAwareText {token} {id} {conversationId} {done} /></code
 	>
 {/if}
