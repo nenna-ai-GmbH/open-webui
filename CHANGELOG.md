@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 📝 An issue where notes could not be included in the chat
 - 🔤 An issue spaces were missing from model responses after **bold** text
 - 📍 Positioning of the scanning indicator
-- 🔍 Vanishing of PII highlights during re-scanning in Chat input window 
+- 🔍 Vanishing of PII highlights during re-scanning in Chat input window
 
 ## [0.6.28] - 2025-09-10
 
