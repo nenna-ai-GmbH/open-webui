@@ -353,7 +353,7 @@
 					/>
 				{:else}
 					<PiiAwareText
-						text={unescapeHtml(token.text)}
+						token={token}
 						id={`${id}-${tokenIdx}-text`}
 						{conversationId}
 						{done}
@@ -370,7 +370,7 @@
 			/>
 		{:else}
 			<PiiAwareText
-				text={unescapeHtml(token.text)}
+				token={token}
 				id={`${id}-${tokenIdx}-text-inline`}
 				{conversationId}
 				{done}

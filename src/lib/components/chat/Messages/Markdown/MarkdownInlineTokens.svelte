@@ -28,12 +28,7 @@
 
 {#each tokens as token}
 	{#if token.type === 'escape'}
-		<PiiAwareInlineText
-			text={unescapeHtml(token.text ?? '')}
-			id={`${id}-text-${token.type}`}
-			{conversationId}
-			{done}
-		/>
+		{unescapeHtml(token.text)}
 	{:else if token.type === 'html'}
 		<HtmlToken {id} {token} {onSourceClick} {conversationId} {done} />
 	{:else if token.type === 'link'}
@@ -44,7 +39,7 @@
 		{:else}
 			<a href={token.href} target="_blank" rel="nofollow" title={token.title}>
 				<PiiAwareInlineText
-					text={unescapeHtml(token.text ?? '')}
+					token={token}
 					id={`${id}-a-text`}
 					{conversationId}
 					{done}
@@ -100,7 +95,7 @@
 		></iframe>
 	{:else if token.type === 'text'}
 		<PiiAwareInlineText
-			text={token.text ?? token.raw ?? ''}
+			token={token}
 			id={`${id}-text-${token.type}`}
 			{conversationId}
 			{done}
