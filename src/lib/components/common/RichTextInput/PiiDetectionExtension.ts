@@ -1806,12 +1806,17 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 								newState.textNodes = currentTextNodes;
 								newState.lastWordCount = currentWordCount;
 								newState.lastText = newMapping.plainText;
+							// Reset user edit and hidden flags on conversation switch
+							newState.userEdited = false;
+							newState.temporarilyHiddenEntities = new Set();
+							newState.cachedDecorations = undefined;
+							newState.lastDecorationHash = undefined;
 
 								// Populate entities from session immediately without triggering detection
 								const sessionEntities = piiSessionManager.getEntitiesForDisplay(
 									options.conversationId
 								);
-								if (sessionEntities.length) {
+							if (sessionEntities.length) {
 									const remapped = remapEntitiesForCurrentDocument(
 										sessionEntities,
 										newMapping,
@@ -1819,7 +1824,10 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 									);
 									newState.entities = validateAndFilterEntities(remapped, tr.doc, newMapping);
 									newState.entities = resolveOverlaps(newState.entities, tr.doc);
-								}
+							} else {
+								// No entities in new conversation/session – clear prior state to avoid carry-over
+								newState.entities = [];
+							}
 								break;
 							}
 
