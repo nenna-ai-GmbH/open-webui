@@ -72,6 +72,50 @@ export interface PiiDetectionOptions {
 
 // Removed unused interfaces - let TypeScript infer TipTap command types
 
+// Clean markdown formatting characters and newlines that can interfere with PII tokenization
+// Replaces formatting characters with spaces of equivalent length to maintain exact text offsets
+// Converts newlines to spaces to ensure consistent text processing
+function cleanMarkdownFormatting(text: string): string {
+	if (!text) return text;
+	
+	// Replace markdown formatting characters with spaces of equivalent length
+	// This prevents formatting from interfering with PII tokenization while preserving exact offsets
+	let cleaned = text
+		// Handle bold formatting: **text** -> replace ** with spaces (preserve exact length)
+		.replace(/\*\*([^*]+)\*\*/g, (match, content) => {
+			// Replace ** with spaces, keep content unchanged
+			// **text** (8 chars) -> '  text  ' (8 chars)
+			return '  ' + content + '  ';
+		})
+		// Handle italic formatting: *text* -> replace * with spaces (preserve exact length)
+		.replace(/\*([^*]+)\*/g, (match, content) => {
+			// Replace * with spaces, keep content unchanged
+			// *text* (6 chars) -> ' text ' (6 chars)
+			return ' ' + content + ' ';
+		})
+		// Handle underline formatting: _text_ -> replace _ with spaces (preserve exact length)
+		.replace(/_([^_]+)_/g, (match, content) => {
+			// Replace _ with spaces, keep content unchanged
+			// _text_ (6 chars) -> ' text ' (6 chars)
+			return ' ' + content + ' ';
+		})
+		// Handle standalone formatting characters that might be adjacent to words
+		.replace(/(\w)\*(\w)/g, '$1 $2')      // word*word -> word word (preserves length)
+		.replace(/(\w)_(\w)/g, '$1 $2')       // word_word -> word word (preserves length)
+		.replace(/\*(\w)/g, ' $1')            // *word -> space + word (preserves length)
+		.replace(/_(\w)/g, ' $1')             // _word -> space + word (preserves length)
+		.replace(/(\w)\*/g, '$1 ')            // word* -> word + space (preserves length)
+		.replace(/(\w)_/g, '$1 ')             // word_ -> word + space (preserves length)
+		// Handle multiple consecutive asterisks/underscores
+		.replace(/\*+/g, (match) => ' '.repeat(match.length))  // *** -> spaces
+		.replace(/_+/g, (match) => ' '.repeat(match.length))   // ___ -> spaces
+		// Replace newlines with spaces to prevent interference with PII tokenization
+		.replace(/\r\n/g, '  ')   // \r\n -> two spaces (preserve length)
+		.replace(/\n/g, ' ');     // \n -> space (preserve length)
+	
+	return cleaned;
+}
+
 // Extract all text nodes from the document for change detection
 function extractTextNodes(doc: ProseMirrorNode): TextNodeInfo[] {
 	const textNodes: TextNodeInfo[] = [];
@@ -782,12 +826,14 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 				if (options.useMarkdownForApi && options.getMarkdownText) {
 					const markdownText = options.getMarkdownText();
 					if (markdownText && markdownText.trim()) {
-						textForApi = markdownText;
+						// Clean markdown formatting before sending to API
+						textForApi = cleanMarkdownFormatting(markdownText);
 						isUsingMarkdown = true;
-						console.log('PiiDetectionExtension: Using markdown text for API', {
-							markdownLength: markdownText.length,
+						console.log('PiiDetectionExtension: Using cleaned markdown text for API', {
+							originalMarkdownLength: markdownText.length,
+							cleanedMarkdownLength: textForApi.length,
 							proseMirrorLength: plainText.length,
-							difference: markdownText.length - plainText.length
+							formattingRemoved: markdownText.length - textForApi.length
 						});
 					}
 				}
@@ -962,11 +1008,14 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 				if (options.useMarkdownForApi && options.getMarkdownText) {
 					const markdownText = options.getMarkdownText();
 					if (markdownText && markdownText.trim()) {
-						textForApi = markdownText;
+						// Clean markdown formatting before sending to API
+						textForApi = cleanMarkdownFormatting(markdownText);
 						isUsingMarkdown = true;
-						console.log('PiiDetectionExtension: Using markdown text for fast mask update', {
-							markdownLength: markdownText.length,
-							proseMirrorLength: plainText.length
+						console.log('PiiDetectionExtension: Using cleaned markdown text for fast mask update', {
+							originalMarkdownLength: markdownText.length,
+							cleanedMarkdownLength: textForApi.length,
+							proseMirrorLength: plainText.length,
+							formattingRemoved: markdownText.length - textForApi.length
 						});
 					}
 				}
@@ -1225,8 +1274,14 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 					// Only use full markdown if we're analyzing the full text
 					const markdownText = options.getMarkdownText();
 					if (markdownText && markdownText.trim()) {
-						textForApi = markdownText;
+						// Clean markdown formatting before sending to API
+						textForApi = cleanMarkdownFormatting(markdownText);
 						isUsingMarkdown = true;
+						console.log('PiiDetectionExtension: Using cleaned markdown text for incremental detection', {
+							originalMarkdownLength: markdownText.length,
+							cleanedMarkdownLength: textForApi.length,
+							formattingRemoved: markdownText.length - textForApi.length
+						});
 					}
 				}
 
