@@ -77,7 +77,7 @@ export interface PiiDetectionOptions {
 // Converts newlines to spaces to ensure consistent text processing
 function cleanMarkdownFormatting(text: string): string {
 	if (!text) return text;
-	
+
 	// Replace markdown formatting characters with spaces of equivalent length
 	// This prevents formatting from interfering with PII tokenization while preserving exact offsets
 	let cleaned = text
@@ -100,19 +100,19 @@ function cleanMarkdownFormatting(text: string): string {
 			return ' ' + content + ' ';
 		})
 		// Handle standalone formatting characters that might be adjacent to words
-		.replace(/(\w)\*(\w)/g, '$1 $2')      // word*word -> word word (preserves length)
-		.replace(/(\w)_(\w)/g, '$1 $2')       // word_word -> word word (preserves length)
-		.replace(/\*(\w)/g, ' $1')            // *word -> space + word (preserves length)
-		.replace(/_(\w)/g, ' $1')             // _word -> space + word (preserves length)
-		.replace(/(\w)\*/g, '$1 ')            // word* -> word + space (preserves length)
-		.replace(/(\w)_/g, '$1 ')             // word_ -> word + space (preserves length)
+		.replace(/(\w)\*(\w)/g, '$1 $2') // word*word -> word word (preserves length)
+		.replace(/(\w)_(\w)/g, '$1 $2') // word_word -> word word (preserves length)
+		.replace(/\*(\w)/g, ' $1') // *word -> space + word (preserves length)
+		.replace(/_(\w)/g, ' $1') // _word -> space + word (preserves length)
+		.replace(/(\w)\*/g, '$1 ') // word* -> word + space (preserves length)
+		.replace(/(\w)_/g, '$1 ') // word_ -> word + space (preserves length)
 		// Handle multiple consecutive asterisks/underscores
-		.replace(/\*+/g, (match) => ' '.repeat(match.length))  // *** -> spaces
-		.replace(/_+/g, (match) => ' '.repeat(match.length))   // ___ -> spaces
+		.replace(/\*+/g, (match) => ' '.repeat(match.length)) // *** -> spaces
+		.replace(/_+/g, (match) => ' '.repeat(match.length)) // ___ -> spaces
 		// Replace newlines with spaces to prevent interference with PII tokenization
-		.replace(/\r\n/g, '  ')   // \r\n -> two spaces (preserve length)
-		.replace(/\n/g, ' ');     // \n -> space (preserve length)
-	
+		.replace(/\r\n/g, '  ') // \r\n -> two spaces (preserve length)
+		.replace(/\n/g, ' '); // \n -> space (preserve length)
+
 	return cleaned;
 }
 
@@ -1277,11 +1277,14 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 						// Clean markdown formatting before sending to API
 						textForApi = cleanMarkdownFormatting(markdownText);
 						isUsingMarkdown = true;
-						console.log('PiiDetectionExtension: Using cleaned markdown text for incremental detection', {
-							originalMarkdownLength: markdownText.length,
-							cleanedMarkdownLength: textForApi.length,
-							formattingRemoved: markdownText.length - textForApi.length
-						});
+						console.log(
+							'PiiDetectionExtension: Using cleaned markdown text for incremental detection',
+							{
+								originalMarkdownLength: markdownText.length,
+								cleanedMarkdownLength: textForApi.length,
+								formattingRemoved: markdownText.length - textForApi.length
+							}
+						);
 					}
 				}
 

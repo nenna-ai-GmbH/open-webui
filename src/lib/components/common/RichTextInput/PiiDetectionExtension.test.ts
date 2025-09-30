@@ -5,7 +5,7 @@ import { describe, it, expect } from 'vitest';
 // For now, let's create a copy of the function for testing
 function cleanMarkdownFormatting(text: string): string {
 	if (!text) return text;
-	
+
 	// Replace markdown formatting characters with spaces of equivalent length
 	// This prevents formatting from interfering with PII tokenization while preserving exact offsets
 	let cleaned = text
@@ -28,19 +28,19 @@ function cleanMarkdownFormatting(text: string): string {
 			return ' ' + content + ' ';
 		})
 		// Handle standalone formatting characters that might be adjacent to words
-		.replace(/(\w)\*(\w)/g, '$1 $2')      // word*word -> word word (preserves length)
-		.replace(/(\w)_(\w)/g, '$1 $2')       // word_word -> word word (preserves length)
-		.replace(/\*(\w)/g, ' $1')            // *word -> space + word (preserves length)
-		.replace(/_(\w)/g, ' $1')             // _word -> space + word (preserves length)
-		.replace(/(\w)\*/g, '$1 ')            // word* -> word + space (preserves length)
-		.replace(/(\w)_/g, '$1 ')             // word_ -> word + space (preserves length)
+		.replace(/(\w)\*(\w)/g, '$1 $2') // word*word -> word word (preserves length)
+		.replace(/(\w)_(\w)/g, '$1 $2') // word_word -> word word (preserves length)
+		.replace(/\*(\w)/g, ' $1') // *word -> space + word (preserves length)
+		.replace(/_(\w)/g, ' $1') // _word -> space + word (preserves length)
+		.replace(/(\w)\*/g, '$1 ') // word* -> word + space (preserves length)
+		.replace(/(\w)_/g, '$1 ') // word_ -> word + space (preserves length)
 		// Handle multiple consecutive asterisks/underscores
-		.replace(/\*+/g, (match) => ' '.repeat(match.length))  // *** -> spaces
-		.replace(/_+/g, (match) => ' '.repeat(match.length))   // ___ -> spaces
+		.replace(/\*+/g, (match) => ' '.repeat(match.length)) // *** -> spaces
+		.replace(/_+/g, (match) => ' '.repeat(match.length)) // ___ -> spaces
 		// Replace newlines with spaces to prevent interference with PII tokenization
-		.replace(/\r\n/g, '  ')   // \r\n -> two spaces (preserve length)
-		.replace(/\n/g, ' ');     // \n -> space (preserve length)
-	
+		.replace(/\r\n/g, '  ') // \r\n -> two spaces (preserve length)
+		.replace(/\n/g, ' '); // \n -> space (preserve length)
+
 	return cleaned;
 }
 
@@ -132,7 +132,10 @@ describe('cleanMarkdownFormatting', () => {
 		it('should replace *text* with spaces while preserving content', () => {
 			const testCases = [
 				{ input: '*John Doe*', expected: ' John Doe ' },
-				{ input: 'My email is *john@example.com* please contact me', expected: 'My email is  john@example.com  please contact me' },
+				{
+					input: 'My email is *john@example.com* please contact me',
+					expected: 'My email is  john@example.com  please contact me'
+				},
 				{ input: '*Italic text* and normal text', expected: ' Italic text  and normal text' },
 				{ input: 'Multiple *italic* *words* here', expected: 'Multiple  italic   words  here' }
 			];
@@ -148,9 +151,18 @@ describe('cleanMarkdownFormatting', () => {
 		it('should replace _text_ with spaces while preserving content', () => {
 			const testCases = [
 				{ input: '_John Doe_', expected: ' John Doe ' },
-				{ input: 'Visit _123 Main Street_ for more info', expected: 'Visit  123 Main Street  for more info' },
-				{ input: '_Underlined text_ and normal text', expected: ' Underlined text  and normal text' },
-				{ input: 'Multiple _underlined_ _words_ here', expected: 'Multiple  underlined   words  here' }
+				{
+					input: 'Visit _123 Main Street_ for more info',
+					expected: 'Visit  123 Main Street  for more info'
+				},
+				{
+					input: '_Underlined text_ and normal text',
+					expected: ' Underlined text  and normal text'
+				},
+				{
+					input: 'Multiple _underlined_ _words_ here',
+					expected: 'Multiple  underlined   words  here'
+				}
 			];
 
 			testCases.forEach(({ input, expected }) => {
@@ -210,7 +222,10 @@ describe('cleanMarkdownFormatting', () => {
 		it('should replace Windows newlines with two spaces while preserving length', () => {
 			const testCases = [
 				{ input: 'Line 1\r\nLine 2', expected: 'Line 1  Line 2' },
-				{ input: 'Text\r\nwith\r\nmultiple\r\nnewlines', expected: 'Text  with  multiple  newlines' },
+				{
+					input: 'Text\r\nwith\r\nmultiple\r\nnewlines',
+					expected: 'Text  with  multiple  newlines'
+				},
 				{ input: 'Multiple\r\n\r\n\r\nnewlines', expected: 'Multiple      newlines' }
 			];
 
@@ -238,7 +253,10 @@ describe('cleanMarkdownFormatting', () => {
 		it('should handle newlines with formatting', () => {
 			const testCases = [
 				{ input: '**Bold text**\n*Italic text*', expected: '  Bold text    Italic text ' },
-				{ input: 'Text with\nnewlines and **formatting**', expected: 'Text with newlines and   formatting  ' },
+				{
+					input: 'Text with\nnewlines and **formatting**',
+					expected: 'Text with newlines and   formatting  '
+				},
 				{ input: '_Underlined_\r\n**Bold**', expected: ' Underlined     Bold  ' }
 			];
 
@@ -272,17 +290,17 @@ describe('cleanMarkdownFormatting', () => {
 	describe('Mixed Formatting', () => {
 		it('should handle multiple types of formatting in the same text', () => {
 			const testCases = [
-				{ 
-					input: '**Bold text** and *italic text* and _underlined text_', 
-					expected: '  Bold text   and  italic text  and  underlined text ' 
+				{
+					input: '**Bold text** and *italic text* and _underlined text_',
+					expected: '  Bold text   and  italic text  and  underlined text '
 				},
-				{ 
-					input: 'word*word and word_word and *word and word*', 
-					expected: 'word word and word word and  word and word ' 
+				{
+					input: 'word*word and word_word and *word and word*',
+					expected: 'word word and word word and  word and word '
 				},
-				{ 
-					input: '**nested*bold**', 
-					expected: '  nested bold  ' 
+				{
+					input: '**nested*bold**',
+					expected: '  nested bold  '
 				}
 			];
 
@@ -309,13 +327,13 @@ describe('cleanMarkdownFormatting', () => {
 
 			testCases.forEach((input) => {
 				const result = cleanMarkdownFormatting(input);
-				
+
 				// Extract all non-formatting characters from both input and result
 				// Remove formatting characters (* and _) and spaces from input
 				const inputContent = input.replace(/[*_\s]/g, '');
 				// Remove only spaces from result (formatting chars already replaced)
 				const resultContent = result.replace(/\s/g, '');
-				
+
 				expect(resultContent).toBe(inputContent);
 			});
 		});
@@ -336,7 +354,10 @@ describe('cleanMarkdownFormatting', () => {
 
 		it('should handle special characters that might be confused with formatting', () => {
 			const testCases = [
-				{ input: 'Special characters: !@#$%^&*()_+-=[]{}|;:,.<>?', expected: 'Special characters: !@#$%^& () +-=[]{}|;:,.<>?' },
+				{
+					input: 'Special characters: !@#$%^&*()_+-=[]{}|;:,.<>?',
+					expected: 'Special characters: !@#$%^& () +-=[]{}|;:,.<>?'
+				},
 				{ input: 'Math: 2*3 = 6 and 4_5 = 20', expected: 'Math: 2 3 = 6 and 4 5 = 20' }
 			];
 
@@ -359,11 +380,11 @@ describe('cleanMarkdownFormatting', () => {
 
 			testCases.forEach(({ input, expected }) => {
 				const result = cleanMarkdownFormatting(input);
-				
+
 				// Check that no asterisks or underscores remain (except in content)
 				const hasFormattingChars = /[*_](?![^*_]*[*_])/.test(result);
 				expect(hasFormattingChars).toBe(false);
-				
+
 				expect(result).toBe(expected);
 			});
 		});
@@ -380,12 +401,12 @@ describe('cleanMarkdownFormatting', () => {
 
 			piiTestCases.forEach(({ input, description }) => {
 				const result = cleanMarkdownFormatting(input);
-				
+
 				// The result should have spaces instead of formatting characters
 				// This allows the PII tokenizer to properly identify entities
 				expect(result).not.toMatch(/^[*_]+|[*_]+$/); // No leading/trailing formatting chars
 				expect(result.length).toBe(input.length); // Length preserved
-				
+
 				// Content should be preserved (remove formatting chars and spaces from both)
 				const inputContent = input.replace(/[*_\s]/g, '');
 				const resultContent = result.replace(/\s/g, '');
@@ -431,9 +452,10 @@ describe('cleanMarkdownFormatting', () => {
 		});
 
 		it('should handle very long text', () => {
-			const longText = '**Bold** '.repeat(1000) + '*italic* '.repeat(1000) + '_underline_ '.repeat(1000);
+			const longText =
+				'**Bold** '.repeat(1000) + '*italic* '.repeat(1000) + '_underline_ '.repeat(1000);
 			const result = cleanMarkdownFormatting(longText);
-			
+
 			expect(result.length).toBe(longText.length);
 			expect(result).not.toMatch(/^[*_]+|[*_]+$/);
 		});
@@ -442,11 +464,11 @@ describe('cleanMarkdownFormatting', () => {
 	describe('Performance and Consistency', () => {
 		it('should produce consistent results for the same input', () => {
 			const testInput = '**Bold text** and *italic text* and _underlined text_';
-			
+
 			const result1 = cleanMarkdownFormatting(testInput);
 			const result2 = cleanMarkdownFormatting(testInput);
 			const result3 = cleanMarkdownFormatting(testInput);
-			
+
 			expect(result1).toBe(result2);
 			expect(result2).toBe(result3);
 		});
