@@ -885,30 +885,30 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 					}
 
 					// CRITICAL FIX: Sync the mapped entities back to session manager
-					// This ensures session manager has the correct shouldMask states from plugin
+					// Always preserve frontend shouldMask states by using mappedEntities
 					if (options.conversationId) {
 						piiSessionManager.setConversationWorkingEntitiesWithMaskStates(
 							options.conversationId,
-							response.pii[0]
+							mappedEntities
 						);
 					} else {
 						// For new chats, use temporary state
 						if (!piiSessionManager.isTemporaryStateActive()) {
 							piiSessionManager.activateTemporaryState();
 						}
-						piiSessionManager.setTemporaryStateEntities(response.pii[0]);
+						piiSessionManager.setTemporaryStateEntities(mappedEntities);
 					}
 
 					const tr = editorView.state.tr.setMeta(piiDetectionPluginKey, {
 						type: 'UPDATE_ENTITIES',
-						entities: response.pii[0],
+						entities: mappedEntities,
 						clearTemporarilyHidden: true // Clear hidden entities when new detection results come in from user activity
 					});
 
 					editorView.dispatch(tr);
 
 					if (onPiiDetected) {
-						onPiiDetected(response.pii[0], response.text[0]);
+						onPiiDetected(mappedEntities, response.text[0]);
 					}
 				}
 			} catch (error) {
@@ -1095,17 +1095,17 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 						piiSessionManager.setTemporaryStateEntities(mappedEntities);
 					}
 
-					// Update plugin state via transaction
+					// Update plugin state via transaction (use mapped entities to preserve shouldMask)
 					const tr = editorView.state.tr.setMeta(piiDetectionPluginKey, {
 						type: 'UPDATE_ENTITIES',
-						entities: response.pii,
+						entities: mappedEntities,
 						clearTemporarilyHidden: true // Clear hidden entities when new detection results come in from user activity
 					});
 					editorView.dispatch(tr);
 
 					// Notify parent component
 					if (onPiiDetected) {
-						onPiiDetected(response.pii, response.text);
+						onPiiDetected(mappedEntities, response.text);
 					}
 
 					// Clear the fast mask update flag after successful completion
@@ -1295,10 +1295,17 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 							options.conversationId
 						);
 						const mergedEntities = mergeIncrementalEntities(existingEntities, adjustedEntities);
-						piiSessionManager.setConversationWorkingEntitiesWithMaskStates(
-							options.conversationId,
-							mergedEntities
-						);
+						if (options.conversationId) {
+							piiSessionManager.setConversationWorkingEntitiesWithMaskStates(
+								options.conversationId,
+								mergedEntities
+							);
+						} else {
+							if (!piiSessionManager.isTemporaryStateActive()) {
+								piiSessionManager.activateTemporaryState();
+							}
+							piiSessionManager.setTemporaryStateEntities(mergedEntities);
+						}
 
 						// Update plugin state with all merged entities (not just incremental)
 						if (editorView) {
@@ -1799,6 +1806,11 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 								newState.textNodes = currentTextNodes;
 								newState.lastWordCount = currentWordCount;
 								newState.lastText = newMapping.plainText;
+								// Reset user edit and hidden flags on conversation switch
+								newState.userEdited = false;
+								newState.temporarilyHiddenEntities = new Set();
+								newState.cachedDecorations = undefined;
+								newState.lastDecorationHash = undefined;
 
 								// Populate entities from session immediately without triggering detection
 								const sessionEntities = piiSessionManager.getEntitiesForDisplay(
@@ -1812,6 +1824,9 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 									);
 									newState.entities = validateAndFilterEntities(remapped, tr.doc, newMapping);
 									newState.entities = resolveOverlaps(newState.entities, tr.doc);
+								} else {
+									// No entities in new conversation/session – clear prior state to avoid carry-over
+									newState.entities = [];
 								}
 								break;
 							}
@@ -1857,12 +1872,13 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 							tr.getMeta('uiEvent')
 						);
 						const hasReplaceSteps = tr.steps.some(
-							(step) => step.jsonID === 'replace' || step.jsonID === 'replaceAround'
+							(step) =>
+								(step as any).jsonID === 'replace' || (step as any).jsonID === 'replaceAround'
 						);
 
 						// Calculate the size of changes to distinguish between user typing and bulk loading
 						const totalChangeSize = tr.steps.reduce((size, step) => {
-							if (step.jsonID === 'replace') {
+							if ((step as any).jsonID === 'replace') {
 								// Approximate change size - this isn't perfect but gives us an indication
 								return (
 									size +
@@ -1887,7 +1903,7 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 								hasInputMeta,
 								totalChangeSize,
 								isRapidChange,
-								steps: tr.steps.map((s) => s.jsonID),
+								steps: tr.steps.map((s) => (s as any).jsonID),
 								previousWordCount: prevState.lastWordCount
 							});
 							newState.userEdited = true;
@@ -1911,7 +1927,7 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 									hasInputMeta,
 									totalChangeSize,
 									isRapidChange,
-									steps: tr.steps.map((s) => s.jsonID),
+									steps: tr.steps.map((s) => (s as any).jsonID),
 									previousWordCount: prevState.lastWordCount,
 									reason: hasInputMeta
 										? 'Has input meta but failed other checks'
@@ -2293,7 +2309,7 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 		return [plugin];
 	},
 
-	addCommands() {
+	addCommands(): any {
 		const options = this.options;
 
 		// Get access to the typing pause detector from the extension storage
@@ -2364,7 +2380,7 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 				return true;
 			};
 
-		return {
+		const commands: any = {
 			// Mark that the user edited the document (used to gate auto-detection on load)
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			markUserEdited:
@@ -2499,7 +2515,11 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 						dispatch(tr);
 
 						// Trigger detection immediately (bypass debounce for forced detection)
-						performPiiDetection(mapping.plainText);
+						// Re-dispatch TRIGGER_DETECTION to run detection without relying on out-of-scope references
+						const immediateTr = state.tr.setMeta(piiDetectionPluginKey, {
+							type: 'TRIGGER_DETECTION'
+						});
+						dispatch(immediateTr);
 						return true;
 					}
 
@@ -2597,5 +2617,7 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 					return false;
 				}
 		};
+
+		return commands;
 	}
 });
