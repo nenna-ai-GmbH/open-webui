@@ -1323,7 +1323,7 @@
 												}, 20);
 											}
 										}
-											},
+									},
 									// Hide the element again when BubbleMenu decides to hide
 									onHide: () => {
 										if (bubbleMenuElement) {
@@ -1388,17 +1388,17 @@
 							mdValue = mdValue.replace(/<br\/>/g, '');
 						}
 
-							if (value !== mdValue) {
-								value = mdValue;
+						if (value !== mdValue) {
+							value = mdValue;
 
-								// check if the node is paragraph as well
-								if (editor.isActive('paragraph')) {
-									if (value === '') {
-										editor.commands.clearContent();
-									}
+							// check if the node is paragraph as well
+							if (editor.isActive('paragraph')) {
+								if (value === '') {
+									editor.commands.clearContent();
 								}
 							}
 						}
+					}
 				}
 			},
 			editorProps: {
