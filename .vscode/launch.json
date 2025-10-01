@@ -3,10 +3,7 @@
 	"compounds": [
 		{
 			"name": "Open WebUI (Fast Dev)",
-			"configurations": [
-				"Frontend: Vite (fast)",
-				"Backend: Uvicorn (debug)"
-			],
+			"configurations": ["Frontend: Vite (fast)", "Backend: Uvicorn (debug)"],
 			"stopAll": true
 		},
 		{
