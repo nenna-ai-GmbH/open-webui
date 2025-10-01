@@ -197,9 +197,7 @@ async def chat_completion_tools_handler(
 
     try:
         response = await generate_chat_completion(request, form_data=payload, user=user)
-        log.debug(f"{response=}")
         content = await get_content_from_response(response)
-        log.debug(f"{content=}")
 
         if not content:
             return body, {}
@@ -318,8 +316,6 @@ async def chat_completion_tools_handler(
     except Exception as e:
         log.debug(f"Error: {e}")
         content = None
-
-    log.debug(f"tool_contexts: {sources}")
 
     if skip_files and "files" in body.get("metadata", {}):
         del body["metadata"]["files"]
@@ -740,7 +736,8 @@ async def chat_completion_files_handler(
                         request=request,
                         items=files,
                         queries=queries,
-                        embedding_function=lambda query, prefix: request.app.state.EMBEDDING_FUNCTION(
+                        embedding_function=lambda query,
+                        prefix: request.app.state.EMBEDDING_FUNCTION(
                             query, prefix=prefix, user=user
                         ),
                         k=request.app.state.config.TOP_K,
@@ -1203,9 +1200,6 @@ async def process_chat_payload(request, form_data, user, metadata, model):
         file_entities_dict = set_file_entity_ids(
             file_entities_dict, metadata["known_entities"]
         )
-
-        # Log the known entities dictionary for debugging
-        log.debug(f"Known entities dictionary: {file_entities_dict}")
 
         for source in sources:
             is_tool_result = source.get("tool_result", False)
@@ -2194,7 +2188,9 @@ async def process_chat_response(
             content = (
                 message.get("content", "")
                 if message
-                else last_assistant_message if last_assistant_message else ""
+                else last_assistant_message
+                if last_assistant_message
+                else ""
             )
 
             content_blocks = [

@@ -3442,6 +3442,23 @@ PII_API_BASE_URL = PersistentConfig(
     os.environ.get("PII_API_BASE_URL", "https://api.nenna.ai/latest"),
 )
 
+# PII API Concurrency Settings
+# Max concurrent page processing tasks to prevent worker saturation
+# This reserves workers for short tasks by limiting long-running page processing
+PII_MAX_CONCURRENT_PAGES = PersistentConfig(
+    "PII_MAX_CONCURRENT_PAGES",
+    "pii.max_concurrent_pages",
+    int(os.environ.get("PII_MAX_CONCURRENT_PAGES", "5")),
+)
+
+# Max HTTP connections for PII API client
+# Should be >= PII_MAX_CONCURRENT_PAGES to avoid connection bottlenecks
+PII_HTTP_MAX_CONNECTIONS = PersistentConfig(
+    "PII_HTTP_MAX_CONNECTIONS",
+    "pii.http_max_connections",
+    int(os.environ.get("PII_HTTP_MAX_CONNECTIONS", "20")),
+)
+
 # For LDAP Group Management
 ENABLE_LDAP_GROUP_MANAGEMENT = PersistentConfig(
     "ENABLE_LDAP_GROUP_MANAGEMENT",
