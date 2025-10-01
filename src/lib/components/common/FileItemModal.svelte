@@ -259,10 +259,10 @@
 		stylesInjected = true;
 	}
 
+	// Reactively update enableFullContent when item.context changes
+	$: enableFullContent = item?.context === 'full';
+
 	onMount(() => {
-		if (item?.context === 'full') {
-			enableFullContent = true;
-		}
 		ensureHighlightStyles();
 
 		// No custom context menu needed; TipTap handles clicks/menus

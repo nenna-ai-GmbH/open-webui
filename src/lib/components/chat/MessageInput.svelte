@@ -496,6 +496,9 @@
 	let loadedFileIds = new Set<string>(); // Track which files have had their PII entities loaded
 	let isPiiDetectionInProgress = false; // Track scanning state
 
+	// Full context threshold configuration
+	const FULL_CONTEXT_PAGE_THRESHOLD = 5; // Default: enable full context for files with 5 or fewer pages
+
 	// Transfer PII state from Knowledge Base context to chat context
 	function syncPiiFromKnowledgeBaseFile(fileData: any, knowledgeBaseId: string | null) {
 		// Only process PII data if detection is enabled
@@ -1158,6 +1161,27 @@
 								try {
 									fileItem.file = json;
 								} catch (e) {}
+
+								// Check page count and enable full context for short files
+								const pageCount = json?.data?.page_content?.length ?? 0;
+								if (
+									pageCount > 0 &&
+									pageCount <= FULL_CONTEXT_PAGE_THRESHOLD &&
+									!fileItem.context
+								) {
+									console.log(
+										`MessageInput: Enabling full context for file with ${pageCount} page(s):`,
+										{
+											fileId: uploadedFile.id,
+											fileName: fileItem.name,
+											pageCount,
+											threshold: FULL_CONTEXT_PAGE_THRESHOLD
+										}
+									);
+									fileItem.context = 'full';
+									files = files; // Trigger reactivity
+								}
+
 								// NEW: sync any PII detections from this file into the session manager
 								// Only if PII detection is enabled
 								if (enablePiiDetection) {
