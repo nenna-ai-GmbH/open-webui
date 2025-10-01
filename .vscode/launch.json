@@ -3,7 +3,10 @@
 	"compounds": [
 		{
 			"name": "Open WebUI (Fast Dev)",
-			"configurations": ["Frontend: Vite (fast)", "Backend: Uvicorn (debug)"],
+			"configurations": [
+				"Frontend: Vite (fast)",
+				"Backend: Uvicorn (debug)"
+			],
 			"stopAll": true
 		},
 		{
@@ -44,7 +47,8 @@
 			"env": {
 				"CORS_ALLOW_ORIGIN": "http://localhost:5173",
 				"PORT": "8080",
-				"PYTHONPATH": "${workspaceFolder}/backend"
+				"PYTHONPATH": "${workspaceFolder}/backend",
+				"GLOBAL_LOG_LEVEL": "debug"
 			},
 			"args": [
 				"open_webui.main:app",
@@ -52,10 +56,11 @@
 				"8080",
 				"--host",
 				"0.0.0.0",
+				"--log-level",
+				"debug",
 				"--forwarded-allow-ips",
 				"*",
-				"--reload",
-				"--log-level=debug"
+				"--reload"
 			],
 			"subProcess": true,
 			"justMyCode": true
@@ -64,7 +69,7 @@
 			"name": "Backend: Dev Server (uv + debugpy)",
 			"type": "node-terminal",
 			"request": "launch",
-			"command": "cd backend && CORS_ALLOW_ORIGIN=http://localhost:5173 uvx debugpy --listen 127.0.0.1:5678 --wait-for-client -m uvicorn open_webui.main:app --port 8080 --host 0.0.0.0 --forwarded-allow-ips '*' --reload",
+			"command": "cd backend && CORS_ALLOW_ORIGIN=http://localhost:5173 GLOBAL_LOG_LEVEL=DEBUG uvx debugpy --listen 127.0.0.1:5678 --wait-for-client -m uvicorn open_webui.main:app --port 8080 --host 0.0.0.0 --forwarded-allow-ips '*' --reload",
 			"cwd": "${workspaceFolder}"
 		},
 		{
