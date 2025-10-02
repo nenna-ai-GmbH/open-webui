@@ -1509,7 +1509,7 @@ def save_docs_to_vector_db(
         # Mark as normalized to avoid future double-normalization
         doc.metadata["pii_positions_normalized"] = True
 
-    log.debug(f"docs: {docs}")
+    log.debug(f"docs: {len(docs)}")
     texts = [doc.page_content for doc in docs]
     metadatas = [
         {
@@ -2011,109 +2011,432 @@ def process_file(
             except Exception:
                 pass
 
-            for page_index, doc in enumerate(docs):
-                page_start_offset = current_page_offset
+            # Check if PII detection already exists on file
+            existing_pii = file.data.get("pii") if file.data else None
+            skip_pii_detection = existing_pii is not None and len(existing_pii) > 0
 
-                page_detections = {}
-                pii = None
-                if (
-                    request.app.state.config.ENABLE_PII_DETECTION
-                    and request.app.state.config.PII_API_KEY
-                    and form_data.enable_pii_detection
-                ):
-                    log.info(
-                        f"PII detection enabled for file {file.id}: config={request.app.state.config.ENABLE_PII_DETECTION}, api_key_set={bool(request.app.state.config.PII_API_KEY)}, form_flag={form_data.enable_pii_detection}"
+            if skip_pii_detection:
+                log.info(
+                    f"⏭️  Skipping PII detection for file {file.id}: "
+                    f"Already detected ({len(existing_pii)} entities found in previous processing)"
+                )
+
+            # Parallel PII Detection for all pages
+            if (
+                request.app.state.config.ENABLE_PII_DETECTION
+                and request.app.state.config.PII_API_KEY
+                and form_data.enable_pii_detection
+                and not skip_pii_detection  # Skip if already detected
+            ):
+                log.info(
+                    f"PII detection enabled for file {file.id}: config={request.app.state.config.ENABLE_PII_DETECTION}, api_key_set={bool(request.app.state.config.PII_API_KEY)}, form_flag={form_data.enable_pii_detection}"
+                )
+                log.info(
+                    f"📋 Starting PII detection with {len(known_entities)} known entities from previous files"
+                )
+                if known_entities:
+                    # Format known entities for logging (avoid nested quote issues)
+                    entity_list = ", ".join(
+                        [
+                            f"{e.get('label', '')}={e.get('name', '')}"
+                            for e in known_entities[:5]
+                        ]
                     )
-                    try:
-                        client = AuthenticatedClient(
-                            base_url=request.app.state.config.PII_API_BASE_URL,
-                            token=request.app.state.config.PII_API_KEY,
-                            prefix="",
-                            auth_header_name="X-API-Key",
-                        )
-                        body = TextMaskRequest(
-                            text=[doc.page_content],
-                            pii_labels=PiiLabels(detect=["ALL"]),
-                            known_entities=known_entities,
-                        )
-                        response = mask_text_text_mask_post.sync(
-                            client=client,
-                            body=body,
-                            create_session=False,
-                            quiet=False,
-                        ).to_dict()
-
-                        log.debug(f"response: {response}")
-                        # response can be HTTPValidationError or TextMaskResponse
-                        _set_processing(file.id, "processing", "pii_detection", 20)
-                        if "pii" in response:
-                            # response.pii is list[list[PiiEntity]] or None/Unset
-                            pii = (
-                                (response["pii"] or [[]])[0] if response["pii"] else {}
-                            )
-                            for pii_entity in pii:
-                                page_detections[pii_entity["text"]] = pii_entity.copy()
-                                updated_occurences = []
-
-                                for occurrence in pii_entity["occurrences"]:
-                                    adjusted_occurrence = {
-                                        # Use the page's start offset to align to full-text positions
-                                        "start_idx": occurrence["start_idx"]
-                                        + page_start_offset,
-                                        "end_idx": occurrence["end_idx"]
-                                        + page_start_offset,
-                                    }
-                                    updated_occurences.append(adjusted_occurrence)
-
-                                pii_entity["occurrences"] = updated_occurences
-
-                                if pii_entity["text"] not in detections:
-                                    detections[pii_entity["text"]] = pii_entity
-                                    known_entities.append(
-                                        {
-                                            "id": pii_entity["id"],
-                                            "label": pii_entity["label"],
-                                            "name": pii_entity["text"],
-                                        }
-                                    )
-                                else:
-                                    detections[pii_entity["text"]][
-                                        "occurrences"
-                                    ].extend(pii_entity["occurrences"])
-                    except Exception as e:
-                        log.exception(e)
-                        pii = None
-
-                    # attach PII to document metadata for downstream use
-                    doc.metadata["pii"] = page_detections
-                else:
-                    log.info(
-                        f"PII detection skipped for file {file.id}: config={request.app.state.config.ENABLE_PII_DETECTION}, api_key_set={bool(request.app.state.config.PII_API_KEY)}, form_flag={form_data.enable_pii_detection}"
+                    extra = (
+                        f" ... and {len(known_entities) - 5} more"
+                        if len(known_entities) > 5
+                        else ""
                     )
-                # Persist latest PII results incrementally, without blocking content updates
+                    log.debug(f"  Known entities: {entity_list}{extra}")
+
                 try:
-                    Files.update_file_data_by_id(
-                        file.id,
-                        {
-                            "pii": detections,
+                    import asyncio
+                    import httpx
+                    from open_webui.utils.pii import (
+                        consolidate_pii_data,
+                        set_file_entity_ids,
+                    )
+
+                    # Get concurrency limits from config
+                    max_concurrent_pages = (
+                        request.app.state.config.PII_MAX_CONCURRENT_PAGES
+                    )
+                    max_connections = request.app.state.config.PII_HTTP_MAX_CONNECTIONS
+
+                    log.info(
+                        f"PII detection concurrency: max_concurrent_pages={max_concurrent_pages}, "
+                        f"max_connections={max_connections}"
+                    )
+
+                    # Create authenticated client with connection limits and timeout
+                    # httpx_args passes limits directly to httpx.AsyncClient constructor
+                    client = AuthenticatedClient(
+                        base_url=request.app.state.config.PII_API_BASE_URL,
+                        token=request.app.state.config.PII_API_KEY,
+                        prefix="",
+                        auth_header_name="X-API-Key",
+                        timeout=httpx.Timeout(60.0, connect=10.0),
+                        httpx_args={
+                            "limits": httpx.Limits(
+                                max_connections=max_connections,
+                                max_keepalive_connections=max_connections // 2,
+                            )
                         },
                     )
-                except Exception:
-                    pass
-                # Granular PII progress from 20 to 30
-                try:
-                    pii_progress = 20 + int(10 * (page_index + 1) / max(total_pages, 1))
-                    _set_processing(
-                        file.id, "processing", "pii_detection", pii_progress
+
+                    # Prepare data for parallel execution
+                    page_data = []
+                    page_start_offset = current_page_offset
+
+                    for page_index, doc in enumerate(docs):
+                        page_data.append(
+                            {
+                                "index": page_index,
+                                "doc": doc,
+                                "start_offset": page_start_offset,
+                                "body": TextMaskRequest(
+                                    text=[doc.page_content],
+                                    pii_labels=PiiLabels(detect=["ALL"]),
+                                    known_entities=known_entities,
+                                ),
+                            }
+                        )
+                        page_start_offset += len(doc.page_content)
+
+                    # Create semaphore to limit concurrent long-running tasks
+                    # This reserves worker capacity for short tasks
+                    semaphore = asyncio.Semaphore(max_concurrent_pages)
+
+                    # Define async function for single page detection
+                    async def detect_pii_for_page(page_info):
+                        """
+                        Async PII detection for a single page with semaphore-based concurrency control.
+
+                        The semaphore ensures we don't saturate all workers with long-running page
+                        processing tasks, leaving room for short tasks to execute.
+                        """
+                        async with semaphore:  # Acquire semaphore slot
+                            log.debug(
+                                f"Processing page {page_info['index'] + 1} "
+                                f"(semaphore: {semaphore._value}/{max_concurrent_pages} available)"
+                            )
+                            try:
+                                response = await mask_text_text_mask_post.asyncio(
+                                    client=client,
+                                    body=page_info["body"],
+                                    create_session=False,
+                                    quiet=False,
+                                )
+                                return {
+                                    "index": page_info["index"],
+                                    "doc": page_info["doc"],
+                                    "start_offset": page_info["start_offset"],
+                                    "response": response.to_dict() if response else {},
+                                    "error": None,
+                                }
+                            except Exception as e:
+                                log.error(
+                                    f"PII detection failed for page {page_info['index']}: {e}"
+                                )
+                                return {
+                                    "index": page_info["index"],
+                                    "doc": page_info["doc"],
+                                    "start_offset": page_info["start_offset"],
+                                    "response": {},
+                                    "error": str(e),
+                                }
+
+                    # Execute all detections in parallel with progressive feedback
+                    async def detect_all_pages_with_progress():
+                        """
+                        Run all page detections in parallel but process results as they complete.
+                        This provides instant feedback to users while maintaining parallel execution speed.
+                        """
+                        log.info(
+                            f"Starting parallel PII detection for {len(page_data)} pages in file {file.id}"
+                        )
+
+                        tasks = [
+                            detect_pii_for_page(page_info) for page_info in page_data
+                        ]
+
+                        # Track state across completed tasks
+                        file_entities_dict = {}
+                        all_page_pii = []
+                        completed_count = 0
+
+                        log.debug(
+                            f"All {len(tasks)} PII detection tasks created, waiting for completions..."
+                        )
+
+                        # Process results as they complete (not in order)
+                        for coro in asyncio.as_completed(tasks):
+                            result = await coro
+
+                            page_index = result["index"]
+                            doc = result["doc"]
+                            page_start_offset = result["start_offset"]
+                            response = result["response"]
+
+                            log.info(
+                                f"📄 Page {page_index + 1}/{total_pages} completed "
+                                f"(offset: {page_start_offset}, length: {len(doc.page_content)})"
+                            )
+
+                            page_detections = {}
+
+                            if "pii" in response and response["pii"]:
+                                pii = (
+                                    (response["pii"] or [[]])[0]
+                                    if response["pii"]
+                                    else {}
+                                )
+
+                                log.debug(
+                                    f"  → Found {len(pii)} raw PII entities from API on page {page_index + 1}"
+                                )
+
+                                for pii_entity in pii:
+                                    # Adjust occurrences to global positions
+                                    updated_occurences = []
+                                    for occurrence in pii_entity["occurrences"]:
+                                        adjusted_occurrence = {
+                                            "start_idx": occurrence["start_idx"]
+                                            + page_start_offset,
+                                            "end_idx": occurrence["end_idx"]
+                                            + page_start_offset,
+                                        }
+                                        updated_occurences.append(adjusted_occurrence)
+
+                                    pii_entity["occurrences"] = updated_occurences
+
+                                    # Build entities dict progressively
+                                    entity_key = pii_entity["text"].lower()
+                                    is_new_entity = entity_key not in file_entities_dict
+                                    if is_new_entity:
+                                        file_entities_dict[entity_key] = {
+                                            "id": pii_entity["id"],
+                                            "type": pii_entity["type"],
+                                            "label": pii_entity["label"],
+                                            "text": pii_entity["text"],
+                                        }
+                                        log.debug(
+                                            f"  → New entity: {pii_entity['label']} = '{pii_entity['text']}' "
+                                            f"({len(updated_occurences)} occurrence(s))"
+                                        )
+                                    else:
+                                        log.debug(
+                                            f"  → Existing entity: {pii_entity['label']} = '{pii_entity['text']}' "
+                                            f"(+{len(updated_occurences)} occurrence(s))"
+                                        )
+
+                                    # Collect all PII for consolidation
+                                    all_page_pii.append(pii_entity)
+
+                            # Update progress immediately as each page completes
+                            completed_count += 1
+                            # Progress from 20% to 60% as pages complete (40% range)
+                            pii_progress = 20 + int(
+                                40 * completed_count / max(total_pages, 1)
+                            )
+                            _set_processing(
+                                file.id, "processing", "pii_detection", pii_progress
+                            )
+                            log.debug(
+                                f"  📊 Progress: {completed_count}/{total_pages} pages → {pii_progress}%"
+                            )
+
+                            # INSTANT FEEDBACK with CONSOLIDATION: Persist intermediate results immediately
+                            # CRITICAL: Consolidate BEFORE writing to ensure consistent entity IDs/labels
+                            try:
+                                if all_page_pii:
+                                    log.debug(
+                                        f"  ⚙️  Consolidating {len(all_page_pii)} total PII entities "
+                                        f"with {len(known_entities)} known entities..."
+                                    )
+
+                                    # Consolidate accumulated PII data so far with known entities
+                                    # This ensures consistent labeling across pages and files
+                                    current_file_entities_dict = set_file_entity_ids(
+                                        file_entities_dict.copy(), known_entities
+                                    )
+
+                                    # Log any label changes from consolidation
+                                    for (
+                                        entity_key,
+                                        entity_info,
+                                    ) in current_file_entities_dict.items():
+                                        original_entity = file_entities_dict.get(
+                                            entity_key, {}
+                                        )
+                                        if original_entity.get(
+                                            "label"
+                                        ) != entity_info.get("label"):
+                                            log.debug(
+                                                f"  ✓ Label updated via consolidation: "
+                                                f"{original_entity.get('label')} → {entity_info.get('label')} "
+                                                f"for '{entity_info.get('text')}'"
+                                            )
+
+                                    # Consolidate all PII accumulated so far
+                                    consolidated_pii = consolidate_pii_data(
+                                        all_page_pii.copy(), current_file_entities_dict
+                                    )
+
+                                    # Build current detections dict with consolidated entities
+                                    current_detections = {}
+                                    for pii_entity in consolidated_pii:
+                                        entity_text = pii_entity.get("text", "")
+                                        if entity_text not in current_detections:
+                                            current_detections[entity_text] = pii_entity
+                                        else:
+                                            # Merge occurrences
+                                            current_detections[entity_text][
+                                                "occurrences"
+                                            ].extend(pii_entity["occurrences"])
+
+                                    # Update page metadata with consolidated page-specific PII
+                                    # Filter consolidated_pii to only this page's entities
+                                    page_consolidated_pii = {}
+                                    for pii_entity in consolidated_pii:
+                                        # Check if any occurrence falls within this page's range
+                                        for occurrence in pii_entity.get(
+                                            "occurrences", []
+                                        ):
+                                            if occurrence[
+                                                "start_idx"
+                                            ] >= page_start_offset and occurrence[
+                                                "end_idx"
+                                            ] <= page_start_offset + len(
+                                                doc.page_content
+                                            ):
+                                                page_consolidated_pii[
+                                                    pii_entity["text"]
+                                                ] = pii_entity
+                                                break
+
+                                    doc.metadata["pii"] = page_consolidated_pii
+
+                                    # Write consolidated results to database
+                                    Files.update_file_data_by_id(
+                                        file.id, {"pii": current_detections}
+                                    )
+
+                                    # Calculate total occurrences
+                                    total_occurrences = sum(
+                                        len(entity.get("occurrences", []))
+                                        for entity in current_detections.values()
+                                    )
+
+                                    log.info(
+                                        f"  💾 Written to DB: {len(current_detections)} unique entities, "
+                                        f"{total_occurrences} total occurrences across {completed_count} pages"
+                                    )
+                                    log.debug(
+                                        f"  → This page: {len(page_consolidated_pii)} entities | "
+                                        f"Overall: {len(current_detections)} entities"
+                                    )
+                                else:
+                                    # No PII detected yet
+                                    doc.metadata["pii"] = {}
+
+                            except Exception as e:
+                                log.warning(
+                                    f"Failed to consolidate/persist intermediate PII for page {page_index}: {e}"
+                                )
+                                # Fallback: at least set empty PII on doc
+                                doc.metadata["pii"] = {}
+
+                        log.info(
+                            f"✅ All {total_pages} pages completed! "
+                            f"Total unique entities: {len(file_entities_dict)}, "
+                            f"Total entity instances: {len(all_page_pii)}"
+                        )
+
+                        # Cleanup httpx client before returning
+                        try:
+                            await client.get_async_httpx_client().aclose()
+                            log.debug("PII API httpx client closed successfully")
+                        except Exception as cleanup_error:
+                            log.warning(
+                                f"Failed to close PII httpx client: {cleanup_error}"
+                            )
+
+                        return file_entities_dict, all_page_pii
+
+                    # Run async detection with progress updates
+                    _set_processing(file.id, "processing", "pii_detection", 20)
+                    log.info("🚀 Starting parallel async PII detection...")
+                    file_entities_dict, all_page_pii = asyncio.run(
+                        detect_all_pages_with_progress()
                     )
-                except Exception:
-                    log.exception("Failed to update PII progress")
+                    log.info("✅ Parallel PII detection completed")
 
-                # Move the running offset forward for the next page
-                current_page_offset = page_start_offset + len(doc.page_content)
+                    # Final consolidation step: Update known_entities for next file/collection
+                    # Note: DB already has consolidated PII from progressive writes above
+                    if all_page_pii:
+                        log.debug(
+                            f"🔄 Final step: Updating known_entities (currently {len(known_entities)} entities)..."
+                        )
 
-            # Extraction completed
-            _set_processing(file.id, "processing", "pii_detection", 70)
+                        # Set proper entity IDs based on known_entities
+                        file_entities_dict = set_file_entity_ids(
+                            file_entities_dict, known_entities
+                        )
+
+                        new_entities_added = 0
+
+                        # Update known_entities for next file/page processing
+                        # This ensures consistent labeling across multiple files in a collection
+                        for entity_key, entity_info in file_entities_dict.items():
+                            # Check if already in known_entities by comparing all fields
+                            entity_exists = any(
+                                ke.get("id") == entity_info["id"]
+                                and ke.get("label") == entity_info["label"]
+                                and ke.get("name") == entity_info["text"]
+                                for ke in known_entities
+                            )
+                            if not entity_exists:
+                                known_entities.append(
+                                    {
+                                        "id": entity_info["id"],
+                                        "label": entity_info["label"],
+                                        "name": entity_info["text"],
+                                    }
+                                )
+                                new_entities_added += 1
+                                log.debug(
+                                    f"  ➕ Added to known_entities: {entity_info['label']} = '{entity_info['text']}'"
+                                )
+
+                        log.info(
+                            f"📊 PII detection complete for file {file.id}:\n"
+                            f"    • Unique entities in this file: {len(file_entities_dict)}\n"
+                            f"    • New entities added to known_entities: {new_entities_added}\n"
+                            f"    • Total known entities (for next file): {len(known_entities)}"
+                        )
+
+                        # Update progress after final consolidation
+                        _set_processing(file.id, "processing", "pii_detection", 65)
+
+                except Exception as e:
+                    log.exception(f"Parallel PII detection failed: {e}")
+                    # Fallback: attach empty PII to all docs
+                    for doc in docs:
+                        doc.metadata["pii"] = {}
+
+                    # Update progress even on failure
+                    _set_processing(file.id, "processing", "pii_detection", 65)
+            else:
+                log.info(
+                    f"PII detection skipped for file {file.id}: config={request.app.state.config.ENABLE_PII_DETECTION}, api_key_set={bool(request.app.state.config.PII_API_KEY)}, form_flag={form_data.enable_pii_detection}"
+                )
+                # No PII detection - attach empty PII to all docs
+                for doc in docs:
+                    doc.metadata["pii"] = {}
+
+                # Update progress when PII is disabled
+                _set_processing(file.id, "processing", "pii_detection", 65)
 
         # About to embed/index
         _set_processing(file.id, "processing", "embedding", 70)
