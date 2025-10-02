@@ -611,6 +611,28 @@
 	let currentModifiers: PiiModifier[] = [];
 	let previousModifiersLength = 0;
 
+	// Reactive statement to control PII detection based on enablePiiDetection prop
+	// This allows MessageInput to control detection by toggling the prop
+	$: if (editor && editor.commands) {
+		if (enablePiiDetection) {
+			// Enable detection - this will set dynamicallyEnabled to true in the plugin state
+			if (editor.commands.enablePiiDetection) {
+				editor.commands.enablePiiDetection();
+				console.log('RichTextInput: PII detection enabled via reactive statement');
+			}
+		} else {
+			// Disable detection and clear highlights - this will set dynamicallyEnabled to false
+			if (editor.commands.disablePiiDetection) {
+				editor.commands.disablePiiDetection();
+				console.log('RichTextInput: PII detection disabled via reactive statement');
+			}
+			if (editor.commands.clearAllPiiHighlights) {
+				editor.commands.clearAllPiiHighlights();
+				console.log('RichTextInput: PII highlights cleared via reactive statement');
+			}
+		}
+	}
+
 	// Generate a content-based hash for modifiers to detect actual changes
 	// This is much smarter than just checking array length because it detects:
 	// - Changes in modifier type (ignore ↔ mask)

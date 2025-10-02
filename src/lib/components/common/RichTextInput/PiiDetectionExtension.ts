@@ -797,15 +797,21 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 				return;
 			}
 
-			// Prevent race conditions - check if detection is already running
-			const editorView = this.editor?.view;
-			const currentState = editorView?.state ? plugin.getState(editorView.state) : null;
-			if (currentState?.isDetecting) {
-				console.log('PiiDetectionExtension: ⚠️ Full detection skipped - already detecting');
-				return;
-			}
+		// Prevent race conditions - check if detection is already running
+		const editorView = this.editor?.view;
+		const currentState = editorView?.state ? plugin.getState(editorView.state) : null;
+		if (currentState?.isDetecting) {
+			console.log('PiiDetectionExtension: ⚠️ Full detection skipped - already detecting');
+			return;
+		}
 
-			try {
+		// Check if PII detection is disabled via button
+		if (currentState?.dynamicallyEnabled === false) {
+			console.log('PiiDetectionExtension: ⚠️ Full detection skipped - PII detection is disabled');
+			return;
+		}
+
+		try {
 				// Set detecting state to true at the start
 				if (editorView) {
 					const tr = editorView.state.tr.setMeta(piiDetectionPluginKey, {
@@ -1243,15 +1249,21 @@ export const PiiDetectionExtension = Extension.create<PiiDetectionOptions>({
 				return;
 			}
 
-			// Prevent race conditions - check if detection is already running
-			const editorView = this.editor?.view;
-			const currentState = editorView?.state ? plugin.getState(editorView.state) : null;
-			if (currentState?.isDetecting) {
-				console.log('PiiDetectionExtension: ⚠️ Incremental detection skipped - already detecting');
-				return;
-			}
+		// Prevent race conditions - check if detection is already running
+		const editorView = this.editor?.view;
+		const currentState = editorView?.state ? plugin.getState(editorView.state) : null;
+		if (currentState?.isDetecting) {
+			console.log('PiiDetectionExtension: ⚠️ Incremental detection skipped - already detecting');
+			return;
+		}
 
-			try {
+		// Check if PII detection is disabled via button
+		if (currentState?.dynamicallyEnabled === false) {
+			console.log('PiiDetectionExtension: ⚠️ Incremental detection skipped - PII detection is disabled');
+			return;
+		}
+
+		try {
 				// Set detecting state to true at the start
 				if (editorView) {
 					const tr = editorView.state.tr.setMeta(piiDetectionPluginKey, {
