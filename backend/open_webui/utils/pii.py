@@ -15,23 +15,23 @@ log.setLevel(SRC_LOG_LEVELS["MAIN"])
 def unmask_text_with_known_entities(text: str, known_entities: list[dict]) -> str:
     """
     Unmask PII placeholders in text using known_entities mapping.
-    
+
     Replaces patterns like [{PERSON_10}] with the original raw_text from known_entities.
-    
+
     Args:
         text: The masked text containing patterns like [{PERSON_10}]
         known_entities: List of entity dicts with 'label' and 'name' (raw_text)
-    
+
     Returns:
         Unmasked text with original entity values
     """
     import re
-    
+
     if not text or not known_entities:
         return text
-    
+
     unmasked_text = text
-    
+
     # Create a mapping from label to raw text
     label_to_text = {}
     for entity in known_entities:
@@ -40,17 +40,17 @@ def unmask_text_with_known_entities(text: str, known_entities: list[dict]) -> st
         raw_text = entity.get("name", "")
         if label and raw_text:
             label_to_text[label] = raw_text
-    
+
     # Replace all patterns like [{LABEL}], [LABEL], {LABEL}, or just LABEL
     # We'll try multiple pattern formats to be robust
     for label, raw_text in label_to_text.items():
         # Escape special regex characters in label
         escaped_label = re.escape(label)
-        
+
         # Pattern 1: [{LABEL}] - most common format
-        pattern1 = rf'\[{{\s*{escaped_label}\s*}}\]'
+        pattern1 = rf"\[{{\s*{escaped_label}\s*}}\]"
         unmasked_text = re.sub(pattern1, raw_text, unmasked_text, flags=re.IGNORECASE)
-    
+
     return unmasked_text
 
 
