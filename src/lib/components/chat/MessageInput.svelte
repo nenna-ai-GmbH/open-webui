@@ -876,7 +876,7 @@
 		console.log('MessageInput: PII detection state changed:', isDetecting);
 	};
 
-	// Function to toggle PII masking (deterministic based on button state)
+	// Function to toggle PII masking (simplified - reactive flow handles the rest)
 	const togglePiiMasking = () => {
 		if (!piiConfigEnabled) {
 			console.log('MessageInput: PII detection not enabled in config');
@@ -891,24 +891,8 @@
 
 		console.log('MessageInput: PII masking toggled to:', piiMaskingEnabled);
 
-		// Deterministic behavior based on button state
-		if (piiMaskingEnabled) {
-			// Button ON: Enable PII detection and trigger detection
-			if (chatInputElement?.enablePiiDetectionDynamically) {
-				chatInputElement.enablePiiDetectionDynamically();
-			}
-			if (chatInputElement?.maskAllPiiEntities) {
-				chatInputElement.maskAllPiiEntities();
-			}
-		} else {
-			// Button OFF: Disable PII detection, clear highlights and entities
-			if (chatInputElement?.disablePiiDetectionDynamically) {
-				chatInputElement.disablePiiDetectionDynamically();
-			}
-			if (chatInputElement?.clearAllPiiHighlights) {
-				chatInputElement.clearAllPiiHighlights();
-			}
-
+		// When disabling, clear local state and session manager data
+		if (!piiMaskingEnabled) {
 			// Clear current entities and masked prompt
 			currentPiiEntities = [];
 			maskedPrompt = '';
@@ -931,6 +915,11 @@
 				console.log('MessageInput: Error clearing PII session data:', e);
 			}
 		}
+
+		// The reactive statement in RichTextInput.svelte will handle:
+		// - Enabling/disabling the PII detection extension
+		// - Clearing editor highlights
+		// - Blocking API calls via dynamicallyEnabled state
 	};
 
 	// Function to get the prompt to send (masked if PII detected)
